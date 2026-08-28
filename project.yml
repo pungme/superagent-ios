@@ -11,7 +11,7 @@ settings:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: ""   # set your Apple Developer team ID here (or in Xcode → Signing)
+    DEVELOPMENT_TEAM: TNNFV3EQZN   # personal team (Worathiti Manosroi)
 targets:
   SuperAgent:
     type: application
