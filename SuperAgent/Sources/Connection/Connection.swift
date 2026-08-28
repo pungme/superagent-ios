@@ -272,7 +272,12 @@ final class Connection {
 
     func createChat(workspaceId: String) async throws -> String {
         struct R: Decodable { var chatId: String }
-        return try await rpc("chat.create", .object(["workspaceId": .string(workspaceId)]), as: R.self).chatId
+        let id = try await rpc("chat.create", .object(["workspaceId": .string(workspaceId)]), as: R.self).chatId
+        // Show it at once; the Mac's `chats` frame will confirm shortly.
+        if !chats.contains(where: { $0.id == id }) {
+            chats.append(WireChat(id: id, workspaceId: workspaceId, title: nil, updatedAt: Date().timeIntervalSince1970 * 1000, live: false))
+        }
+        return id
     }
 }
 

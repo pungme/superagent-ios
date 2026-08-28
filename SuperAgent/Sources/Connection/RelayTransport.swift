@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let log = Logger(subsystem: "dev.superagent.ios", category: "transport")
 
 /// One WebSocket to the relay's client endpoint for a machine. Delivers raw text
 /// frames (ciphertext, or the relay's own `{"t":"offline"}`) and a close reason.
@@ -24,6 +27,7 @@ final class RelayTransport: NSObject, URLSessionWebSocketDelegate, @unchecked Se
             handler(.closed(code: -1, reason: "bad relay URL"))
             return
         }
+        log.info("connecting to \(url.absoluteString, privacy: .public)")
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
         let t = session.webSocketTask(with: request)
@@ -60,6 +64,7 @@ final class RelayTransport: NSObject, URLSessionWebSocketDelegate, @unchecked Se
 
     private func finish(code: Int, reason: String) {
         if closedOnce { return }
+        log.info("closed code=\(code) reason=\(reason, privacy: .public)")
         closedOnce = true
         handler(.closed(code: code, reason: reason))
     }
@@ -67,6 +72,7 @@ final class RelayTransport: NSObject, URLSessionWebSocketDelegate, @unchecked Se
     // MARK: URLSessionWebSocketDelegate
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        log.info("opened")
         handler(.opened)
     }
 

@@ -1,4 +1,7 @@
 import SwiftUI
+import os
+
+private let log = Logger(subsystem: "dev.superagent.ios", category: "app")
 
 struct RootView: View {
     @Environment(AppState.self) private var app
@@ -23,13 +26,16 @@ struct RootView: View {
                 }
             }
         }
-        .sheet(isPresented: $showPair) { PairView(initial: incomingPair) }
+        .sheet(isPresented: $showPair) { PairView() }
+        // item-based, so the sheet always sees the payload that opened it.
+        .sheet(item: $incomingPair) { payload in PairView(initial: payload) }
         .sheet(isPresented: $showSettings) { SettingsView(onPair: { showSettings = false; showPair = true }) }
         .onOpenURL { url in
-            guard let payload = PairPayload.parse(url.absoluteString) else { return }
-            incomingPair = payload
+            log.info("open url \(url.absoluteString.prefix(40), privacy: .public)")
+            guard let payload = PairPayload.parse(url.absoluteString) else { log.error("pair link did not parse"); return }
             showSettings = false
-            showPair = true
+            showPair = false
+            incomingPair = payload
         }
     }
 }

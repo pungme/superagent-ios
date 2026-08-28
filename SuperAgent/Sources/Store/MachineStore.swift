@@ -1,5 +1,8 @@
 import Foundation
 import Security
+import os
+
+private let log = Logger(subsystem: "dev.superagent.ios", category: "store")
 
 /// A Mac this phone is paired with. Everything needed to reach and decrypt it.
 struct PairedMachine: Codable, Identifiable, Hashable, Sendable {
@@ -19,13 +22,35 @@ enum MachineStore {
     private static let account = "paired"
 
     static func load() -> [PairedMachine] {
-        guard let data = read() else { return [] }
+        guard let data = read() ?? readFile() else { return [] }
         return (try? JSONDecoder().decode([PairedMachine].self, from: data)) ?? []
     }
 
     static func save(_ machines: [PairedMachine]) {
         guard let data = try? JSONEncoder().encode(machines) else { return }
-        write(data)
+        if !write(data) {
+            // The keychain can refuse (simulator without entitlements, restricted
+            // profiles). Fall back to a protected file so pairing still sticks.
+            writeFile(data)
+        }
+    }
+
+    // MARK: File fallback (complete-until-first-unlock protection)
+
+    private static var fileURL: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("machines.json")
+    }
+
+    private static func readFile() -> Data? { try? Data(contentsOf: fileURL) }
+
+    private static func writeFile(_ data: Data) {
+        do {
+            try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        } catch {
+            log.error("machine store: file write failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     static func upsert(_ m: PairedMachine) {
@@ -56,14 +81,17 @@ enum MachineStore {
         return status == errSecSuccess ? out as? Data : nil
     }
 
-    private static func write(_ data: Data) {
+    @discardableResult
+    private static func write(_ data: Data) -> Bool {
         var add = query
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(add as CFDictionary, nil)
+        var status = SecItemAdd(add as CFDictionary, nil)
         if status == errSecDuplicateItem {
-            SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         }
+        if status != errSecSuccess { log.error("machine store: keychain write failed (\(status))") }
+        return status == errSecSuccess
     }
 }
 

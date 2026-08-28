@@ -300,12 +300,13 @@ enum ClientFrame: Encodable, Sendable {
 
 // MARK: - Pairing
 
-struct PairPayload: Codable, Sendable, Hashable {
+struct PairPayload: Codable, Sendable, Hashable, Identifiable {
     var v: Int
     var name: String
     var relay: String
     var m: String
     var k: String
+    var id: String { m + k }
 
     /// Parses `superagent://pair#<base64url json>` (what the QR and the copied link contain).
     static func parse(_ text: String) -> PairPayload? {

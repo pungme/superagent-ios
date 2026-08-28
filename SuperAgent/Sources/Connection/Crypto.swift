@@ -5,7 +5,7 @@ import Foundation
 //
 //   key_m2p = HKDF-SHA256(k, salt = machineId, info = "sa-m2p")   Mac → phone
 //   key_p2m = HKDF-SHA256(k, salt = machineId, info = "sa-p2m")   phone → Mac
-//   frame   = base64( nonce(12) ‖ ciphertext ‖ tag(16) )
+//   frame   = base64( nonce(12) ‖ ciphertext ‖ tag(16) )   AES-256-GCM (Electron's BoringSSL has no ChaCha20 via createCipheriv)
 //   nonce   = connectionSalt(4) ‖ counter(8, big-endian), counter strictly increasing
 //   AAD     = machineId ‖ direction
 
@@ -44,8 +44,10 @@ struct Sealer {
         counter += 1
         var nonce = Data(salt)
         withUnsafeBytes(of: counter.bigEndian) { nonce.append(contentsOf: $0) }
-        let box = try ChaChaPoly.seal(Data(plaintext.utf8), using: key, nonce: try ChaChaPoly.Nonce(data: nonce), authenticating: aad)
-        return box.combined.base64EncodedString()
+        let box = try AES.GCM.seal(Data(plaintext.utf8), using: key, nonce: try AES.GCM.Nonce(data: nonce), authenticating: aad)
+        // combined is only nil for non-standard nonce sizes; ours is always 12 bytes.
+        guard let combined = box.combined else { throw CryptoKitError.incorrectParameterSize }
+        return combined.base64EncodedString()
     }
 }
 
@@ -68,8 +70,8 @@ struct Opener {
         let counter = nonce.dropFirst(4).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
         if let salt, salt != frameSalt { return nil }
         if counter <= last { return nil }
-        guard let box = try? ChaChaPoly.SealedBox(combined: data),
-              let plain = try? ChaChaPoly.open(box, using: key, authenticating: aad),
+        guard let box = try? AES.GCM.SealedBox(combined: data),
+              let plain = try? AES.GCM.open(box, using: key, authenticating: aad),
               let text = String(data: plain, encoding: .utf8) else { return nil }
         if salt == nil { salt = Data(frameSalt) }
         last = counter

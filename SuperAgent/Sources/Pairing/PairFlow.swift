@@ -1,4 +1,8 @@
+import CryptoKit
 import Foundation
+import os
+
+private let log = Logger(subsystem: "dev.superagent.ios", category: "pair")
 import UIKit
 
 /// Turns a scanned QR (or pasted link) into a paired Mac: connect through the
@@ -63,11 +67,14 @@ enum PairFlow {
         }
 
         private func handle(_ event: RelayTransport.Event) {
+            log.info("event \(String(describing: event).prefix(60), privacy: .public)")
             switch event {
             case .opened:
                 guard let json = try? JSONEncoder().encode(ClientFrame.pair(device: device)),
                       let text = String(data: json, encoding: .utf8),
                       let sealed = try? sealer.seal(text) else { return finish(.failure(Failure.badLink)) }
+                let fp = SHA256.hash(data: secret).prefix(4).map { String(format: "%02x", $0) }.joined()
+                log.info("pair: secretFp=\(fp, privacy: .public) m=\(self.payload.m.prefix(8), privacy: .public) frame=\(sealed.prefix(24), privacy: .public) len=\(sealed.count)")
                 transport?.send(sealed)
             case .text(let text):
                 if text.hasPrefix("{") {
@@ -94,6 +101,7 @@ enum PairFlow {
 
         private func finish(_ r: Result<PairedMachine, Error>) {
             guard let c = cont else { return }
+            if case .failure(let e) = r { log.error("pairing failed: \(e.localizedDescription, privacy: .public)") } else { log.info("paired") }
             cont = nil
             transport?.close()
             transport = nil
