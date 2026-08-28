@@ -26,6 +26,10 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: SuperAgent uses the camera only to scan the pairing code shown on your Mac.
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.superagent.pair
+            CFBundleURLSchemes: [superagent]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.superagent.ios
@@ -36,7 +40,13 @@ targets:
   SuperAgentTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [SuperAgentTests]
+    sources:
+      - SuperAgentTests
+      # The wire-format fixtures are owned by the desktop repo; both suites decode the same files.
+      - path: ../desktop/app/src/shared/fixtures/companion/frames.json
+        buildPhase: resources
+      - path: ../desktop/app/src/shared/fixtures/companion/crypto-vectors.json
+        buildPhase: resources
     dependencies:
       - target: SuperAgent
 schemes:
