@@ -29,6 +29,9 @@ struct RootView: View {
                             }
                         }
                         .navigationDestination(for: FileRef.self) { ref in FileView(connection: c, ref: ref) }
+                        .navigationDestination(for: FolderRef.self) { ref in
+                            FilesView(connection: c, workspace: workspace(c, id: ref.workspaceId), folder: ref)
+                        }
                 } else {
                     WelcomeView(onPair: { showPair = true })
                 }
@@ -58,6 +61,12 @@ struct RootView: View {
 }
 
 extension RootView {
+    /// A project by id, with a stand-in if the tree hasn't named it yet.
+    private func workspace(_ c: Connection, id: String) -> WireWorkspace {
+        c.tree.flatMap(\.workspaces).first { $0.id == id }
+            ?? WireWorkspace(id: id, name: "Project", path: "", kind: "app", status: .idle)
+    }
+
     /// The project a chat belongs to; a stand-in row if the tree hasn't named it yet.
     private func workspace(_ c: Connection, for chat: WireChat) -> WireWorkspace {
         c.tree.flatMap(\.workspaces).first { $0.id == chat.workspaceId }

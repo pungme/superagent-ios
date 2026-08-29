@@ -32,44 +32,76 @@ struct SidebarView: View {
     private var groups: [WireGroup] { connection.tree.filter { $0.id != "computer" && $0.name != Self.tabsGroup } }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if connection.state != .connected {
+        List {
+            if connection.state != .connected {
+                Section {
                     ConnectionBanner(connection: connection)
-                        .padding(10).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 8)
+                        .listRowBackground(Theme.card)
                 }
-                if !query.trimmingCharacters(in: .whitespaces).isEmpty {
-                    searchSection
-                } else {
-                    computerRow
-                    browseSection
-                    ForEach(groups) { group in groupSection(group) }
-                    // .sidebar-footer: "+ New group"
+            }
+            if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                searchSection
+            } else {
+                // Computer and Chats: the two rows that are not projects.
+                Section {
+                    dashRow("Computer", icon: "desktopcomputer", status: computer?.status) {
+                        if let c = computer { openProject(c) }
+                    }
+                    dashRow("Chats", icon: "bubble.left", status: nil) {
+                        if let c = computer { path.append(WorkspacePanel(kind: .chats, workspace: c)) }
+                    }
+                }
+                Section {
+                    ForEach(tabs) { ws in projectRows(ws) }
+                    if tabs.isEmpty {
+                        Button { newTab() } label: {
+                            Label("Open a tab to browse", systemImage: "plus")
+                                .font(.system(size: 13.5)).foregroundStyle(Theme.textTertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Theme.card)
+                    }
+                } header: {
+                    sectionHeader("Browse", caret: false) { newTab() }
+                }
+                ForEach(groups) { group in
+                    Section {
+                        if !collapsed.contains(group.id) {
+                            ForEach(group.workspaces) { ws in projectRows(ws) }
+                            if group.workspaces.isEmpty {
+                                Button { addingTo = group } label: {
+                                    Label("Add a project…", systemImage: "plus")
+                                        .font(.system(size: 13.5)).foregroundStyle(Theme.textTertiary)
+                                }
+                                .buttonStyle(.plain)
+                                .listRowBackground(Theme.card)
+                            }
+                        }
+                    } header: {
+                        sectionHeader(group.name, caret: true, collapsedKey: group.id) { addingTo = group }
+                            .contextMenu {
+                                Button { groupName = group.name; renaming = group } label: { Label("Rename group", systemImage: "pencil") }
+                                Button(role: .destructive) { Task { await run { try await connection.deleteGroup(id: group.id) } } } label: { Label("Delete group", systemImage: "trash") }
+                            }
+                    }
+                }
+                Section {
                     Button { newGroup() } label: {
-                        Text("+ New group").font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
-                            .padding(.horizontal, 8).padding(.vertical, 6)
-                            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                        Label("New group", systemImage: "plus").font(.system(size: 13.5)).foregroundStyle(Theme.textSecondary)
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 20)
+                    .listRowBackground(Theme.card)
                 }
             }
         }
+        .listStyle(.plain)
+        .listRowSeparatorTint(Theme.border)
+        .scrollContentBackground(.hidden)
         .background(Theme.panel)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(connection.machine.name)
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            // The status sits with the name; a toolbar item would be squeezed
-            // into a glass circle on iOS 26.
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 1) {
-                    Text(connection.machine.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                    HStack(spacing: 4) {
-                        Circle().fill(ConnectionPill.color(for: connection.state)).frame(width: 6, height: 6)
-                        Text(ConnectionPill.label(for: connection.state)).font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
-                    }
-                }
-            }
+            ToolbarItem(placement: .topBarLeading) { ConnectionPill(state: connection.state) }
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search every conversation")
         .task(id: query) {
@@ -110,113 +142,57 @@ struct SidebarView: View {
 
     // MARK: Rows (Sidebar.tsx, main.css: .sidebar-dash-row, .sidebar-group-header, .sidebar-item, .routine-tree)
 
-    /// .sidebar-dash-row — 12.5 semibold, secondary; Computer opens the desk's
-    /// agent, Chats is the same conversations with nothing else around them
-    /// (Sidebar.tsx: the Computer row, then the Chats row).
-    private var computerRow: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            dashRow("Computer", icon: "desktopcomputer", status: computer?.status) {
-                if let c = computer { openProject(c) }
-            }
-            dashRow("Chats", icon: "bubble.left", status: nil) {
-                if let c = computer { path.append(WorkspacePanel(kind: .chats, workspace: c)) }
-            }
-        }
-        .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 8)
-    }
-
+    /// Computer / Chats — the desktop's two non-project rows, at a tap size.
     private func dashRow(_ title: String, icon: String, status: WorkspaceStatus?, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 9) {
-                Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Theme.textTertiary).frame(width: 18)
-                Text(title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.textSecondary)
+            HStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 15)).foregroundStyle(Theme.textSecondary).frame(width: 22)
+                Text(title).font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.textPrimary)
                 Spacer()
                 if let status, status != .idle { StatusIndicator(status: status) }
-                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textTertiary)
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.textTertiary.opacity(0.7))
             }
-            .padding(.horizontal, 10).frame(minHeight: 44)
+            .frame(minHeight: 32)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(computer == nil)
+        .listRowBackground(Theme.card)
+        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 12))
     }
 
-    private var browseSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            groupHeader("Browse", caret: false) { newTab() }
-            ForEach(tabs) { ws in projectRows(ws) }
-            if tabs.isEmpty {
-                // .tabs-empty: the grey line is the control itself.
-                Button { newTab() } label: {
-                    Text("Open a tab to browse").font(.system(size: 11.5)).foregroundStyle(Theme.textTertiary)
-                        .padding(.leading, 10).padding(.top, 4).padding(.bottom, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 10)
-    }
-
-    /// .sidebar-group: 6/6/6/4 padding, radius 10, 8 between groups.
-    private func groupSection(_ group: WireGroup) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            groupHeader(group.name, caret: true, collapsedKey: group.id) { addingTo = group }
-                .contextMenu {
-                    Button { groupName = group.name; renaming = group } label: { Label("Rename group", systemImage: "pencil") }
-                    Button(role: .destructive) { Task { await run { try await connection.deleteGroup(id: group.id) } } } label: { Label("Delete group", systemImage: "trash") }
-                }
-            if !collapsed.contains(group.id) {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(group.workspaces) { ws in projectRows(ws) }
-                }
-                .padding(.leading, 4)
-            }
-            if group.workspaces.isEmpty, !collapsed.contains(group.id) {
-                Button { addingTo = group } label: {
-                    Text("Add a project…").font(.system(size: 11.5)).foregroundStyle(Theme.textTertiary)
-                        .padding(.leading, 10).padding(.top, 2).padding(.bottom, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.top, 6).padding(.bottom, 6).padding(.leading, 4).padding(.trailing, 6)
-        .padding(.horizontal, 6)
-        .padding(.top, 8)
-    }
-
-    /// .sidebar-group-header — the desktop's small caps, at a size you can hit:
-    /// the caret and the name collapse the group, the + is its own 44 pt target.
-    private func groupHeader(_ title: String, caret: Bool, collapsedKey: String? = nil, add: @escaping () -> Void) -> some View {
+    /// A section header: the desktop's small caps, the caret and + as real buttons.
+    private func sectionHeader(_ title: String, caret: Bool, collapsedKey: String? = nil, add: @escaping () -> Void) -> some View {
         let isCollapsed = collapsedKey.map(collapsed.contains) ?? false
         return HStack(spacing: 2) {
             Button {
                 if let key = collapsedKey { toggleGroup(key) }
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     if caret {
-                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.textTertiary).frame(width: 14)
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                            .foregroundStyle(Theme.textTertiary).frame(width: 12)
                     }
-                    Text(title.uppercased()).font(.system(size: 11.5, weight: .semibold)).tracking(0.6)
-                        .foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    Text(title).font(.footnote.weight(.semibold)).textCase(.uppercase).tracking(0.5)
+                        .foregroundStyle(Theme.textSecondary)
                     Spacer(minLength: 0)
                 }
-                .frame(minHeight: 40)
+                .frame(minHeight: 36)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(collapsedKey == nil)
             Button(action: add) {
-                Image(systemName: "plus").font(.system(size: 15)).foregroundStyle(Theme.textTertiary)
-                    .frame(width: 44, height: 40).contentShape(Rectangle())
+                Image(systemName: "plus").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.textSecondary)
+                    .frame(width: 44, height: 36).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(connection.state != .connected)
             .accessibilityLabel("Add to \(title)")
         }
-        .padding(.leading, 6).padding(.trailing, 2)
+        .textCase(nil)
+        .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 4))
     }
 
     private var collapsed: Set<String> {
@@ -252,11 +228,17 @@ struct SidebarView: View {
                         .background(Theme.hover, in: Capsule()).lineLimit(1)
                 }
             }
-            .padding(.horizontal, 8).frame(minHeight: 42)
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .frame(minHeight: 40)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .listRowBackground(Theme.card)
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 12))
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) { removing = ws } label: { Label("Remove", systemImage: "xmark") }
+        }
         .contextMenu {
+            Button { openProject(ws) } label: { Label("Open", systemImage: "arrow.right") }
             Button(role: .destructive) { removing = ws } label: { Label("Remove project", systemImage: "xmark") }
         }
 
@@ -336,16 +318,17 @@ struct SidebarView: View {
                 }
             }
             // margin: 1px 0 3px; padding-left 20 (past the dot and the icon), spine at 10.
-            .padding(.leading, 28).padding(.top, 1).padding(.bottom, 3)
+            .padding(.leading, 22).padding(.bottom, 4)
             .background(alignment: .topLeading) {
-                Rectangle().fill(Theme.border).frame(width: 1).padding(.leading, 28 + 10).padding(.bottom, 8 + 3)
+                Rectangle().fill(Theme.border).frame(width: 1).padding(.leading, 22 + 10).padding(.bottom, 21)
             }
+            .listRowBackground(Theme.card)
+            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 8))
         }
     }
 
     private var searchSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            groupHeader(hits.isEmpty ? "No matches" : "\(hits.count) match\(hits.count == 1 ? "" : "es")", caret: false) {}
+        Section {
             ForEach(hits) { hit in
                 Button { query = ""; app.openChatId = hit.chatId } label: {
                     VStack(alignment: .leading, spacing: 2) {
@@ -361,9 +344,9 @@ struct SidebarView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(Theme.card)
             }
         }
-        .padding(.horizontal, 14)
     }
 
     // MARK: Actions (the desktop's, one for one)
@@ -508,12 +491,12 @@ private struct TreeRow<Content: View>: View {
     var body: some View {
         HStack(spacing: 0) {
             Spacer().frame(width: CGFloat(depth - 1) * 14)
-            Rectangle().fill(Theme.border).frame(width: 8, height: 1).padding(.leading, 10).padding(.top, 17)
+            Rectangle().fill(Theme.border).frame(width: 8, height: 1).padding(.leading, 10).padding(.top, 16)
             content()
-                .font(.system(size: 12.5)).foregroundStyle(Theme.textSecondary)
-                .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 6)
+                .font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
+                .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 4)
         }
-        .frame(minHeight: 36)
+        .frame(minHeight: 34)
     }
 }
 

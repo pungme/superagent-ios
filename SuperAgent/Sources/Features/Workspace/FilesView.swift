@@ -6,16 +6,36 @@ struct FileRef: Hashable {
     let path: String
 }
 
-/// The project's files, one folder at a time, with a filter that searches
-/// every level. Read-only: you look, the agent edits.
+/// A folder inside a project. Opening one pushes its own screen — the phone
+/// idiom — rather than swapping the list under you.
+struct FolderRef: Hashable {
+    let workspaceId: String
+    /// Path with a trailing slash, as `files.list` reports it; "" is the project root.
+    let dir: String
+    /// The listing, carried down so a folder doesn't ask the Mac again.
+    let files: [String]
+
+    var name: String {
+        dir.isEmpty ? "Files" : String(dir.dropLast().split(separator: "/").last ?? "")
+    }
+}
+
+/// One folder of a project: its sub-folders, then its files, with a filter that
+/// searches everything below it. Read-only: you look, the agent edits.
 struct FilesView: View {
     let connection: Connection
     let workspace: WireWorkspace
-    @State private var files: [String] = []
+    /// Nil at the project root — the root loads the listing and hands it down.
+    var folder: FolderRef?
+
+    @State private var loaded: [String] = []
     @State private var loading = true
     @State private var error: String?
-    @State private var dir = ""
     @State private var filter = ""
+
+    private var dir: String { folder?.dir ?? "" }
+    private var files: [String] { folder?.files ?? loaded }
+    private var isRoot: Bool { folder == nil }
 
     private struct Entry: Identifiable {
         let path: String
@@ -27,9 +47,11 @@ struct FilesView: View {
     private var entries: [Entry] {
         let q = filter.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty {
-            return files.filter { !$0.hasSuffix("/") && $0.lowercased().contains(q) }
+            // Searching looks through everything under this folder, files only.
+            return files
+                .filter { $0.hasPrefix(dir) && !$0.hasSuffix("/") && $0.dropFirst(dir.count).lowercased().contains(q) }
                 .prefix(200)
-                .map { Entry(path: $0, name: $0, isDir: false) }
+                .map { Entry(path: $0, name: String($0.dropFirst(dir.count)), isDir: false) }
         }
         var out: [Entry] = []
         for f in files where f.hasPrefix(dir) {
@@ -47,34 +69,17 @@ struct FilesView: View {
 
     var body: some View {
         List {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Theme.textTertiary)
-                TextField("Filter files", text: $filter)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                if !filter.isEmpty {
-                    Button { filter = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.textTertiary) }
-                        .accessibilityLabel("Clear filter")
-                }
-            }
-            .listRowBackground(Theme.card)
-            if !dir.isEmpty, filter.isEmpty {
-                Button {
-                    let parts = dir.dropLast().split(separator: "/")
-                    dir = parts.dropLast().map { $0 + "/" }.joined()
-                } label: {
-                    Label(String(dir.dropLast()), systemImage: "chevron.left").foregroundStyle(Theme.textSecondary).lineLimit(1)
-                }
-                .listRowBackground(Theme.card)
-            }
-            if loading {
+            if loading, isRoot {
                 HStack { ProgressView(); Text("Listing files…").foregroundStyle(.secondary) }.listRowBackground(Theme.card)
             } else if entries.isEmpty {
                 Text(filter.isEmpty ? "Empty folder" : "Nothing matches").foregroundStyle(.secondary).listRowBackground(Theme.card)
             }
             ForEach(entries) { e in
                 if e.isDir {
-                    Button { dir = e.path } label: { FileRow(name: e.name, isDir: true) }
-                        .listRowBackground(Theme.card)
+                    NavigationLink(value: FolderRef(workspaceId: workspace.id, dir: e.path, files: files)) {
+                        FileRow(name: e.name, isDir: true)
+                    }
+                    .listRowBackground(Theme.card)
                 } else {
                     NavigationLink(value: FileRef(workspaceId: workspace.id, path: e.path)) {
                         FileRow(name: e.name, isDir: false)
@@ -86,18 +91,30 @@ struct FilesView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Theme.panel)
-        .navigationTitle("Files")
+        .searchable(text: $filter, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: isRoot ? "Filter files" : "Filter in \(folder?.name ?? "")")
+        .navigationTitle(folder?.name ?? "Files")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .principal) { PanelTitle(title: "Files", subtitle: workspace.name) } }
-        .task { await load() }
-        .refreshable { await load() }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                PanelTitle(title: folder?.name ?? "Files", subtitle: parentLabel)
+            }
+        }
+        .task { if isRoot { await load() } }
+        .refreshable { if isRoot { await load() } }
         .alert("Couldn't list files", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") {}
         } message: { Text(error ?? "") }
     }
 
+    /// Where this folder sits: the project, then the folders above this one.
+    private var parentLabel: String {
+        let parents = dir.dropLast().split(separator: "/").dropLast()
+        return ([workspace.name] + parents.map(String.init)).joined(separator: " / ")
+    }
+
     private func load() async {
-        do { files = try await connection.listFiles(workspaceId: workspace.id).files } catch { self.error = error.localizedDescription }
+        do { loaded = try await connection.listFiles(workspaceId: workspace.id).files } catch { self.error = error.localizedDescription }
         loading = false
     }
 }
