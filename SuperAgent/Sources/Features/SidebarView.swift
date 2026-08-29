@@ -30,7 +30,10 @@ struct SidebarView: View {
     var body: some View {
         List {
             if connection.state != .connected {
-                ConnectionBanner(connection: connection).listRowBackground(Theme.card)
+                ConnectionBanner(connection: connection)
+                    .padding(10).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 8, trailing: 10))
             }
             if !query.trimmingCharacters(in: .whitespaces).isEmpty {
                 searchSection
@@ -38,20 +41,22 @@ struct SidebarView: View {
                 computerRow
                 browseSection
                 ForEach(groups) { group in groupSection(group) }
-                Section {
-                    Button { newGroup() } label: {
-                        Text("+ New group").font(.system(size: 14)).foregroundStyle(Theme.textSecondary)
-                    }
-                    .listRowBackground(Color.clear)
+                // .sidebar-footer: "+ New group"
+                Button { newGroup() } label: {
+                    Text("+ New group").font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
+                        .padding(.horizontal, 8).padding(.vertical, 6)
                 }
+                .buttonStyle(.plain)
+                .flatRow(top: 10)
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Theme.panel)
         .navigationTitle(connection.machine.name)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarLeading) { ConnectionPill(state: connection.state) } }
-        .searchable(text: $query, prompt: "Search every conversation")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search every conversation")
         .task(id: query) {
             let q = query.trimmingCharacters(in: .whitespaces)
             guard !q.isEmpty else { hits = []; return }
@@ -88,69 +93,79 @@ struct SidebarView: View {
         } message: { Text(error ?? "") }
     }
 
-    // MARK: Sections
+    // MARK: Rows (Sidebar.tsx, main.css: .sidebar-dash-row, .sidebar-group-header, .sidebar-item, .routine-tree)
 
+    /// .sidebar-dash-row — 12.5 semibold, secondary, monitor glyph.
     private var computerRow: some View {
-        Section {
-            Button {
-                if let c = computer { openProject(c) }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "desktopcomputer").font(.system(size: 14)).foregroundStyle(Theme.textSecondary).frame(width: 22)
-                    Text("Computer").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.textPrimary)
-                    Spacer()
-                    if let c = computer { StatusIndicator(status: c.status) }
-                }
+        Button {
+            if let c = computer { openProject(c) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "desktopcomputer").font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
+                Text("Computer").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.textSecondary)
+                Spacer()
+                if let c = computer, c.status != .idle { StatusIndicator(status: c.status) }
             }
-            .disabled(computer == nil)
-            .listRowBackground(Theme.card)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(computer == nil)
+        .flatRow(top: 2, bottom: 8)
     }
 
     private var browseSection: some View {
-        Section {
+        Group {
+            groupHeader("Browse", caret: false) { newTab() }
             ForEach(tabs) { ws in projectRows(ws) }
             if tabs.isEmpty {
+                // .tabs-empty: the grey line is the control itself.
                 Button { newTab() } label: {
-                    Text("Open a tab to browse").font(.system(size: 14)).foregroundStyle(Theme.textTertiary)
+                    Text("Open a tab to browse").font(.system(size: 11.5)).foregroundStyle(Theme.textTertiary)
+                        .padding(.leading, 10).padding(.top, 2).padding(.bottom, 8)
                 }
-                .listRowBackground(Theme.card)
+                .buttonStyle(.plain)
+                .flatRow()
             }
-        } header: {
-            groupHeader("Browse") { newTab() }
         }
     }
 
+    @ViewBuilder
     private func groupSection(_ group: WireGroup) -> some View {
-        Section {
-            ForEach(group.workspaces) { ws in projectRows(ws) }
-            if group.workspaces.isEmpty {
-                Text("No projects yet — tap + to add a folder from the Mac.")
-                    .font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
-                    .listRowBackground(Theme.card)
+        groupHeader(group.name, caret: true) { addingTo = group }
+            .contextMenu {
+                Button { groupName = group.name; renaming = group } label: { Label("Rename group", systemImage: "pencil") }
+                Button(role: .destructive) { Task { await run { try await connection.deleteGroup(id: group.id) } } } label: { Label("Delete group", systemImage: "trash") }
             }
-        } header: {
-            groupHeader(group.name) { addingTo = group }
-                .contextMenu {
-                    Button { groupName = group.name; renaming = group } label: { Label("Rename group", systemImage: "pencil") }
-                    Button(role: .destructive) { Task { await run { try await connection.deleteGroup(id: group.id) } } } label: { Label("Delete group", systemImage: "trash") }
-                }
+        ForEach(group.workspaces) { ws in projectRows(ws) }
+        if group.workspaces.isEmpty {
+            Button { addingTo = group } label: {
+                Text("Add a project…").font(.system(size: 11.5)).foregroundStyle(Theme.textTertiary)
+                    .padding(.leading, 10).padding(.top, 2).padding(.bottom, 6)
+            }
+            .buttonStyle(.plain)
+            .flatRow()
         }
     }
 
-    private func groupHeader(_ title: String, add: @escaping () -> Void) -> some View {
-        HStack {
-            GroupLabel(text: title)
+    /// .sidebar-group-header: caret, 11 pt uppercase 600 tracked 0.6, + at the right.
+    private func groupHeader(_ title: String, caret: Bool, add: @escaping () -> Void) -> some View {
+        HStack(spacing: 3) {
+            if caret {
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.textTertiary).frame(width: 16, height: 16)
+            }
+            Text(title.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(Theme.textSecondary).lineLimit(1)
             Spacer()
             Button(action: add) {
-                Image(systemName: "plus").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textTertiary)
-                    .frame(width: 24, height: 20).contentShape(Rectangle())
+                Image(systemName: "plus").font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
+                    .frame(width: 22, height: 18).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(connection.state != .connected)
             .accessibilityLabel("Add to \(title)")
         }
-        .textCase(nil)
+        .padding(.leading, caret ? 3 : 6).padding(.trailing, 6).padding(.vertical, 2)
+        .flatRow(top: 8, bottom: 3)
     }
 
     /// A project and, under it, the same tree the desktop shows.
@@ -159,107 +174,127 @@ struct SidebarView: View {
         let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
         let mine = routines.filter { $0.workspaceId == ws.id }
         let repos = ws.subrepos ?? []
+        let showChats = chats.count > 1
+        let treeCount = (repos.isEmpty ? 0 : 1) + (showChats ? chats.count : 0) + mine.count
 
-        Button { openProject(ws) } label: { ProjectRow(workspace: ws, chats: chats) }
-            .listRowBackground(Theme.card)
-            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                Button(role: .destructive) { removing = ws } label: { Label("Remove", systemImage: "xmark") }
-            }
-
-        // A folder of repos: collapsed by default, one line per repo, tap one
-        // and it offers "Start session →" (opens that repo as its own project).
-        if !repos.isEmpty {
-            Button { toggle(ws.id) } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: reposOpen.contains(ws.id) ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.textTertiary).frame(width: 12)
-                    Text("\(repos.count) repo\(repos.count == 1 ? "" : "s")").font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
+        // .sidebar-item: status dot, kind icon, 13.5/500 name, branch chip.
+        Button { openProject(ws) } label: {
+            HStack(spacing: 8) {
+                StatusIndicator(status: ws.status).frame(width: 10)
+                ProjectGlyph(workspace: ws)
+                Text(ws.isBrowser ? (ws.host ?? ws.name) : ws.name)
+                    .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                Spacer(minLength: 6)
+                if let b = ws.branch, !b.isEmpty {
+                    Text("⎇ \(b)").font(.system(size: 10)).foregroundStyle(Theme.textTertiary)
+                        .padding(.horizontal, 7).padding(.vertical, 1)
+                        .background(Theme.hover, in: Capsule()).lineLimit(1)
                 }
-                .padding(.leading, 40)
             }
-            .listRowBackground(Theme.card)
-            if reposOpen.contains(ws.id) {
-                ForEach(repos) { r in
-                    HStack(spacing: 8) {
-                        Image(systemName: "chevron.left.forwardslash.chevron.right").font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
-                        Text(r.name).font(.system(size: 14)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+            .padding(.horizontal, 8).padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .flatRow(leading: 4)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) { removing = ws } label: { Label("Remove", systemImage: "xmark") }
+        }
+
+        // .routine-tree: a spine down from the project, an elbow into each row.
+        if !repos.isEmpty {
+            TreeRow(last: treeCount == 1) {
+                Button { toggle(ws.id) } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: reposOpen.contains(ws.id) ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.textTertiary).frame(width: 10)
+                        Text("\(repos.count) repo\(repos.count == 1 ? "" : "s")")
                         Spacer()
-                        if selectedRepo == r.path {
-                            Button {
-                                startSession(groupId: groupId(of: ws), repo: r)
-                            } label: {
-                                Text("Start session →").font(.system(size: 12, weight: .semibold))
-                                    .padding(.horizontal, 9).padding(.vertical, 4)
-                                    .background(Theme.accent, in: Capsule()).foregroundStyle(Theme.accentFg)
-                            }
-                            .buttonStyle(.borderless)
-                        } else if let b = r.branch, !b.isEmpty {
-                            Text("⎇ \(b)").font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
-                        }
                     }
-                    .padding(.leading, 52)
                     .contentShape(Rectangle())
-                    .onTapGesture { selectedRepo = selectedRepo == r.path ? nil : r.path }
-                    .listRowBackground(Theme.card)
+                }
+                .buttonStyle(.plain)
+            }
+            if reposOpen.contains(ws.id) {
+                ForEach(Array(repos.enumerated()), id: \.element.id) { i, r in
+                    TreeRow(last: i == repos.count - 1 && treeCount == 1, depth: 2) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.left.forwardslash.chevron.right").font(.system(size: 10)).foregroundStyle(Theme.textTertiary)
+                            Text(r.name).lineLimit(1)
+                            Spacer()
+                            if selectedRepo == r.path {
+                                Button { startSession(groupId: groupId(of: ws), repo: r) } label: {
+                                    Text("Start session →").font(.system(size: 11, weight: .semibold))
+                                        .padding(.horizontal, 8).padding(.vertical, 3)
+                                        .background(Theme.accent, in: Capsule()).foregroundStyle(Theme.accentFg)
+                                }
+                                .buttonStyle(.borderless)
+                            } else if let b = r.branch, !b.isEmpty {
+                                Text("⎇ \(b)").font(.system(size: 10.5)).foregroundStyle(Theme.textTertiary)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedRepo = selectedRepo == r.path ? nil : r.path }
+                    }
                 }
             }
         }
 
         // A project holds many conversations; show them only once there's a
         // choice to make, so a single-chat project stays as quiet as before.
-        if chats.count > 1 {
-            ForEach(chats) { chat in
-                Button { path.append(chat) } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "bubble.left").font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
-                        Text(chat.title ?? "New chat").font(.system(size: 14)).foregroundStyle(Theme.textPrimary).lineLimit(1)
-                        Spacer()
-                        if chat.live { ProgressView().controlSize(.mini) }
+        if showChats {
+            ForEach(Array(chats.enumerated()), id: \.element.id) { i, chat in
+                TreeRow(last: mine.isEmpty && i == chats.count - 1) {
+                    Button { path.append(chat) } label: {
+                        HStack(spacing: 7) {
+                            if chat.live { ProgressView().controlSize(.mini) }
+                            Text(chat.title ?? "New chat").lineLimit(1)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .padding(.leading, 40)
+                    .buttonStyle(.plain)
                 }
-                .listRowBackground(Theme.card)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     Button(role: .destructive) { Task { await run { try await connection.deleteChat(chatId: chat.id) } } } label: { Label("Delete", systemImage: "trash") }
                 }
             }
         }
 
-        ForEach(mine) { r in
-            NavigationLink(value: WorkspacePanel(kind: .routines, workspace: ws)) {
-                HStack(spacing: 8) {
-                    Image(systemName: "clock.arrow.2.circlepath").font(.system(size: 11)).foregroundStyle(r.isEnabled ? Theme.textSecondary : Theme.textTertiary)
-                    Text(r.prompt).font(.system(size: 13)).foregroundStyle(r.isEnabled ? Theme.textPrimary : Theme.textTertiary).lineLimit(1)
-                    Spacer()
-                    if r.lastRunStatus == "running" { ProgressView().controlSize(.mini) }
+        ForEach(Array(mine.enumerated()), id: \.element.id) { i, r in
+            TreeRow(last: i == mine.count - 1) {
+                NavigationLink(value: WorkspacePanel(kind: .routines, workspace: ws)) {
+                    HStack(spacing: 6) {
+                        Circle().fill(r.lastRunStatus == "running" ? Theme.working : Theme.textTertiary).frame(width: 6, height: 6)
+                        Text(r.prompt).lineLimit(1)
+                        Spacer()
+                    }
                 }
-                .padding(.leading, 40)
+                .opacity(r.isEnabled ? 1 : 0.5)
             }
-            .listRowBackground(Theme.card)
         }
     }
 
     private var searchSection: some View {
-        Section {
-            if hits.isEmpty {
-                Text("No matches").foregroundStyle(Theme.textTertiary).listRowBackground(Theme.card)
-            }
+        Group {
+            groupHeader(hits.isEmpty ? "No matches" : "\(hits.count) match\(hits.count == 1 ? "" : "es")", caret: false) {}
             ForEach(hits) { hit in
                 Button { query = ""; app.openChatId = hit.chatId } label: {
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 2) {
                         HStack {
-                            Text(hit.title ?? "New chat").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                            Text(hit.title ?? "New chat").font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
                             Spacer()
                             Text(Date(timeIntervalSince1970: hit.ts / 1000), format: .relative(presentation: .named))
                                 .font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
                         }
-                        Text(hit.snippet).font(.system(size: 13)).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                        Text(hit.snippet).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(2)
                     }
+                    .padding(.horizontal, 8).padding(.vertical, 6)
+                    .contentShape(Rectangle())
                 }
-                .listRowBackground(Theme.card)
+                .buttonStyle(.plain)
+                .flatRow(leading: 4)
             }
-        } header: { GroupLabel(text: "\(hits.count) match\(hits.count == 1 ? "" : "es")").textCase(nil) }
+        }
     }
 
     // MARK: Actions (the desktop's, one for one)
@@ -392,5 +427,66 @@ struct FolderPickerView: View {
             dirs = r.dirs
             if push { crumbs.append(r.path) }
         } catch { self.error = error.localizedDescription }
+    }
+}
+
+/// A List row with none of the List: no separator, no inset, no background.
+private extension View {
+    func flatRow(top: CGFloat = 0, bottom: CGFloat = 0, leading: CGFloat = 0) -> some View {
+        self.listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: top, leading: 10 + leading, bottom: bottom, trailing: 10))
+    }
+}
+
+/// .routine-tree-row with its spine and elbow: 11.5 pt, secondary, indented
+/// under the project name (past the status dot and icon).
+private struct TreeRow<Content: View>: View {
+    let last: Bool
+    var depth: Int = 1
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Spacer().frame(width: 12 + CGFloat(depth - 1) * 14)
+            ZStack(alignment: .topLeading) {
+                // spine: full height, or down to the elbow for the last row
+                Rectangle().fill(Theme.border).frame(width: 1)
+                    .frame(maxHeight: last ? nil : .infinity)
+                    .padding(.bottom, last ? 11 : 0)
+                // elbow
+                Rectangle().fill(Theme.border).frame(width: 8, height: 1).padding(.top, 11)
+            }
+            .frame(width: 10)
+            content()
+                .font(.system(size: 11.5)).foregroundStyle(Theme.textSecondary)
+                .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 3)
+        }
+        .frame(minHeight: 22)
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 0, leading: 22, bottom: 0, trailing: 10))
+    }
+}
+
+/// The kind glyph on a project row: folder, globe/favicon, or the Mac.
+private struct ProjectGlyph: View {
+    let workspace: WireWorkspace
+    var body: some View {
+        Group {
+            if workspace.isBrowser, let host = workspace.host, let url = URL(string: "https://\(host)/favicon.ico") {
+                AsyncImage(url: url) { phase in
+                    if let img = phase.image { img.resizable().scaledToFit() } else { Image(systemName: "globe") }
+                }
+            } else if workspace.isBrowser {
+                Image(systemName: "globe")
+            } else if workspace.isComputer {
+                Image(systemName: "desktopcomputer")
+            } else {
+                Image(systemName: "folder")
+            }
+        }
+        .font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
+        .frame(width: 16, height: 16)
     }
 }
