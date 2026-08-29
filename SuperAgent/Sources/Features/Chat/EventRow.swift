@@ -17,9 +17,6 @@ struct TurnView: View {
                     StepGroupRow(group: g)
                 }
             }
-            if turn.tokens != nil || turn.cost != nil {
-                TurnFooter(turn: turn)
-            }
         }
     }
 
@@ -29,21 +26,6 @@ struct TurnView: View {
     }
 }
 
-struct TurnFooter: View {
-    let turn: Turn
-    var body: some View {
-        HStack(spacing: 6) {
-            if let d = turn.duration { Text(d < 60 ? "\(Int(d))s" : "\(Int(d / 60))m \(Int(d.truncatingRemainder(dividingBy: 60)))s") }
-            if let t = turn.tokens { Text("·"); Text(t.formatted(.number.notation(.compactName))) + Text(" tokens") }
-            if let c = turn.cost, c > 0 { Text("·"); Text(String(format: "$%.2f", c)) }
-        }
-        .font(.system(size: 11).monospacedDigit())
-        .foregroundStyle(Theme.textTertiary)
-        .padding(.leading, 4)
-    }
-}
-
-/// "11 steps · 1 edit · Running ×4 · Reading" — tap to see them.
 struct StepGroupRow: View {
     let group: StepGroup
     @State private var open = false

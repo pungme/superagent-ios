@@ -62,7 +62,8 @@ Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
 | Streaming reply, Markdown, code blocks with Copy | ✅ | |
 | Collapsed tool steps, results, diffs | ✅ | |
 | Ask-block choices | ✅ | |
-| Per-turn footer (time, tokens, cost) | ✅ | |
+| "Working Ns" while a turn runs | ✅ | the desktop shows no per-turn tokens or cost, and neither do we |
+| Context meter (used / window, model) | ❌ | the desktop's bar under the composer |
 | Model / Mode pickers (restart on change) | ✅ | |
 | Approvals (Ask mode), guardrail prompts | ✅ | + push with Approve/Deny |
 | Interrupt (Stop) | ✅ | |
