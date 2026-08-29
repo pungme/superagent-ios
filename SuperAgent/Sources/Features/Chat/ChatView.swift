@@ -17,8 +17,13 @@ struct ChatView: View {
     @State private var dictation = Dictation()
     @State private var atBottom = true
     @State private var now = Date()
-    @State private var showBrowser = false
+    @State private var showBrowserSheet = false
     @State private var showTasks = false
+    /// The docked page above the chat. Defaults to shown when the Mac has one
+    /// open; hidden again is remembered per conversation.
+    @State private var pageHidden = false
+    @State private var pageFraction: CGFloat = 0.42
+    @State private var dragStart: CGFloat?
     @State private var showBranches = false
     @State private var creating = false
     @FocusState private var composerFocused: Bool
@@ -37,9 +42,37 @@ struct ChatView: View {
     }
 
     var body: some View {
+        GeometryReader { geo in
         VStack(spacing: 0) {
-            ProjectBar(connection: connection, workspace: workspace,
-                       onBrowser: { showBrowser = true }, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating)
+            ProjectBar(connection: connection, workspace: workspace, pageOpen: pageShown,
+                       onBrowser: togglePage, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating)
+            // What the Mac has open sits above the conversation, as it sits
+            // beside it on the desktop. The keyboard takes the room instead.
+            if pageShown {
+                BrowserMirror(connection: connection, chat: chat, compact: true,
+                              onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
+                              onHide: { withAnimation(.easeOut(duration: 0.2)) { pageHidden = true } },
+                              onExpand: { showBrowserSheet = true },
+                              paused: composerFocused)
+                    .frame(height: max(160, geo.size.height * pageFraction))
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                // Drag the divider to give the page more or less room.
+                Rectangle().fill(Theme.border).frame(height: 1)
+                    .overlay {
+                        Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 36, height: 4)
+                    }
+                    .frame(height: 18).contentShape(Rectangle())
+                    .background(Theme.panel)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { v in
+                                let start = dragStart ?? pageFraction
+                                dragStart = start
+                                pageFraction = min(0.72, max(0.2, start + v.translation.height / geo.size.height))
+                            }
+                            .onEnded { _ in dragStart = nil }
+                    )
+            }
             // Pinned, not scrolled away: you need to know the Mac is gone while
             // you're reading the latest reply, which is where you usually are.
             if connection.state != .connected {
@@ -77,6 +110,9 @@ struct ChatView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                 }
+                // Open on the newest message: the transcript arrives after the
+                // view does, so scrolling on appear alone landed mid-history.
+                .defaultScrollAnchor(.bottom)
                 .background(Theme.content)
                 .scrollDismissesKeyboard(.interactively)
                 .overlay(alignment: .bottomTrailing) {
@@ -96,6 +132,14 @@ struct ChatView: View {
                 .onChange(of: transcript.outbox.count) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: transcript.streaming) { _, _ in if atBottom { scrollToBottom(proxy) } }
                 .onAppear { scrollToBottom(proxy, animated: false) }
+                // Keep pinning to the end while the first events stream in.
+                .task(id: chat.id) {
+                    for _ in 0..<12 {
+                        try? await Task.sleep(for: .milliseconds(150))
+                        guard atBottom else { return }
+                        scrollToBottom(proxy, animated: false)
+                    }
+                }
             }
             Divider().overlay(Theme.border)
             Composer(
@@ -106,6 +150,7 @@ struct ChatView: View {
                 mode: Binding(get: { app.preferredMode }, set: { app.preferredMode = $0 }),
                 onSend: { send(text: draft) },
                 onStop: { Task { try? await connection.interrupt(chatId: chat.id) } })
+        }
         }
         .background(Theme.content)
         .navigationTitle(chat.title ?? "Conversation")
@@ -136,8 +181,8 @@ struct ChatView: View {
             }
         }
         .sheet(isPresented: $showBranches) { BranchSheet(connection: connection, workspace: workspace) }
-        .sheet(isPresented: $showBrowser) {
-            BrowserView(connection: connection, chat: chat) { data in
+        .sheet(isPresented: $showBrowserSheet) {
+            BrowserSheet(connection: connection, chat: chat) { data in
                 if let a = Attachment(imageData: data) { attachments.append(a) }
             }
         }
@@ -146,6 +191,10 @@ struct ChatView: View {
         .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
         .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
         .onChange(of: pickerItems) { _, items in loadPicked(items) }
+        .onChange(of: composerFocused) { _, focused in
+            // The keyboard takes the page's room; the chat stays at the bottom.
+            withAnimation(.easeOut(duration: 0.22)) { atBottom = focused ? true : atBottom }
+        }
         .onChange(of: dictation.transcript) { _, t in if !t.isEmpty { draft = t } }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { now = $0 }
         .alert("Couldn't send", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
@@ -183,6 +232,21 @@ struct ChatView: View {
                                    mode: app.preferredMode)
         }
         Haptics.tap()
+    }
+
+    /// The Mac has a page open here, and you haven't put it away.
+    private var pageShown: Bool {
+        connection.browsers[chat.id]?.open == true && !pageHidden && !composerFocused
+    }
+
+    /// The compass shows or hides the page; with nothing open it opens the
+    /// full-screen mirror so you can type an address.
+    private func togglePage() {
+        if connection.browsers[chat.id]?.open == true {
+            withAnimation(.easeOut(duration: 0.2)) { pageHidden.toggle() }
+        } else {
+            showBrowserSheet = true
+        }
     }
 
     /// "New chat": a fresh conversation in this project, opened in place.
@@ -302,6 +366,7 @@ struct WorkingRow: View {
 struct ProjectBar: View {
     let connection: Connection
     let workspace: WireWorkspace
+    let pageOpen: Bool
     let onBrowser: () -> Void
     let onBranches: () -> Void
     let onNewChat: () -> Void
@@ -314,9 +379,9 @@ struct ProjectBar: View {
                 NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
                 NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
             }
-            Button(action: onBrowser) { barButton(nil, "safari") }
+            Button(action: onBrowser) { barButton(nil, pageOpen ? "safari.fill" : "safari", on: pageOpen) }
                 .buttonStyle(.plain).disabled(connection.state != .connected)
-                .accessibilityLabel(workspace.isBrowser ? "Preview" : "Browser")
+                .accessibilityLabel(pageOpen ? "Hide the page" : "Show the page")
             if let b = workspace.branch, !b.isEmpty {
                 Button(action: onBranches) { BranchChip(branch: b) }.buttonStyle(.plain).layoutPriority(-1)
             }
@@ -331,12 +396,12 @@ struct ProjectBar: View {
         .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
     }
 
-    private func barButton(_ title: String?, _ icon: String) -> some View {
+    private func barButton(_ title: String?, _ icon: String, on: Bool = false) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 11, weight: .medium))
             if let title { Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1) }
         }
-        .foregroundStyle(Theme.textSecondary)
+        .foregroundStyle(on ? Theme.textPrimary : Theme.textSecondary)
         .padding(.horizontal, title == nil ? 7 : 8).padding(.vertical, 5)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.border))

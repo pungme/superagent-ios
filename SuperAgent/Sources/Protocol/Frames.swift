@@ -241,13 +241,14 @@ enum ServerFrame: Sendable {
     case delta(chatId: String, text: String)
     case status(workspaceId: String, status: WorkspaceStatus)
     case chats([WireChat])
+    case browser(WireBrowser)
     case res(id: String, result: Result<Data, RpcError>)
     case pong
     case unknown(t: String)
 }
 
 extension ServerFrame: Decodable {
-    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error }
+    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -268,6 +269,8 @@ extension ServerFrame: Decodable {
             self = .delta(chatId: try c.decode(String.self, forKey: .chatId), text: try c.decode(String.self, forKey: .text))
         case "status":
             self = .status(workspaceId: try c.decode(String.self, forKey: .workspaceId), status: try c.decode(WorkspaceStatus.self, forKey: .status))
+        case "browser":
+            self = .browser(try c.decode(WireBrowser.self, forKey: .browser))
         case "chats":
             self = .chats(try c.decode([WireChat].self, forKey: .chats))
         case "res":
@@ -402,6 +405,17 @@ struct TaskInfo: Codable, Hashable, Sendable {
     var description: String?
     var taskId: String?
     var status: String?
+}
+
+/// What a conversation has open in the Mac's browser pane.
+struct WireBrowser: Codable, Hashable, Sendable {
+    var chatId: String
+    var open: Bool
+    var url: String
+    var title: String
+    var canGoBack: Bool
+    var canGoForward: Bool
+    var loading: Bool
 }
 
 struct WireBrowserShot: Codable, Sendable {

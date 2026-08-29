@@ -12,6 +12,7 @@ Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
 | Desktop | Phone | Notes |
 |---|---|---|
 | Computer row | ✅ | opens the Computer chat; the desk view itself is ❌ (see Computer) |
+| Chats row (the Computer's conversations, plain) | ✅ | nests them under the row |
 | Browse group, `+` new tab, "Open a tab to browse" | ✅ | `workspace.createBrowser` |
 | Project groups, `+` add project (folder dialog) | ✅ | folder picker of the Mac (`fs.dirs`), home-rooted |
 | Group rename / delete, `+ New group` | ✅ | context menu on the header |
@@ -36,7 +37,7 @@ Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
 | Header: Files, Todo, name, path, branch chip, New chat | ✅ | bar above the chat; path omitted |
 | New chat creates a **worktree** on a git repo | ❌ | phone's `chat.create` makes a plain chat; add `worktree.create` + Keep/Discard on delete |
 | Keep / discard a worktree chat's changes | ❌ | `keepWorktreeChat` |
-| Browser preview beside the chat (real, interactive) | 🟡 | live mirror + URL + back/forward/reload + "Send to agent"; no tapping/typing into the page |
+| Browser preview beside the chat (real, interactive) | 🟡 | docked **above** the chat when the Mac has a page open (drag to resize, compass hides it, collapses for the keyboard), URL bar, back/forward/reload, "Send to agent"; no tapping/typing into the page |
 | Layout toggle (chat beside / below the page) | ➖ | |
 | Files tree | ✅ | folder at a time + filter |
 | File viewer (text, Markdown rendered, images, PDF) | 🟡 | text + images + Markdown rendered; PDF ❌ |

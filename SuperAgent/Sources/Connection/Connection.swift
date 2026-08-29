@@ -67,6 +67,8 @@ final class Connection {
     private(set) var lastError: String?
     /// Slash commands the agent reported for a chat's session (for the "/" menu).
     private(set) var commands: [String: [String]] = [:]
+    /// What each conversation has open in the Mac's browser pane.
+    private(set) var browsers: [String: WireBrowser] = [:]
 
     private var transport: RelayTransport?
     private var sealer: Sealer
@@ -111,6 +113,7 @@ final class Connection {
     }
 
     func disconnect() {
+        browsers.removeAll()
         wantConnected = false
         reconnectTask?.cancel()
         pingTask?.cancel()
@@ -221,6 +224,8 @@ final class Connection {
                 }
                 return g
             }
+        case .browser(let b):
+            if b.open { browsers[b.chatId] = b } else { browsers[b.chatId] = nil }
         case .chats(let list):
             chats = list
             OfflineCache.save(machine.id, "chats", list)

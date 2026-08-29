@@ -106,26 +106,18 @@ struct SidebarView: View {
 
     // MARK: Rows (Sidebar.tsx, main.css: .sidebar-dash-row, .sidebar-group-header, .sidebar-item, .routine-tree)
 
-    /// .sidebar-dash-row — 12.5 semibold, secondary, monitor glyph; 6/10 padding.
-    /// The Computer keeps several conversations too (DesktopChat.tsx): they nest
-    /// under it exactly as a project's do.
+    /// .sidebar-dash-row — 12.5 semibold, secondary; Computer opens the desk's
+    /// agent, Chats is the same conversations with nothing else around them
+    /// (Sidebar.tsx: the Computer row, then the Chats row).
     private var computerRow: some View {
         let chats = computer.map { c in connection.chats.filter { $0.workspaceId == c.id }.sorted { $0.updatedAt > $1.updatedAt } } ?? []
         return VStack(alignment: .leading, spacing: 0) {
-            Button {
+            dashRow("Computer", icon: "desktopcomputer", status: computer?.status) {
                 if let c = computer { openProject(c) }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "desktopcomputer").font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
-                    Text("Computer").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.textSecondary)
-                    Spacer()
-                    if let c = computer, c.status != .idle { StatusIndicator(status: c.status) }
-                }
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .disabled(computer == nil)
+            dashRow("Chats", icon: "bubble.left", status: nil) {
+                if let c = computer { openProject(c) }
+            }
             if chats.count > 1 {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(chats) { chat in
@@ -152,6 +144,21 @@ struct SidebarView: View {
             }
         }
         .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 8)
+    }
+
+    private func dashRow(_ title: String, icon: String, status: WorkspaceStatus?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
+                Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.textSecondary)
+                Spacer()
+                if let status, status != .idle { StatusIndicator(status: status) }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(computer == nil)
     }
 
     private var browseSection: some View {
