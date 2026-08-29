@@ -22,7 +22,7 @@ enum NotificationCategory {
     }
 }
 
-/// What a SuperAgent push carries besides the visible alert.
+/// What a Superagent push carries besides the visible alert.
 struct PushInfo: Sendable {
     var kind: String
     var chatId: String?
@@ -121,7 +121,7 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
         if !ok {
             let content = UNMutableNotificationContent()
             content.title = "Couldn't reach your Mac"
-            content.body = "Open SuperAgent to answer this from the app."
+            content.body = "Open Superagent to answer this from the app."
             try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "sa-fail-\(approvalId)", content: content, trigger: nil))
         }
     }

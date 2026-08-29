@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// SuperAgent's palette, lifted from the desktop's main.css so both feel like
+/// Superagent's palette, lifted from the desktop's main.css so both feel like
 /// one product: warm-white surfaces, near-black accents, quiet greys; the dark
 /// theme is the desktop's #1e1f24 world, not a naive inversion.
 enum Theme {

@@ -110,6 +110,6 @@ struct WelcomeView: View {
         }
         .frame(maxWidth: .infinity)
         .background(Theme.panel)
-        .navigationTitle("SuperAgent")
+        .navigationTitle("Superagent")
     }
 }

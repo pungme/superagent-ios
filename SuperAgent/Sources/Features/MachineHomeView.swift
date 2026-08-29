@@ -119,7 +119,7 @@ struct ConnectionBanner: View {
     }
     private var detail: String {
         switch connection.state {
-        case .machineOffline: "Asleep, offline, or SuperAgent isn't running. You can still read what's here."
+        case .machineOffline: "Asleep, offline, or Superagent isn't running. You can still read what's here."
         case .failed(let r): r == "version" ? "Update the app to talk to this Mac." : (connection.lastError ?? r)
         default: connection.lastError ?? "Through \(connection.machine.relay)"
         }

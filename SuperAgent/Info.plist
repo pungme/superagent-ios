@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>SuperAgent</string>
+	<string>Superagent</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -34,9 +34,9 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>
-	<string>SuperAgent uses the camera only to scan the pairing code shown on your Mac.</string>
+	<string>Superagent uses the camera only to scan the pairing code shown on your Mac.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>SuperAgent listens only while you hold the microphone button, to dictate a message.</string>
+	<string>Superagent listens only while you hold the microphone button, to dictate a message.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Your dictation is transcribed on this device when possible, so you can review it before sending.</string>
 	<key>UILaunchScreen</key>

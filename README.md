@@ -1,6 +1,6 @@
-# SuperAgent for iPhone
+# Superagent for iPhone
 
-The phone half of [SuperAgent](https://github.com/pungme/superagent-desktop): follow the
+The phone half of [Superagent](https://github.com/pungme/superagent-desktop): follow the
 agent running on your Mac, send it work, approve what it asks — from anywhere, with no
 account. Pair once by scanning a code on the Mac; everything after that is end-to-end
 encrypted between the two devices and only *relayed* by a blind server.

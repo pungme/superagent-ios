@@ -12,8 +12,8 @@ enum PairFlow {
         case badLink, machineOffline, rejected(String), timedOut, transport(String)
         var errorDescription: String? {
             switch self {
-            case .badLink: "That isn't a SuperAgent pairing code."
-            case .machineOffline: "Your Mac isn't reachable right now. Is SuperAgent open and online?"
+            case .badLink: "That isn't a Superagent pairing code."
+            case .machineOffline: "Your Mac isn't reachable right now. Is Superagent open and online?"
             case .rejected(let r): r == "pairing-closed"
                 ? "The pairing was cancelled or expired on the Mac. Show the code again and retry."
                 : "The Mac refused: \(r)."

@@ -103,7 +103,7 @@ struct PairView: View {
     private func accept(_ text: String) {
         guard case .scanning = phase else { return }
         if let payload = PairPayload.parse(text) { phase = .pairing(payload) }
-        else { phase = .failed("That isn't a SuperAgent pairing code.") }
+        else { phase = .failed("That isn't a Superagent pairing code.") }
     }
 }
 
