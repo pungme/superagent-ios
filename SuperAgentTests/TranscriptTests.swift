@@ -107,3 +107,13 @@ struct FixtureFieldTests {
         #expect(commands == ["compact", "review"])
     }
 }
+
+@Test func outboxRetiredByEcho() throws {
+    var t = Transcript()
+    t.outbox.append(Outgoing(id: "L-1", chatId: "c1", text: "hi", images: [], ts: 0, model: nil, mode: nil))
+    t.outbox.append(Outgoing(id: "L-2", chatId: "c1", text: "again", images: [], ts: 0, model: nil, mode: nil))
+    let echo = try JSONDecoder().decode(WireEvent.self, from: Data(#"{"chatId":"c1","seq":1,"ts":1,"data":{"kind":"user","id":"L-1","text":"hi","from":"ios"}}"#.utf8))
+    let applied = t.apply(echo)
+    #expect(applied)
+    #expect(t.outbox.map(\.id) == ["L-2"])
+}

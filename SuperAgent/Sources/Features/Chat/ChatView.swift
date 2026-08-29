@@ -11,7 +11,6 @@ struct ChatView: View {
     @Environment(AppState.self) private var app
 
     @State private var draft = ""
-    @State private var sending = false
     @State private var error: String?
     @State private var attachments: [Attachment] = []
     @State private var pickerItems: [PhotosPickerItem] = []
@@ -24,6 +23,7 @@ struct ChatView: View {
     private var turns: [Turn] { TurnBuilder.build(transcript.events) }
     private var isWorking: Bool {
         if !transcript.streaming.isEmpty { return true }
+        if transcript.outbox.contains(where: { $0.status == .sending }) { return true }
         guard let last = transcript.events.last else { return false }
         switch last.data {
         case .turnEnd, .notice: return false
@@ -34,18 +34,30 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Pinned, not scrolled away: you need to know the Mac is gone while
+            // you're reading the latest reply, which is where you usually are.
+            if connection.state != .connected {
+                ConnectionBanner(connection: connection)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(Theme.card)
+                    .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        if connection.state != .connected {
-                            ConnectionBanner(connection: connection).padding(12).superCard()
-                        }
                         if transcript.events.isEmpty, transcript.streaming.isEmpty {
                             emptyState
                         }
                         ForEach(turns) { turn in
                             TurnView(turn: turn, pendingApprovals: pendingApprovals,
                                      answer: answer, choose: { send(text: $0) })
+                        }
+                        ForEach(transcript.outbox) { msg in
+                            OutgoingRow(message: msg,
+                                        retry: { connection.retry(chatId: chat.id, id: msg.id) },
+                                        discard: { connection.discard(chatId: chat.id, id: msg.id) })
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
                         if !transcript.streaming.isEmpty {
                             AssistantBubble(text: transcript.streaming, streaming: true).id("streaming")
@@ -75,13 +87,14 @@ struct ChatView: View {
                     }
                 }
                 .onChange(of: transcript.events.count) { _, _ in if atBottom { scrollToBottom(proxy) } }
+                .onChange(of: transcript.outbox.count) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: transcript.streaming) { _, _ in if atBottom { scrollToBottom(proxy) } }
                 .onAppear { scrollToBottom(proxy, animated: false) }
             }
             Divider().overlay(Theme.border)
             Composer(
                 draft: $draft, attachments: $attachments, pickerItems: $pickerItems,
-                dictation: dictation, sending: sending, connected: connection.state == .connected,
+                dictation: dictation, connected: connection.state == .connected,
                 working: isWorking, commands: connection.commands[chat.id] ?? [],
                 model: Binding(get: { app.preferredModel }, set: { app.preferredModel = $0 }),
                 mode: Binding(get: { app.preferredMode }, set: { app.preferredMode = $0 }),
@@ -102,6 +115,7 @@ struct ChatView: View {
         }
         .onAppear { connection.subscribe(chatId: chat.id) }
         .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
+        .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
         .onChange(of: pickerItems) { _, items in loadPicked(items) }
         .onChange(of: dictation.transcript) { _, t in if !t.isEmpty { draft = t } }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { now = $0 }
@@ -122,30 +136,24 @@ struct ChatView: View {
     }
 
     private var lastUserAt: Date {
+        if let m = transcript.outbox.last { return Date(timeIntervalSince1970: m.ts / 1000) }
         for e in transcript.events.reversed() { if case .user = e.data { return Date(timeIntervalSince1970: e.ts / 1000) } }
         return now
     }
 
     private func send(text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !attachments.isEmpty, !sending else { return }
-        sending = true
-        let images = attachments.map { (mediaType: "image/jpeg", data: $0.jpeg) }
-        let sentDraft = draft
-        draft = ""
-        attachments = []
-        Haptics.tap()
-        Task {
-            defer { sending = false }
-            do {
-                try await connection.sendMessage(chatId: chat.id, text: text, images: images,
-                                                 model: app.preferredModel.isEmpty ? nil : app.preferredModel,
-                                                 mode: app.preferredMode)
-            } catch {
-                self.error = error.localizedDescription
-                draft = sentDraft
-            }
+        guard !text.isEmpty || !attachments.isEmpty else { return }
+        let perImage = Attachment.messageBudget / max(1, attachments.count)
+        let images = attachments.map { (mediaType: "image/jpeg", data: $0.jpeg(maxBytes: perImage)) }
+        withAnimation(.easeOut(duration: 0.2)) {
+            draft = ""
+            attachments = []
+            connection.sendMessage(chatId: chat.id, text: text, images: images,
+                                   model: app.preferredModel.isEmpty ? nil : app.preferredModel,
+                                   mode: app.preferredMode)
         }
+        Haptics.tap()
     }
 
     private func answer(id: String, approve: Bool) {
@@ -189,18 +197,46 @@ struct ChatView: View {
 /// A picked photo, downscaled the way the desktop pastes them.
 struct Attachment: Identifiable {
     let id = UUID()
-    let jpeg: Data
     let thumbnail: UIImage
+    private let image: UIImage
+
     init?(imageData: Data) {
         guard let img = UIImage(data: imageData) else { return nil }
-        let maxSide: CGFloat = 1600
+        image = Attachment.resized(img, maxSide: 1600)
+        thumbnail = Attachment.resized(img, maxSide: 320)
+    }
+
+    /// JPEG bytes no larger than `maxBytes`. One relay frame carries the whole
+    /// message (base64 inside base64 inside JSON), and the relay's ceiling is
+    /// 1 MiB — Cloudflare's WebSocket message limit — so photos must be trimmed
+    /// here, not there. Quality first, then size.
+    func jpeg(maxBytes: Int) -> Data {
+        var img = image
+        var quality: CGFloat = 0.82
+        var data = img.jpegData(compressionQuality: quality) ?? Data()
+        while data.count > maxBytes {
+            if quality > 0.5 {
+                quality -= 0.12
+            } else {
+                img = Attachment.resized(img, maxSide: max(img.size.width, img.size.height) * 0.75)
+                quality = 0.7
+            }
+            data = img.jpegData(compressionQuality: quality) ?? Data()
+            if max(img.size.width, img.size.height) < 200 { break }
+        }
+        return data
+    }
+
+    /// Total JPEG budget for one message, split across its images.
+    static let messageBudget = 480_000
+
+    private static func resized(_ img: UIImage, maxSide: CGFloat) -> UIImage {
         let scale = min(1, maxSide / max(img.size.width, img.size.height))
-        let size = CGSize(width: img.size.width * scale, height: img.size.height * scale)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let resized = renderer.image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }
-        guard let jpeg = resized.jpegData(compressionQuality: 0.82) else { return nil }
-        self.jpeg = jpeg
-        self.thumbnail = resized
+        guard scale < 1 else { return img }
+        let size = CGSize(width: (img.size.width * scale).rounded(), height: (img.size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }
     }
 }
 

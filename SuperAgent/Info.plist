@@ -40,7 +40,10 @@
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Your dictation is transcribed on this device when possible, so you can review it before sending.</string>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

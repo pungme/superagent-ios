@@ -9,7 +9,6 @@ struct Composer: View {
     @Binding var attachments: [Attachment]
     @Binding var pickerItems: [PhotosPickerItem]
     let dictation: Dictation
-    let sending: Bool
     let connected: Bool
     let working: Bool
     let commands: [String]
@@ -34,7 +33,7 @@ struct Composer: View {
     ]
 
     private var canSend: Bool {
-        connected && !sending && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+        (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
     }
     private var slashQuery: String? {
         guard draft.hasPrefix("/"), !draft.contains(" "), !commands.isEmpty else { return nil }

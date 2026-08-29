@@ -16,29 +16,32 @@ struct ChatListView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                if chats.isEmpty {
-                    ContentUnavailableView("No conversations", systemImage: "bubble.left",
-                                           description: Text("Start one with the pencil above."))
-                        .padding(.top, 40)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(chats.enumerated()), id: \.element.id) { i, chat in
-                            NavigationLink(value: chat) { ChatRow(chat: chat) }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    Button { newTitle = chat.title ?? ""; renaming = chat } label: { Label("Rename", systemImage: "pencil") }
-                                    Button(role: .destructive) { deleting = chat } label: { Label("Delete", systemImage: "trash") }
-                                }
-                            if i < chats.count - 1 { Divider().overlay(Theme.border).padding(.leading, 14) }
-                        }
+        List {
+            if chats.isEmpty {
+                ContentUnavailableView("No conversations", systemImage: "bubble.left",
+                                       description: Text("Start one with the pencil above."))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            } else {
+                Section {
+                    ForEach(chats) { chat in
+                        NavigationLink(value: chat) { ChatRow(chat: chat) }
+                            .listRowBackground(Theme.card)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) { deleting = chat } label: { Label("Delete", systemImage: "trash") }
+                                Button { newTitle = chat.title ?? ""; renaming = chat } label: { Label("Rename", systemImage: "pencil") }
+                                    .tint(Theme.textSecondary)
+                            }
+                            .contextMenu {
+                                Button { newTitle = chat.title ?? ""; renaming = chat } label: { Label("Rename", systemImage: "pencil") }
+                                Button(role: .destructive) { deleting = chat } label: { Label("Delete", systemImage: "trash") }
+                            }
                     }
-                    .superCard()
                 }
             }
-            .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 24)
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
         .background(Theme.panel)
         .navigationTitle(workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name)
         .navigationBarTitleDisplayMode(.large)
@@ -105,7 +108,6 @@ struct ChatRow: View {
                 .foregroundStyle(Theme.textTertiary)
                 .padding(.top, 2)
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
-        .contentShape(Rectangle())
+        .padding(.vertical, 4)
     }
 }

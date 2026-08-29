@@ -50,7 +50,6 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         NotificationCategory.register()
-        Task { await Self.requestAuthorization() }
         return true
     }
 

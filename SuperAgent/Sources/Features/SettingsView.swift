@@ -35,6 +35,8 @@ struct SettingsView: View {
                     Text("Everything between this phone and your Mac is end-to-end encrypted; the relay only forwards. Remove a Mac here or from the Mac's Settings → Phone.")
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.panel)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }

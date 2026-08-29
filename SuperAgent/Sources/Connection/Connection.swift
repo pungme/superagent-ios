@@ -9,6 +9,9 @@ struct Transcript: Sendable {
     var lastSeq: Int = 0
     var streaming: String = ""
     var subscribed = false
+    /// Messages this phone has sent that the Mac hasn't echoed back yet. They
+    /// render immediately; the echo (a `user` event with our id) retires them.
+    var outbox: [Outgoing] = []
 
     mutating func apply(_ e: WireEvent) -> Bool {
         // Gaps mean we missed something; the caller re-subscribes from lastSeq.
@@ -17,10 +20,27 @@ struct Transcript: Sendable {
         lastSeq = e.seq
         switch e.data {
         case .assistant, .turnEnd, .notice: streaming = ""
+        case .user(let id, _, _, _): outbox.removeAll { $0.id == id }
         default: break
         }
         return true
     }
+}
+
+/// A message on its way to the Mac. Shown as a bubble the moment Send is
+/// tapped; queued while the link is down, retried on demand if it fails.
+struct Outgoing: Identifiable, Hashable, Sendable {
+    enum Status: Hashable, Sendable { case queued, sending, failed(String) }
+    struct Image: Hashable, Sendable { let mediaType: String; let data: Data }
+
+    let id: String
+    let chatId: String
+    let text: String
+    let images: [Image]
+    let ts: Double
+    let model: String?
+    let mode: String?
+    var status: Status = .queued
 }
 
 /// The live link to one Mac. Foreground-only by design: assume it is dead every
@@ -151,6 +171,7 @@ final class Connection {
                 transcripts[chatId]?.subscribed = true
             }
             startPing()
+            flushOutbox()
         case .paired:
             break // pairing is handled by PairFlow, not here
         case .bye(let reason):
@@ -241,7 +262,7 @@ final class Connection {
             send(.req(id: id, method: method, params: params))
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(30))
-                await self?.timeOut(id)
+                self?.timeOut(id)
             }
         }
         if T.self == JSONValue.self, data.isEmpty { return JSONValue.null as! T }
@@ -256,19 +277,65 @@ final class Connection {
 
     // MARK: Convenience
 
+    /// Queue a message for the Mac. Returns at once; the bubble appears in the
+    /// transcript's outbox and is delivered now or as soon as the link is back.
     func sendMessage(chatId: String, text: String, images: [(mediaType: String, data: Data)] = [],
-                     model: String? = nil, mode: String? = nil) async throws {
+                     model: String? = nil, mode: String? = nil) {
+        let msg = Outgoing(id: "L-" + UUID().uuidString.prefix(8), chatId: chatId, text: text,
+                           images: images.map { Outgoing.Image(mediaType: $0.mediaType, data: $0.data) },
+                           ts: Date().timeIntervalSince1970 * 1000, model: model, mode: mode)
+        var t = transcripts[chatId] ?? Transcript()
+        t.outbox.append(msg)
+        transcripts[chatId] = t
+        Task { await deliver(chatId: chatId, id: msg.id) }
+    }
+
+    func retry(chatId: String, id: String) {
+        setOutgoing(chatId: chatId, id: id, status: .queued)
+        Task { await deliver(chatId: chatId, id: id) }
+    }
+
+    func discard(chatId: String, id: String) {
+        transcripts[chatId]?.outbox.removeAll { $0.id == id }
+    }
+
+    private func setOutgoing(chatId: String, id: String, status: Outgoing.Status) {
+        guard var t = transcripts[chatId], let i = t.outbox.firstIndex(where: { $0.id == id }) else { return }
+        t.outbox[i].status = status
+        transcripts[chatId] = t
+    }
+
+    private func deliver(chatId: String, id: String) async {
+        // Not connected: it stays queued and goes out on the next welcome.
+        guard state == .connected, let msg = transcripts[chatId]?.outbox.first(where: { $0.id == id }) else { return }
+        setOutgoing(chatId: chatId, id: id, status: .sending)
         var params: [String: JSONValue] = [
             "chatId": .string(chatId),
-            "text": .string(text),
-            "localId": .string("L-" + UUID().uuidString.prefix(8))
+            "text": .string(msg.text),
+            "localId": .string(msg.id)
         ]
-        if let model { params["model"] = .string(model) }
-        if let mode { params["permissionMode"] = .string(mode) }
-        if !images.isEmpty {
-            params["images"] = .array(images.map { .object(["mediaType": .string($0.mediaType), "data": .string($0.data.base64EncodedString())]) })
+        if let m = msg.model { params["model"] = .string(m) }
+        if let m = msg.mode { params["permissionMode"] = .string(m) }
+        if !msg.images.isEmpty {
+            params["images"] = .array(msg.images.map { .object(["mediaType": .string($0.mediaType), "data": .string($0.data.base64EncodedString())]) })
         }
-        _ = try await rpc("chat.send", .object(params))
+        do {
+            _ = try await rpc("chat.send", .object(params))
+            // The echo normally retires it before the response lands; make sure.
+            discard(chatId: chatId, id: id)
+        } catch {
+            // The Mac may or may not have taken it if the link dropped mid-flight,
+            // so never resend on our own — leave the choice to the person.
+            setOutgoing(chatId: chatId, id: id, status: .failed(error.localizedDescription))
+        }
+    }
+
+    private func flushOutbox() {
+        for (chatId, t) in transcripts {
+            for m in t.outbox where m.status == .queued {
+                Task { await deliver(chatId: chatId, id: m.id) }
+            }
+        }
     }
 
     func interrupt(chatId: String) async throws {

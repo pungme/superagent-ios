@@ -38,6 +38,8 @@ final class AppState {
     // MARK: Foreground / background
 
     func becameActive() {
+        // Notifications only make sense once a Mac is paired — ask then, not on first launch.
+        if !machines.isEmpty { Task { await PushDelegate.requestAuthorization() } }
         for m in machines {
             let c = connection(for: m)
             c.connect()
@@ -65,6 +67,7 @@ final class AppState {
         let c = connection(for: machine)
         c.connect()
         c.reportPresence(active: true, pushToken: pushToken)
+        Task { await PushDelegate.requestAuthorization() }
     }
 
     func remove(_ machine: PairedMachine) {

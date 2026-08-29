@@ -28,6 +28,7 @@ struct PairView: View {
                 case .failed(let message): failed(message)
                 }
             }
+            .background(Theme.panel)
             .navigationTitle("Pair a Mac")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }

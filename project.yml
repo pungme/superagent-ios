@@ -23,7 +23,8 @@ targets:
       path: SuperAgent/Info.plist
       properties:
         CFBundleDisplayName: SuperAgent
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: SuperAgent uses the camera only to scan the pairing code shown on your Mac.
@@ -37,6 +38,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pungme.superagent.ios
         CODE_SIGN_ENTITLEMENTS: SuperAgent/SuperAgent.entitlements
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         ENABLE_PREVIEWS: YES
@@ -51,6 +53,9 @@ targets:
         buildPhase: resources
       - path: ../desktop/app/src/shared/fixtures/companion/crypto-vectors.json
         buildPhase: resources
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: SuperAgent
 schemes:

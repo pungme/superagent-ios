@@ -61,7 +61,7 @@ enum PairFlow {
                 t.connect(relay: payload.relay, machineId: payload.m)
                 Task { [weak self] in
                     try? await Task.sleep(for: .seconds(150))
-                    await self?.finish(.failure(Failure.timedOut))
+                    self?.finish(.failure(Failure.timedOut))
                 }
             }
         }

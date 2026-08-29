@@ -35,7 +35,7 @@ struct TurnFooter: View {
         HStack(spacing: 6) {
             if let d = turn.duration { Text(d < 60 ? "\(Int(d))s" : "\(Int(d / 60))m \(Int(d.truncatingRemainder(dividingBy: 60)))s") }
             if let t = turn.tokens { Text("·"); Text(t.formatted(.number.notation(.compactName))) + Text(" tokens") }
-            if let c = turn.cost, c > 0 { Text("·"); Text(c, format: .currency(code: "USD").precision(.fractionLength(2)).locale(Locale(identifier: "en_US"))) }
+            if let c = turn.cost, c > 0 { Text("·"); Text(String(format: "$%.2f", c)) }
         }
         .font(.system(size: 11).monospacedDigit())
         .foregroundStyle(Theme.textTertiary)
@@ -366,4 +366,47 @@ struct ApprovalCard: View {
         default: "use \(toolName.replacingOccurrences(of: "mcp__cove-browser__", with: ""))"
         }
     }
+}
+
+/// A message we've sent that the Mac hasn't echoed yet: same bubble, with a
+/// quiet status line under it instead of the origin.
+struct OutgoingRow: View {
+    let message: Outgoing
+    let retry: () -> Void
+    let discard: () -> Void
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 48)
+            VStack(alignment: .trailing, spacing: 4) {
+                if !message.text.isEmpty {
+                    Text(message.text)
+                        .font(.system(size: 15.5))
+                        .foregroundStyle(Theme.accentFg)
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
+                        .opacity(failed ? 0.55 : 1)
+                }
+                HStack(spacing: 8) {
+                    if !message.images.isEmpty {
+                        Text("\(message.images.count) image\(message.images.count == 1 ? "" : "s")")
+                    }
+                    switch message.status {
+                    case .queued:
+                        Label("Waiting for the Mac", systemImage: "clock")
+                    case .sending:
+                        Label("Sending", systemImage: "arrow.up.circle")
+                    case .failed(let why):
+                        Text("Not delivered · \(why)").lineLimit(1)
+                        Button("Retry", action: retry).foregroundStyle(Theme.textPrimary)
+                        Button("Discard", action: discard).foregroundStyle(Theme.textPrimary)
+                    }
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(failed ? Theme.danger : Theme.textTertiary)
+            }
+        }
+    }
+
+    private var failed: Bool { if case .failed = message.status { return true }; return false }
 }
