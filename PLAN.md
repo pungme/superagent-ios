@@ -29,7 +29,14 @@ a Board with columns, add, edit and swipe-to-move, Routines with enable/run-now/
 mirror in every chat (opens pages on the Mac, live capture every 2 s, back/forward/reload, "Send to
 agent" attaches the capture), a Tasks sheet fed by the agent's planning tools, and search across
 every conversation from the home screen.
-Next: Phase 3 (Live Activity, widgets, iPad, share sheet, Watch, offline cache).
+
+Then (29 Aug, evening) the home screen was rebuilt as a copy of the desktop sidebar (Sidebar.tsx),
+not a re-interpretation: Computer on top, Browse with + and "Open a tab to browse", groups with +
+(a folder picker of the Mac), project rows with branch and status, the collapsed "N repos" tree with
+"Start session →", nested conversations once there is more than one, nested routines, "+ New group".
+A project opens on the conversation it is on, with the desktop's bar above it (Files, Todo, Routines,
+Browser/Preview, branch, New chat). Offline cache keeps all of it readable while the Mac sleeps.
+Next: Phase 3 (Live Activity, widgets, iPad, share sheet, Watch).
 
 ## Milestones (iOS side)
 

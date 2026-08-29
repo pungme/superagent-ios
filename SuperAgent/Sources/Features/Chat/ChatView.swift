@@ -309,23 +309,26 @@ struct ProjectBar: View {
     let creating: Bool
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                if !workspace.isBrowser, !workspace.isComputer {
-                    NavigationLink(value: WorkspacePanel(kind: .files, workspace: workspace)) { barButton("Files", "doc.text") }
-                    NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
-                    NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if !workspace.isBrowser, !workspace.isComputer {
+                        NavigationLink(value: WorkspacePanel(kind: .files, workspace: workspace)) { barButton("Files", "doc.text") }
+                        NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
+                        NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
+                    }
+                    Button(action: onBrowser) { barButton(workspace.isBrowser ? "Preview" : "Browser", "safari") }
+                        .buttonStyle(.plain).disabled(connection.state != .connected)
+                    if let b = workspace.branch, !b.isEmpty {
+                        Button(action: onBranches) { BranchChip(branch: b) }.buttonStyle(.plain)
+                    }
                 }
-                Button(action: onBrowser) { barButton(workspace.isBrowser ? "Preview" : "Browser", "safari") }
-                    .buttonStyle(.plain).disabled(connection.state != .connected)
-                if let b = workspace.branch, !b.isEmpty {
-                    Button(action: onBranches) { BranchChip(branch: b) }.buttonStyle(.plain)
-                }
-                Spacer(minLength: 0)
-                Button(action: onNewChat) { barButton("New chat", "square.and.pencil") }
-                    .buttonStyle(.plain).disabled(creating || connection.state != .connected)
+                .padding(.leading, 12).padding(.vertical, 7)
             }
-            .padding(.horizontal, 12).padding(.vertical, 7)
+            // Always in reach, as at the desktop's top right.
+            Button(action: onNewChat) { barButton("New chat", "square.and.pencil") }
+                .buttonStyle(.plain).disabled(creating || connection.state != .connected)
+                .padding(.trailing, 12)
         }
         .background(Theme.panel)
         .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
