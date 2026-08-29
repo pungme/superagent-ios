@@ -12,6 +12,16 @@ to self-host), so it works behind any NAT with no router or network setup. Frame
 encrypted with a per-device key from the pairing QR; push notifications are sent by the Mac straight
 to APNs with your own `.p8` key.
 
+## Status (29 Aug 2026)
+
+Phase 1 ("feels like SuperAgent") is built and verified in the simulator against a dev desktop:
+desktop palette light+dark, app icon, sidebar-style home (groups, favicons, `⎇ main` chips,
+status, previews), conversation list with rename/delete, block Markdown with code blocks,
+collapsed step groups with results, diff cards, ask-block choices, per-turn footers, Model/Mode
+pills (agent restarts on the same session when they change), photos, dictation, "/" commands.
+Next: Phase 2 panels (Tasks, Board, Routines, Files, git), then Phase 3 (Live Activity, widgets,
+iPad, share sheet, Watch).
+
 ## Milestones (iOS side)
 
 | M | Deliver | Depends on desktop |
