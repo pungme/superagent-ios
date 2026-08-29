@@ -52,10 +52,9 @@ targets:
     platform: iOS
     sources:
       - SuperAgentTests
-      # The wire-format fixtures are owned by the desktop repo; both suites decode the same files.
-      - path: ../desktop/app/src/shared/fixtures/companion/frames.json
-        buildPhase: resources
-      - path: ../desktop/app/src/shared/fixtures/companion/crypto-vectors.json
+      # The wire-format fixtures are owned by the desktop repo and copied here
+      # (`make fixtures`) so a clone of this repo alone — Xcode Cloud — builds.
+      - path: SuperAgentTests/Fixtures
         buildPhase: resources
     settings:
       base:

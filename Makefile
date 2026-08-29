@@ -14,3 +14,8 @@ test: project
 
 open: project
 	open SuperAgent.xcodeproj
+
+# Refresh the wire-format fixtures from the desktop repo (they are the contract
+# both test suites decode). Run after the desktop fixtures change.
+fixtures:
+	cp ../desktop/app/src/shared/fixtures/companion/frames.json ../desktop/app/src/shared/fixtures/companion/crypto-vectors.json SuperAgentTests/Fixtures/
