@@ -21,11 +21,12 @@ enum OfflineCache {
         return try? JSONDecoder().decode(T.self, from: data)
     }
 
-    /// Encodes on the caller's thread (cheap for these sizes), writes off it.
-    static func save<T: Encodable>(_ machineId: String, _ name: String, _ value: T) {
-        guard let data = try? JSONEncoder().encode(value) else { return }
+    /// Encodes and writes off the main thread: a busy turn would otherwise
+    /// re-encode the whole transcript between frames.
+    static func save<T: Encodable & Sendable>(_ machineId: String, _ name: String, _ value: T) {
         let target = url(machineId, name)
         Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(value) else { return }
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                      attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
             try? data.write(to: target, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])

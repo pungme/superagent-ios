@@ -18,11 +18,16 @@ struct BrowserMirror: View {
 
     @State private var shot: WireBrowserShot?
     @State private var image: UIImage?
+    /// The frame we already decoded, by its bytes — comparing images themselves
+    /// would mean re-encoding two screenshots on every poll.
+    @State private var lastFrame: Int?
+    @State private var inFlight = false
     @State private var unavailable: String?
     @State private var url = ""
     @State private var opening = false
     @State private var error: String?
     @FocusState private var urlFocused: Bool
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,7 +57,10 @@ struct BrowserMirror: View {
             controls
         }
         .background(Theme.panel)
-        .task(id: paused) { if !paused { await poll() } }
+        .task(id: [paused, scenePhase != .active].description) {
+            // Nothing to mirror while the pane is collapsed or the app is away.
+            if !paused, scenePhase == .active { await poll() }
+        }
         .alert("Browser", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") {}
         } message: { Text(error ?? "") }
@@ -131,15 +139,28 @@ struct BrowserMirror: View {
 
     @discardableResult
     private func refresh() async -> Bool {
+        // One capture at a time: a slow round trip must not stack up requests,
+        // each carrying a screenshot back.
+        if inFlight { return false }
+        inFlight = true
+        defer { inFlight = false }
         do {
             let s = try await connection.browserShot(chatId: chat.id)
             let previous = shot
             shot = s
             unavailable = nil
+            let frame = s.jpeg.hashValue
             var changed = previous?.url != s.url || previous?.title != s.title
-            if let d = Data(base64Encoded: s.jpeg), let img = UIImage(data: d) {
-                changed = changed || img.pngData()?.count != image?.pngData()?.count
-                image = img
+            if frame != lastFrame {
+                changed = true
+                lastFrame = frame
+                // Decoding a JPEG is real work; keep it off the main actor.
+                if let img = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+                    guard let d = Data(base64Encoded: s.jpeg) else { return nil }
+                    return UIImage(data: d)
+                }.value {
+                    image = img
+                }
             }
             if !urlFocused, url.isEmpty || url == previous?.url { url = s.url }
             return changed
