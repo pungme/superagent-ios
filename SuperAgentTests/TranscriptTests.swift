@@ -117,3 +117,19 @@ struct FixtureFieldTests {
     #expect(applied)
     #expect(t.outbox.map(\.id) == ["L-2"])
 }
+
+@Test func offlineCacheRoundTrip() throws {
+    let id = "test-" + UUID().uuidString.prefix(8)
+    defer { OfflineCache.remove(id) }
+    let chats = [WireChat(id: "c1", workspaceId: "w1", title: "Hi", updatedAt: 1, live: true, preview: "p")]
+    OfflineCache.save(id, "chats", chats)
+    // Save writes off-thread; give it a moment.
+    var loaded: [WireChat]? = nil
+    for _ in 0..<50 {
+        loaded = OfflineCache.load(id, "chats", as: [WireChat].self)
+        if loaded != nil { break }
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+    #expect(loaded == chats)
+    #expect(OfflineCache.load(id, "missing", as: [WireChat].self) == nil)
+}

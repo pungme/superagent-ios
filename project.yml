@@ -39,6 +39,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pungme.superagent.ios
         # Renamed in Xcode; kept here so `xcodegen generate` doesn't undo it.
         PRODUCT_NAME: SuperAgent - Companion
+        # The Swift module keeps its name; only the .app on disk is renamed.
+        PRODUCT_MODULE_NAME: SuperAgent
         CODE_SIGN_ENTITLEMENTS: SuperAgent/SuperAgent.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1"
@@ -58,6 +60,9 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        # The app's product is renamed above; the test host must follow it.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SuperAgent - Companion.app/SuperAgent - Companion"
+        BUNDLE_LOADER: "$(TEST_HOST)"
     dependencies:
       - target: SuperAgent
 schemes:

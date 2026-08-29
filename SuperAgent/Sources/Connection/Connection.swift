@@ -83,6 +83,23 @@ final class Connection {
         let keys = DeviceKeys(secret: machine.secret, machineId: machine.id)
         sealer = Sealer(key: keys.p2m, aad: aad(machineId: machine.id, direction: .p2m))
         opener = Opener(key: keys.m2p, aad: aad(machineId: machine.id, direction: .m2p))
+        // Last known picture of the Mac, so there is something to read before
+        // (or without) a connection.
+        info = OfflineCache.load(machine.id, "machine", as: WireMachine.self)
+        tree = OfflineCache.load(machine.id, "tree", as: [WireGroup].self) ?? []
+        chats = OfflineCache.load(machine.id, "chats", as: [WireChat].self)?.map { var c = $0; c.live = false; return c } ?? []
+    }
+
+    private var transcriptSaves: [String: Task<Void, Never>] = [:]
+
+    /// Write a chat's recent events a moment after they settle (not per frame).
+    private func scheduleTranscriptSave(_ chatId: String) {
+        transcriptSaves[chatId]?.cancel()
+        transcriptSaves[chatId] = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled, let self, let t = self.transcripts[chatId] else { return }
+            OfflineCache.save(self.machine.id, "chat-" + chatId, Array(t.events.suffix(OfflineCache.transcriptLimit)))
+        }
     }
 
     // MARK: Lifecycle
@@ -162,6 +179,9 @@ final class Connection {
             info = machineInfo
             self.tree = tree
             self.chats = chats
+            OfflineCache.save(machine.id, "machine", machineInfo)
+            OfflineCache.save(machine.id, "tree", tree)
+            OfflineCache.save(machine.id, "chats", chats)
             onChatsChanged?()
             state = .connected
             lastError = nil
@@ -186,6 +206,7 @@ final class Connection {
                 send(.subscribe(chatId: e.chatId, afterSeq: t.lastSeq))
             }
             transcripts[e.chatId] = t
+            scheduleTranscriptSave(e.chatId)
         case let .delta(chatId, text):
             var t = transcripts[chatId] ?? Transcript()
             t.streaming += text
@@ -202,6 +223,7 @@ final class Connection {
             }
         case .chats(let list):
             chats = list
+            OfflineCache.save(machine.id, "chats", list)
             onChatsChanged?()
         case let .res(id, result):
             if let c = pending.removeValue(forKey: id) {
@@ -245,12 +267,22 @@ final class Connection {
     }
 
     func subscribe(chatId: String) {
-        var t = transcripts[chatId] ?? Transcript()
+        var t = transcripts[chatId] ?? cachedTranscript(chatId) ?? Transcript()
         if state == .connected, !t.subscribed {
             send(.subscribe(chatId: chatId, afterSeq: t.lastSeq))
             t.subscribed = true
         }
         transcripts[chatId] = t
+    }
+
+    /// A chat's recent events from the last time it was open; the Mac fills in
+    /// everything after `lastSeq` on subscribe.
+    private func cachedTranscript(_ chatId: String) -> Transcript? {
+        guard let events = OfflineCache.load(machine.id, "chat-" + chatId, as: [WireEvent].self), !events.isEmpty else { return nil }
+        var t = Transcript()
+        t.events = events
+        t.lastSeq = events.last?.seq ?? 0
+        return t
     }
 
     /// Call a method on the Mac and decode its result.
@@ -368,6 +400,7 @@ final class Connection {
         _ = try await rpc("chat.delete", .object(["chatId": .string(chatId)]))
         chats.removeAll { $0.id == chatId }
         transcripts[chatId] = nil
+        OfflineCache.removeTranscript(machine.id, chatId: chatId)
     }
 
     func createChat(workspaceId: String) async throws -> String {
@@ -386,7 +419,7 @@ final class Connection {
 extension Connection {
     /// Re-read the sidebar (after a checkout, say); `tree` updates in place.
     func refreshTree() async {
-        if let t: [WireGroup] = try? await rpc("tree.list", as: [WireGroup].self) { tree = t }
+        if let t: [WireGroup] = try? await rpc("tree.list", as: [WireGroup].self) { tree = t; OfflineCache.save(machine.id, "tree", t) }
     }
 
     func searchChats(_ query: String) async throws -> [WireSearchHit] {
