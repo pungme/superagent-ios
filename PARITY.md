@@ -3,6 +3,9 @@
 The rule: the phone copies the desktop — same rows, same actions, same look — not a
 re-interpretation. This is the checklist. Update it when either side changes.
 
+The look is the desktop's; the *sizes* are the phone's — every row is a 40–44 pt target, which is
+why the sidebar is roomier than the Mac's 24 pt rows.
+
 Legend: ✅ same on the phone · 🟡 partial (says how) · ❌ not on the phone yet · ➖ makes no sense on a phone
 
 Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
@@ -12,11 +15,11 @@ Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
 | Desktop | Phone | Notes |
 |---|---|---|
 | Computer row | ✅ | opens the Computer chat; the desk view itself is ❌ (see Computer) |
-| Chats row (the Computer's conversations, plain) | ✅ | nests them under the row |
+| Chats row (the Computer's conversations, plain) | ✅ | opens its own list — New chat, rename, delete, previews |
 | Browse group, `+` new tab, "Open a tab to browse" | ✅ | `workspace.createBrowser` |
 | Project groups, `+` add project (folder dialog) | ✅ | folder picker of the Mac (`fs.dirs`), home-rooted |
 | Group rename / delete, `+ New group` | ✅ | context menu on the header |
-| Group collapse caret | 🟡 | drawn, not yet toggling (`toggleCollapse`) |
+| Group collapse caret | 🟡 | collapses on the phone (44 pt target); the Mac keeps its own state — no `group.update` RPC yet |
 | Project row: status, kind glyph/favicon, name, `⎇` chip | ✅ | |
 | Ahead/behind on the chip | ❌ | `gitAheadBehind` exists on the Mac; add to `tree.list` |
 | Unread dot on chats/projects | ❌ | needs `unread` in `chat.list` (the Mac tracks it per window today) |

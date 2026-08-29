@@ -12,6 +12,10 @@ struct SidebarView: View {
 
     @State private var routines: [WireRoutine] = []
     @State private var reposOpen: Set<String> = []
+    /// Collapsed groups, remembered on this phone (the caret is a real button
+    /// here — on the desktop it's a 16 px glyph you can hit with a mouse).
+    @AppStorage("sidebar.collapsedGroups") private var collapsedRaw = ""
+
     @State private var selectedRepo: String?
     @State private var addingTo: WireGroup?
     @State private var renaming: WireGroup?
@@ -110,37 +114,12 @@ struct SidebarView: View {
     /// agent, Chats is the same conversations with nothing else around them
     /// (Sidebar.tsx: the Computer row, then the Chats row).
     private var computerRow: some View {
-        let chats = computer.map { c in connection.chats.filter { $0.workspaceId == c.id }.sorted { $0.updatedAt > $1.updatedAt } } ?? []
-        return VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             dashRow("Computer", icon: "desktopcomputer", status: computer?.status) {
                 if let c = computer { openProject(c) }
             }
             dashRow("Chats", icon: "bubble.left", status: nil) {
-                if let c = computer { openProject(c) }
-            }
-            if chats.count > 1 {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(chats) { chat in
-                        TreeRow {
-                            Button { path.append(chat) } label: {
-                                HStack(spacing: 7) {
-                                    if chat.live { ProgressView().controlSize(.mini) }
-                                    Text(chat.title ?? "New chat").lineLimit(1)
-                                    Spacer()
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button(role: .destructive) { Task { await run { try await connection.deleteChat(chatId: chat.id) } } } label: { Label("Delete conversation", systemImage: "trash") }
-                            }
-                        }
-                    }
-                }
-                .padding(.leading, 30).padding(.top, 1).padding(.bottom, 3)
-                .background(alignment: .topLeading) {
-                    Rectangle().fill(Theme.border).frame(width: 1).padding(.leading, 30 + 10).padding(.bottom, 8 + 3)
-                }
+                if let c = computer { path.append(WorkspacePanel(kind: .chats, workspace: c)) }
             }
         }
         .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 8)
@@ -148,13 +127,14 @@ struct SidebarView: View {
 
     private func dashRow(_ title: String, icon: String, status: WorkspaceStatus?, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon).font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
-                Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.textSecondary)
+            HStack(spacing: 9) {
+                Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Theme.textTertiary).frame(width: 18)
+                Text(title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.textSecondary)
                 Spacer()
                 if let status, status != .idle { StatusIndicator(status: status) }
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textTertiary)
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
+            .padding(.horizontal, 10).frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -181,16 +161,18 @@ struct SidebarView: View {
     /// .sidebar-group: 6/6/6/4 padding, radius 10, 8 between groups.
     private func groupSection(_ group: WireGroup) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            groupHeader(group.name, caret: true) { addingTo = group }
+            groupHeader(group.name, caret: true, collapsedKey: group.id) { addingTo = group }
                 .contextMenu {
                     Button { groupName = group.name; renaming = group } label: { Label("Rename group", systemImage: "pencil") }
                     Button(role: .destructive) { Task { await run { try await connection.deleteGroup(id: group.id) } } } label: { Label("Delete group", systemImage: "trash") }
                 }
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(group.workspaces) { ws in projectRows(ws) }
+            if !collapsed.contains(group.id) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(group.workspaces) { ws in projectRows(ws) }
+                }
+                .padding(.leading, 4)
             }
-            .padding(.leading, 4)
-            if group.workspaces.isEmpty {
+            if group.workspaces.isEmpty, !collapsed.contains(group.id) {
                 Button { addingTo = group } label: {
                     Text("Add a project…").font(.system(size: 11.5)).foregroundStyle(Theme.textTertiary)
                         .padding(.leading, 10).padding(.top, 2).padding(.bottom, 6)
@@ -204,24 +186,47 @@ struct SidebarView: View {
         .padding(.top, 8)
     }
 
-    /// .sidebar-group-header: caret, 11 pt uppercase 600 tracked 0.6, + at the right.
-    private func groupHeader(_ title: String, caret: Bool, add: @escaping () -> Void) -> some View {
-        HStack(spacing: 3) {
-            if caret {
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.textTertiary).frame(width: 16, height: 16)
+    /// .sidebar-group-header — the desktop's small caps, at a size you can hit:
+    /// the caret and the name collapse the group, the + is its own 44 pt target.
+    private func groupHeader(_ title: String, caret: Bool, collapsedKey: String? = nil, add: @escaping () -> Void) -> some View {
+        let isCollapsed = collapsedKey.map(collapsed.contains) ?? false
+        return HStack(spacing: 2) {
+            Button {
+                if let key = collapsedKey { toggleGroup(key) }
+            } label: {
+                HStack(spacing: 4) {
+                    if caret {
+                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.textTertiary).frame(width: 14)
+                    }
+                    Text(title.uppercased()).font(.system(size: 11.5, weight: .semibold)).tracking(0.6)
+                        .foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 40)
+                .contentShape(Rectangle())
             }
-            Text(title.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(Theme.textSecondary).lineLimit(1)
-            Spacer()
+            .buttonStyle(.plain)
+            .disabled(collapsedKey == nil)
             Button(action: add) {
-                Image(systemName: "plus").font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
-                    .frame(width: 22, height: 18).contentShape(Rectangle())
+                Image(systemName: "plus").font(.system(size: 15)).foregroundStyle(Theme.textTertiary)
+                    .frame(width: 44, height: 40).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(connection.state != .connected)
             .accessibilityLabel("Add to \(title)")
         }
-        .padding(.leading, caret ? 3 : 6).padding(.trailing, 6).padding(.vertical, 2)
-        .padding(.bottom, 3)
+        .padding(.leading, 6).padding(.trailing, 2)
+    }
+
+    private var collapsed: Set<String> {
+        Set(collapsedRaw.split(separator: "\u{1}").map(String.init))
+    }
+
+    private func toggleGroup(_ id: String) {
+        var next = collapsed
+        if next.contains(id) { next.remove(id) } else { next.insert(id) }
+        withAnimation(.easeOut(duration: 0.18)) { collapsedRaw = next.joined(separator: "\u{1}") }
     }
 
     /// A project and, under it, the same tree the desktop shows.
@@ -239,7 +244,7 @@ struct SidebarView: View {
                 StatusIndicator(status: ws.status).frame(width: 10)
                 ProjectGlyph(workspace: ws)
                 Text(ws.isBrowser ? (ws.host ?? ws.name) : ws.name)
-                    .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                    .font(.system(size: 14.5, weight: .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
                 Spacer(minLength: 6)
                 if let b = ws.branch, !b.isEmpty {
                     Text("⎇ \(b)").font(.system(size: 10)).foregroundStyle(Theme.textTertiary)
@@ -247,7 +252,7 @@ struct SidebarView: View {
                         .background(Theme.hover, in: Capsule()).lineLimit(1)
                 }
             }
-            .padding(.horizontal, 8).padding(.vertical, 7)
+            .padding(.horizontal, 8).frame(minHeight: 42)
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
@@ -421,7 +426,7 @@ struct SidebarView: View {
 
 /// Files / Todo / Routines behind a project, pushed from its bar.
 struct WorkspacePanel: Hashable {
-    enum Kind: Hashable { case files, board, routines }
+    enum Kind: Hashable { case files, board, routines, chats }
     let kind: Kind
     let workspace: WireWorkspace
 }
@@ -503,12 +508,12 @@ private struct TreeRow<Content: View>: View {
     var body: some View {
         HStack(spacing: 0) {
             Spacer().frame(width: CGFloat(depth - 1) * 14)
-            Rectangle().fill(Theme.border).frame(width: 8, height: 1).padding(.leading, 10)
+            Rectangle().fill(Theme.border).frame(width: 8, height: 1).padding(.leading, 10).padding(.top, 17)
             content()
-                .font(.system(size: 11.5)).foregroundStyle(Theme.textSecondary)
-                .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 3)
+                .font(.system(size: 12.5)).foregroundStyle(Theme.textSecondary)
+                .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 6)
         }
-        .frame(minHeight: 22)
+        .frame(minHeight: 36)
     }
 }
 

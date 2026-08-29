@@ -25,6 +25,7 @@ struct RootView: View {
                             case .files: FilesView(connection: c, workspace: panel.workspace)
                             case .board: BoardView(connection: c, workspace: panel.workspace)
                             case .routines: RoutinesView(connection: c, workspace: panel.workspace)
+                            case .chats: ChatsListView(connection: c, workspace: panel.workspace) { chat in path.append(chat) }
                             }
                         }
                         .navigationDestination(for: FileRef.self) { ref in FileView(connection: c, ref: ref) }
