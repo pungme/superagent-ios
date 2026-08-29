@@ -11,7 +11,7 @@ settings:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: TNNFV3EQZN   # personal team (Worathiti Manosroi)
+    DEVELOPMENT_TEAM: TNNFV3EQZN   # set your own team id to build for a device
 targets:
   SuperAgent:
     type: application
