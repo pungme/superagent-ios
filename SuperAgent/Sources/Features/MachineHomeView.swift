@@ -53,6 +53,10 @@ struct ProjectIcon: View {
                     if let img = phase.image { img.resizable().scaledToFit().padding(6) }
                     else { letter(host) }
                 }
+            } else if workspace.isBrowser {
+                Image(systemName: "globe").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.textSecondary)
+            } else if workspace.isComputer {
+                Image(systemName: "desktopcomputer").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.textSecondary)
             } else {
                 Image(systemName: "folder").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.textSecondary)
             }
