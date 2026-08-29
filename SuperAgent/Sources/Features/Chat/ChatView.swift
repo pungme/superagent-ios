@@ -16,7 +16,6 @@ struct ChatView: View {
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var dictation = Dictation()
     @State private var atBottom = true
-    @State private var now = Date()
     @State private var showBrowserSheet = false
     @State private var showTasks = false
     /// The docked page above the chat. Defaults to shown when the Mac has one
@@ -24,13 +23,18 @@ struct ChatView: View {
     @State private var pageHidden = false
     @State private var pageFraction: CGFloat = 0.42
     @State private var dragStart: CGFloat?
+    @State private var containerHeight: CGFloat = 600
     @State private var showBranches = false
     @State private var creating = false
     @FocusState private var composerFocused: Bool
 
     private var transcript: Transcript { connection.transcripts[chat.id] ?? Transcript() }
-    private var turns: [Turn] { TurnBuilder.build(transcript.events) }
-    private var tasks: [TaskItem] { TaskList.build(transcript.events) }
+    /// Rebuilt when the transcript actually changes — not on every layout pass.
+    /// SwiftUI evaluates `body` constantly (a keystroke, a streamed word, a
+    /// scroll); regrouping every event each time froze long conversations.
+    @State private var turns: [Turn] = []
+    @State private var tasks: [TaskItem] = []
+    @State private var pendingApprovals: Set<String> = []
     /// Working while the Mac says this chat's agent process is alive (`live`,
     /// pushed on start/exit), or while text is streaming / a send is in flight.
     /// The last event alone was wrong: a turn that ended without a turn_end
@@ -42,7 +46,6 @@ struct ChatView: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
         VStack(spacing: 0) {
             ProjectBar(connection: connection, workspace: workspace, pageOpen: pageShown,
                        onBrowser: togglePage, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating)
@@ -54,7 +57,7 @@ struct ChatView: View {
                               onHide: { withAnimation(.easeOut(duration: 0.2)) { pageHidden = true } },
                               onExpand: { showBrowserSheet = true },
                               paused: composerFocused)
-                    .frame(height: max(160, geo.size.height * pageFraction))
+                    .frame(height: max(160, containerHeight * pageFraction))
                     .transition(.move(edge: .top).combined(with: .opacity))
                 // Drag the divider to give the page more or less room.
                 Rectangle().fill(Theme.border).frame(height: 1)
@@ -68,7 +71,7 @@ struct ChatView: View {
                             .onChanged { v in
                                 let start = dragStart ?? pageFraction
                                 dragStart = start
-                                pageFraction = min(0.72, max(0.2, start + v.translation.height / geo.size.height))
+                                pageFraction = min(0.72, max(0.2, start + v.translation.height / max(1, containerHeight)))
                             }
                             .onEnded { _ in dragStart = nil }
                     )
@@ -98,11 +101,7 @@ struct ChatView: View {
                                         discard: { connection.discard(chatId: chat.id, id: msg.id) })
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
-                        if !transcript.streaming.isEmpty {
-                            AssistantBubble(text: transcript.streaming, streaming: true).id("streaming")
-                        } else if isWorking {
-                            WorkingRow(since: lastUserAt, now: now).id("working")
-                        }
+                        tail
                         Color.clear.frame(height: 1).id("bottom")
                             .onAppear { atBottom = true }
                             .onDisappear { atBottom = false }
@@ -151,8 +150,17 @@ struct ChatView: View {
                 onSend: { send(text: draft) },
                 onStop: { Task { try? await connection.interrupt(chatId: chat.id) } })
         }
-        }
         .background(Theme.content)
+        // The docked page is a fraction of the screen; reading that height in the
+        // background keeps a GeometryReader out of the layout path (it made every
+        // pass re-measure the whole conversation).
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { containerHeight = geo.size.height }
+                    .onChange(of: geo.size.height) { _, h in containerHeight = h }
+            }
+        }
         .navigationTitle(chat.title ?? "Conversation")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -187,7 +195,9 @@ struct ChatView: View {
             }
         }
         .sheet(isPresented: $showTasks) { TasksView(tasks: tasks) }
-        .onAppear { connection.subscribe(chatId: chat.id) }
+        .onAppear { connection.subscribe(chatId: chat.id); rebuild() }
+        .onChange(of: transcript.lastSeq) { _, _ in rebuild() }
+        .onChange(of: transcript.events.count) { _, _ in rebuild() }
         .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
         .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
         .onChange(of: pickerItems) { _, items in loadPicked(items) }
@@ -196,7 +206,6 @@ struct ChatView: View {
             withAnimation(.easeOut(duration: 0.22)) { atBottom = focused ? true : atBottom }
         }
         .onChange(of: dictation.transcript) { _, t in if !t.isEmpty { draft = t } }
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { now = $0 }
         .alert("Couldn't send", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") {}
         } message: { Text(error ?? "") }
@@ -216,7 +225,33 @@ struct ChatView: View {
     private var lastUserAt: Date {
         if let m = transcript.outbox.last { return Date(timeIntervalSince1970: m.ts / 1000) }
         for e in transcript.events.reversed() { if case .user = e.data { return Date(timeIntervalSince1970: e.ts / 1000) } }
-        return now
+        return .now
+    }
+
+    /// What sits under the last turn: the text streaming in, or the working row.
+    @ViewBuilder
+    private var tail: some View {
+        if !transcript.streaming.isEmpty {
+            AssistantBubble(text: transcript.streaming, streaming: true).id("streaming")
+        } else if isWorking {
+            WorkingRow(since: lastUserAt).id("working")
+        }
+    }
+
+    /// One pass over the events for everything derived from them.
+    private func rebuild() {
+        let events = transcript.events
+        turns = TurnBuilder.build(events)
+        tasks = TaskList.build(events)
+        var open = Set<String>()
+        for e in events {
+            switch e.data {
+            case .approval(let id, _, _, _, _): open.insert(id)
+            case .approvalEnd(let id, _, _): open.remove(id)
+            default: break
+            }
+        }
+        pendingApprovals = open
     }
 
     private func send(text: String) {
@@ -287,18 +322,6 @@ struct ChatView: View {
         else { proxy.scrollTo("bottom", anchor: .bottom) }
     }
 
-    /// Approvals still waiting: asked, not yet ended.
-    private var pendingApprovals: Set<String> {
-        var open = Set<String>()
-        for e in transcript.events {
-            switch e.data {
-            case .approval(let id, _, _, _, _): open.insert(id)
-            case .approvalEnd(let id, _, _): open.remove(id)
-            default: break
-            }
-        }
-        return open
-    }
 }
 
 /// A picked photo, downscaled the way the desktop pastes them.
@@ -349,15 +372,18 @@ struct Attachment: Identifiable {
 
 struct WorkingRow: View {
     let since: Date
-    let now: Date
     var body: some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.small).tint(Theme.textSecondary)
-            Text("Working · \(Int(max(0, now.timeIntervalSince(since))))s")
-                .font(.system(size: 12.5, weight: .medium).monospacedDigit())
-                .foregroundStyle(Theme.textSecondary)
+        // Ticks on its own: a timer on the whole chat re-evaluated every turn
+        // in the conversation once a second.
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small).tint(Theme.textSecondary)
+                Text("Working · \(Int(max(0, context.date.timeIntervalSince(since))))s")
+                    .font(.system(size: 12.5, weight: .medium).monospacedDigit())
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
     }
 }
 
