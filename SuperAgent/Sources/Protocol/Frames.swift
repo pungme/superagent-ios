@@ -179,10 +179,26 @@ struct WireWorkspace: Codable, Hashable, Sendable, Identifiable {
     var status: WorkspaceStatus
     var branch: String?
     var browserUrl: String?
+    var subrepos: [WireSubrepo]?
 
     var isBrowser: Bool { kind == "browser" }
+    var isComputer: Bool { kind == "desktop" }
     /// Host of a browser project, for its favicon and a short label.
     var host: String? { browserUrl.flatMap { URL(string: $0)?.host }?.replacingOccurrences(of: "www.", with: "") }
+}
+
+struct WireSubrepo: Codable, Hashable, Sendable, Identifiable {
+    var name: String
+    var path: String
+    var branch: String?
+    var id: String { path }
+}
+
+struct WireDir: Codable, Hashable, Sendable, Identifiable {
+    var name: String
+    var path: String
+    var repo: Bool
+    var id: String { path }
 }
 
 struct WireGroup: Codable, Hashable, Sendable, Identifiable {

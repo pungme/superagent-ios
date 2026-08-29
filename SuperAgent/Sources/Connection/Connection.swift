@@ -475,6 +475,47 @@ extension Connection {
         _ = try await rpc("routines.runNow", .object(["id": .string(id)]))
     }
 
+    private struct TreeResult: Decodable { var workspaceId: String?; var groupId: String?; var tree: [WireGroup] }
+    private func applyTree(_ r: TreeResult) { tree = r.tree; OfflineCache.save(machine.id, "tree", r.tree) }
+
+    /// Add a folder on the Mac as a project (or focus it if it already is one). Returns its id.
+    func addWorkspace(groupId: String, name: String, path: String) async throws -> String {
+        let r = try await rpc("workspace.add", .object(["groupId": .string(groupId), "name": .string(name), "path": .string(path)]), as: TreeResult.self)
+        applyTree(r)
+        return r.workspaceId ?? ""
+    }
+
+    func createBrowserTab(url: String? = nil) async throws -> String {
+        var p: [String: JSONValue] = [:]
+        if let url { p["url"] = .string(url) }
+        let r = try await rpc("workspace.createBrowser", .object(p), as: TreeResult.self)
+        applyTree(r)
+        return r.workspaceId ?? ""
+    }
+
+    func removeWorkspace(id: String) async throws {
+        applyTree(try await rpc("workspace.remove", .object(["id": .string(id)]), as: TreeResult.self))
+        chats.removeAll { $0.workspaceId == id }
+    }
+
+    func createGroup(name: String) async throws {
+        applyTree(try await rpc("group.create", .object(["name": .string(name)]), as: TreeResult.self))
+    }
+
+    func renameGroup(id: String, name: String) async throws {
+        applyTree(try await rpc("group.rename", .object(["id": .string(id), "name": .string(name)]), as: TreeResult.self))
+    }
+
+    func deleteGroup(id: String) async throws {
+        applyTree(try await rpc("group.delete", .object(["id": .string(id)]), as: TreeResult.self))
+    }
+
+    func listDirs(path: String?) async throws -> (path: String, dirs: [WireDir]) {
+        struct R: Decodable { var path: String; var dirs: [WireDir] }
+        let r = try await rpc("fs.dirs", .object(path.map { ["path": .string($0)] } ?? [:]), as: R.self)
+        return (r.path, r.dirs)
+    }
+
     func browserOpen(chatId: String, url: String) async throws -> String {
         struct R: Decodable { var url: String }
         return try await rpc("browser.open", .object(["chatId": .string(chatId), "url": .string(url)]), as: R.self).url

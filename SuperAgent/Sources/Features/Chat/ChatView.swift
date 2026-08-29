@@ -19,6 +19,8 @@ struct ChatView: View {
     @State private var now = Date()
     @State private var showBrowser = false
     @State private var showTasks = false
+    @State private var showBranches = false
+    @State private var creating = false
     @FocusState private var composerFocused: Bool
 
     private var transcript: Transcript { connection.transcripts[chat.id] ?? Transcript() }
@@ -37,6 +39,8 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ProjectBar(connection: connection, workspace: workspace,
+                       onBrowser: { showBrowser = true }, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating)
             // Pinned, not scrolled away: you need to know the Mac is gone while
             // you're reading the latest reply, which is where you usually are.
             if connection.state != .connected {
@@ -130,11 +134,9 @@ struct ChatView: View {
                     }
                     .accessibilityLabel("Tasks")
                 }
-                Button { showBrowser = true } label: { Image(systemName: "safari") }
-                    .disabled(connection.state != .connected)
-                    .accessibilityLabel("Browser")
             }
         }
+        .sheet(isPresented: $showBranches) { BranchSheet(connection: connection, workspace: workspace) }
         .sheet(isPresented: $showBrowser) {
             BrowserView(connection: connection, chat: chat) { data in
                 if let a = Attachment(imageData: data) { attachments.append(a) }
@@ -182,6 +184,20 @@ struct ChatView: View {
                                    mode: app.preferredMode)
         }
         Haptics.tap()
+    }
+
+    /// "New chat": a fresh conversation in this project, opened in place.
+    private func newChat() {
+        guard !creating else { return }
+        creating = true
+        Task {
+            defer { creating = false }
+            do {
+                let id = try await connection.createChat(workspaceId: workspace.id)
+                if let c = connection.chats.first(where: { $0.id == id }) { app.openChatId = c.id }
+                Haptics.tap()
+            } catch { self.error = error.localizedDescription }
+        }
     }
 
     private func answer(id: String, approve: Bool) {
@@ -279,5 +295,50 @@ struct WorkingRow: View {
                 .foregroundStyle(Theme.textSecondary)
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// The bar above a project's chat, as on the desktop: Files, Todo (the board),
+/// the project's name and branch, Preview for browser projects, New chat.
+struct ProjectBar: View {
+    let connection: Connection
+    let workspace: WireWorkspace
+    let onBrowser: () -> Void
+    let onBranches: () -> Void
+    let onNewChat: () -> Void
+    let creating: Bool
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if !workspace.isBrowser, !workspace.isComputer {
+                    NavigationLink(value: WorkspacePanel(kind: .files, workspace: workspace)) { barButton("Files", "doc.text") }
+                    NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
+                    NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
+                }
+                Button(action: onBrowser) { barButton(workspace.isBrowser ? "Preview" : "Browser", "safari") }
+                    .buttonStyle(.plain).disabled(connection.state != .connected)
+                if let b = workspace.branch, !b.isEmpty {
+                    Button(action: onBranches) { BranchChip(branch: b) }.buttonStyle(.plain)
+                }
+                Spacer(minLength: 0)
+                Button(action: onNewChat) { barButton("New chat", "square.and.pencil") }
+                    .buttonStyle(.plain).disabled(creating || connection.state != .connected)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 7)
+        }
+        .background(Theme.panel)
+        .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
+    }
+
+    private func barButton(_ title: String, _ icon: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 11, weight: .medium))
+            Text(title).font(.system(size: 12.5, weight: .medium))
+        }
+        .foregroundStyle(Theme.textSecondary)
+        .padding(.horizontal, 9).padding(.vertical, 5)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.border))
     }
 }

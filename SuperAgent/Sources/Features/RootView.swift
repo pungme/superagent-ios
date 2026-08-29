@@ -15,7 +15,19 @@ struct RootView: View {
         NavigationStack(path: $path) {
             Group {
                 if let machine = app.selected {
-                    MachineHomeView(connection: app.connection(for: machine))
+                    let c = app.connection(for: machine)
+                    SidebarView(connection: c, path: $path)
+                        .navigationDestination(for: WireChat.self) { chat in
+                            ChatView(connection: c, chat: chat, workspace: workspace(c, for: chat))
+                        }
+                        .navigationDestination(for: WorkspacePanel.self) { panel in
+                            switch panel.kind {
+                            case .files: FilesView(connection: c, workspace: panel.workspace)
+                            case .board: BoardView(connection: c, workspace: panel.workspace)
+                            case .routines: RoutinesView(connection: c, workspace: panel.workspace)
+                            }
+                        }
+                        .navigationDestination(for: FileRef.self) { ref in FileView(connection: c, ref: ref) }
                 } else {
                     WelcomeView(onPair: { showPair = true })
                 }
@@ -45,14 +57,19 @@ struct RootView: View {
 }
 
 extension RootView {
+    /// The project a chat belongs to; a stand-in row if the tree hasn't named it yet.
+    private func workspace(_ c: Connection, for chat: WireChat) -> WireWorkspace {
+        c.tree.flatMap(\.workspaces).first { $0.id == chat.workspaceId }
+            ?? WireWorkspace(id: chat.workspaceId, name: chat.workspaceId == "__desktop_chat__" ? "Computer" : "Project",
+                             path: "", kind: chat.workspaceId == "__desktop_chat__" ? "desktop" : "app", status: .idle)
+    }
+
     /// Navigate to the chat a notification named, once its Mac has told us about it.
     private func openPending() {
         guard let chatId = app.openChatId, let machine = app.selected else { return }
         let c = app.connection(for: machine)
-        guard let chat = c.chats.first(where: { $0.id == chatId }),
-              let ws = c.tree.flatMap(\.workspaces).first(where: { $0.id == chat.workspaceId }) else { return }
+        guard let chat = c.chats.first(where: { $0.id == chatId }) else { return }
         path = NavigationPath()
-        path.append(ws)
         path.append(chat)
         app.openChatId = nil
     }
