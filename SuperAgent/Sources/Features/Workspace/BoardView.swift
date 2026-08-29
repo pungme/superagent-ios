@@ -49,7 +49,10 @@ struct BoardView: View {
             .scrollContentBackground(.hidden)
         }
         .background(Theme.panel)
+        .navigationTitle("Todo")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) { PanelTitle(title: "Todo", subtitle: workspace.name) }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { adding = true } label: { Image(systemName: "plus") }
                     .disabled(connection.state != .connected)

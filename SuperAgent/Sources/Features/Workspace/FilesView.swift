@@ -83,9 +83,12 @@ struct FilesView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Theme.panel)
+        .navigationTitle("Files")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .principal) { PanelTitle(title: "Files", subtitle: workspace.name) } }
         .task { await load() }
         .refreshable { await load() }
         .alert("Couldn't list files", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
@@ -104,10 +107,11 @@ private struct FileRow: View {
     let isDir: Bool
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: isDir ? "folder.fill" : icon)
-                .foregroundStyle(isDir ? Theme.needsYou : Theme.textSecondary)
+            Image(systemName: isDir ? "folder" : icon)
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.textSecondary)
                 .frame(width: 20)
-            Text(name).foregroundStyle(Theme.textPrimary).lineLimit(1).truncationMode(.middle)
+            Text(name).font(.system(size: 13.5)).foregroundStyle(Theme.textPrimary).lineLimit(1).truncationMode(.middle)
             Spacer()
             if isDir { Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textTertiary) }
         }
@@ -130,24 +134,35 @@ struct FileView: View {
     @State private var content: WireFileContent?
     @State private var error: String?
 
+    private var isMarkdown: Bool { ["md", "markdown"].contains((ref.path as NSString).pathExtension.lowercased()) }
+
     var body: some View {
         Group {
             if let content {
                 switch content {
                 case let .text(_, _, text, truncated):
-                    ScrollView([.vertical, .horizontal]) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(text)
-                                .font(.system(size: 12.5, design: .monospaced))
-                                .foregroundStyle(Theme.textPrimary)
-                                .textSelection(.enabled)
-                                .padding(14)
-                            if truncated {
-                                Text("Showing the first part of a large file.")
-                                    .font(.footnote).foregroundStyle(Theme.textTertiary).padding(14)
+                    // Markdown renders formatted, like the desktop viewer's View mode;
+                    // everything else is monospace with two-axis scroll, pinned top-left
+                    // (a two-axis ScrollView centres content smaller than itself).
+                    GeometryReader { geo in
+                        ScrollView(isMarkdown ? [.vertical] : [.vertical, .horizontal]) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                if isMarkdown {
+                                    MarkdownView(text: text).padding(14)
+                                } else {
+                                    Text(text)
+                                        .font(.system(size: 12.5, design: .monospaced))
+                                        .foregroundStyle(Theme.textPrimary)
+                                        .textSelection(.enabled)
+                                        .padding(14)
+                                }
+                                if truncated {
+                                    Text("Showing the first part of a large file.")
+                                        .font(.footnote).foregroundStyle(Theme.textTertiary).padding(14)
+                                }
                             }
+                            .frame(minWidth: geo.size.width, minHeight: geo.size.height, alignment: .topLeading)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 case let .image(_, _, _, data):
                     if let d = Data(base64Encoded: data), let img = UIImage(data: d) {
@@ -165,7 +180,7 @@ struct FileView: View {
                 ProgressView()
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.content)
         .navigationTitle((ref.path as NSString).lastPathComponent)
         .navigationBarTitleDisplayMode(.inline)
@@ -178,6 +193,18 @@ struct FileView: View {
         .task {
             do { content = try await connection.readFile(workspaceId: ref.workspaceId, path: ref.path) }
             catch { self.error = error.localizedDescription }
+        }
+    }
+}
+
+/// Title + project name in the bar, as the desktop's header names the project.
+struct PanelTitle: View {
+    let title: String
+    let subtitle: String
+    var body: some View {
+        VStack(spacing: 1) {
+            Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+            Text(subtitle).font(.system(size: 11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
         }
     }
 }

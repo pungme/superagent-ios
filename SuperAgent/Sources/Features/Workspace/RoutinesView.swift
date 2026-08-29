@@ -32,6 +32,9 @@ struct RoutinesView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.panel)
+        .navigationTitle("Routines")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .principal) { PanelTitle(title: "Routines", subtitle: workspace.name) } }
         .task { await load() }
         .refreshable { await load() }
         .sheet(item: $selected) { r in RoutineSheet(routine: r) }

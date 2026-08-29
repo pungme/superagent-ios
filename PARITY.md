@@ -5,7 +5,7 @@ re-interpretation. This is the checklist. Update it when either side changes.
 
 Legend: ✅ same on the phone · 🟡 partial (says how) · ❌ not on the phone yet · ➖ makes no sense on a phone
 
-Last full pass: 29 Aug 2026 (ios `46a89d3`, desktop `ceed502`).
+Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
 
 ## Sidebar (`Sidebar.tsx`)
 
@@ -39,7 +39,7 @@ Last full pass: 29 Aug 2026 (ios `46a89d3`, desktop `ceed502`).
 | Browser preview beside the chat (real, interactive) | 🟡 | live mirror + URL + back/forward/reload + "Send to agent"; no tapping/typing into the page |
 | Layout toggle (chat beside / below the page) | ➖ | |
 | Files tree | ✅ | folder at a time + filter |
-| File viewer (text, Markdown rendered, images, PDF) | 🟡 | text + images; Markdown shown raw; PDF ❌ |
+| File viewer (text, Markdown rendered, images, PDF) | 🟡 | text + images + Markdown rendered; PDF ❌ |
 | File **editor** (Edit → Save) | ❌ | needs `files.write` |
 | Drop files into the project | ➖ | share-sheet import later |
 | Todo board: columns, add, edit, move, tags, images | 🟡 | columns/add/edit/move ✅; tags read-only; card images ❌ |
@@ -75,7 +75,7 @@ Last full pass: 29 Aug 2026 (ios `46a89d3`, desktop `ceed502`).
 
 | Desktop | Phone | Notes |
 |---|---|---|
-| Computer chat (agent that drives the Mac) | ✅ | |
+| Computer chat (agent that drives the Mac), several conversations, New chat | ✅ | nested under the Computer row like a project's |
 | The desk: windows, folders, desktop tabs, file windows | ❌ | a screenshot mirror (`describeDesktop` + captures) is the realistic phone form |
 
 ## Whole-window sections
@@ -103,7 +103,7 @@ Last full pass: 29 Aug 2026 (ios `46a89d3`, desktop `ceed502`).
 
 1. Worktree chats from the phone (`worktree.create`, Keep/Discard) — the biggest behavioural gap.
 2. Unread + ahead/behind in `tree.list` / `chat.list`; group collapse.
-3. `files.write` (editor), Markdown rendering in the viewer, PDF.
+3. `files.write` (editor), PDF in the viewer.
 4. `@` file mentions.
 5. Routine run viewer; simulator mirror; background/ports strips.
 6. Dashboard, Calendar, Skills screens.

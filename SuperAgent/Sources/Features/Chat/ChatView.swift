@@ -26,15 +26,14 @@ struct ChatView: View {
     private var transcript: Transcript { connection.transcripts[chat.id] ?? Transcript() }
     private var turns: [Turn] { TurnBuilder.build(transcript.events) }
     private var tasks: [TaskItem] { TaskList.build(transcript.events) }
+    /// Working while the Mac says this chat's agent process is alive (`live`,
+    /// pushed on start/exit), or while text is streaming / a send is in flight.
+    /// The last event alone was wrong: a turn that ended without a turn_end
+    /// (interrupted, crashed) kept the spinner on for good.
     private var isWorking: Bool {
         if !transcript.streaming.isEmpty { return true }
         if transcript.outbox.contains(where: { $0.status == .sending }) { return true }
-        guard let last = transcript.events.last else { return false }
-        switch last.data {
-        case .turnEnd, .notice: return false
-        case .approvalEnd: return workspace.status == .working
-        default: return true
-        }
+        return connection.chats.first { $0.id == chat.id }?.live ?? false
     }
 
     var body: some View {
@@ -309,38 +308,36 @@ struct ProjectBar: View {
     let creating: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    if !workspace.isBrowser, !workspace.isComputer {
-                        NavigationLink(value: WorkspacePanel(kind: .files, workspace: workspace)) { barButton("Files", "doc.text") }
-                        NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
-                        NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
-                    }
-                    Button(action: onBrowser) { barButton(workspace.isBrowser ? "Preview" : "Browser", "safari") }
-                        .buttonStyle(.plain).disabled(connection.state != .connected)
-                    if let b = workspace.branch, !b.isEmpty {
-                        Button(action: onBranches) { BranchChip(branch: b) }.buttonStyle(.plain)
-                    }
-                }
-                .padding(.leading, 12).padding(.vertical, 7)
+        HStack(spacing: 6) {
+            if !workspace.isBrowser, !workspace.isComputer {
+                NavigationLink(value: WorkspacePanel(kind: .files, workspace: workspace)) { barButton("Files", "doc.text") }
+                NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
+                NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
             }
-            // Always in reach, as at the desktop's top right.
-            Button(action: onNewChat) { barButton("New chat", "square.and.pencil") }
+            Button(action: onBrowser) { barButton(nil, "safari") }
+                .buttonStyle(.plain).disabled(connection.state != .connected)
+                .accessibilityLabel(workspace.isBrowser ? "Preview" : "Browser")
+            if let b = workspace.branch, !b.isEmpty {
+                Button(action: onBranches) { BranchChip(branch: b) }.buttonStyle(.plain).layoutPriority(-1)
+            }
+            Spacer(minLength: 0)
+            // ✎ at the right, as on the desktop.
+            Button(action: onNewChat) { barButton(nil, "square.and.pencil") }
                 .buttonStyle(.plain).disabled(creating || connection.state != .connected)
-                .padding(.trailing, 12)
+                .accessibilityLabel("New chat")
         }
+        .padding(.horizontal, 10).padding(.vertical, 6)
         .background(Theme.panel)
         .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
     }
 
-    private func barButton(_ title: String, _ icon: String) -> some View {
-        HStack(spacing: 5) {
+    private func barButton(_ title: String?, _ icon: String) -> some View {
+        HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 11, weight: .medium))
-            Text(title).font(.system(size: 12.5, weight: .medium))
+            if let title { Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1) }
         }
         .foregroundStyle(Theme.textSecondary)
-        .padding(.horizontal, 9).padding(.vertical, 5)
+        .padding(.horizontal, title == nil ? 7 : 8).padding(.vertical, 5)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.border))
     }

@@ -70,6 +70,12 @@ struct ProjectIcon: View {
 
 struct ConnectionPill: View {
     let state: Connection.State
+    static func color(for state: Connection.State) -> Color {
+        switch state { case .connected: Theme.working; case .connecting: Theme.needsYou; default: Theme.textTertiary }
+    }
+    static func label(for state: Connection.State) -> String {
+        switch state { case .connected: "Live"; case .connecting: "Connecting"; case .machineOffline: "Mac asleep"; default: "Offline" }
+    }
     var body: some View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 7, height: 7)

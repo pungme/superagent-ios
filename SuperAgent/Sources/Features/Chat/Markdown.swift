@@ -172,14 +172,46 @@ struct MarkdownView: View {
         case .rule:
             Rectangle().fill(Theme.border).frame(height: 1).padding(.vertical, 2)
         case let .table(rows):
-            ScrollView(.horizontal, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
-                        Text(row.trimmingCharacters(in: CharacterSet(charactersIn: "|")).replacingOccurrences(of: " | ", with: "   "))
-                            .font(.system(size: 12, design: .monospaced).weight(i == 0 ? .semibold : .regular))
+            MarkdownTable(rows: rows)
+        }
+    }
+}
+
+/// A GitHub-style table, as the desktop renders it: header row bold on a
+/// tinted band, hairline rules, cells inline-styled; scrolls sideways if wide.
+struct MarkdownTable: View {
+    let rows: [String]
+
+    private var cells: [[String]] {
+        rows.map { row in
+            var r = row.trimmingCharacters(in: .whitespaces)
+            if r.hasPrefix("|") { r.removeFirst() }
+            if r.hasSuffix("|") { r.removeLast() }
+            return r.split(separator: "|", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+    }
+
+    var body: some View {
+        let table = cells
+        let columns = table.map(\.count).max() ?? 0
+        ScrollView(.horizontal, showsIndicators: false) {
+            Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+                ForEach(Array(table.enumerated()), id: \.offset) { i, row in
+                    GridRow {
+                        ForEach(0..<columns, id: \.self) { c in
+                            InlineText(c < row.count ? row[c] : "")
+                                .font(.system(size: 13, weight: i == 0 ? .semibold : .regular))
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .gridColumnAlignment(.leading)
+                        }
                     }
+                    .background(i == 0 ? Theme.hover : Color.clear)
+                    if i < table.count - 1 { Divider().overlay(Theme.border) }
                 }
             }
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.border))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 }
