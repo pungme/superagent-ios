@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct SuperAgentApp: App {
+    @UIApplicationDelegateAdaptor(PushDelegate.self) private var pushDelegate
     @State private var app = AppState()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -9,9 +10,12 @@ struct SuperAgentApp: App {
         WindowGroup {
             RootView()
                 .environment(app)
+                .onAppear { PushDelegate.app = app }
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     switch phase {
-                    case .active: app.becameActive()
+                    case .active:
+                        PushDelegate.app = app
+                        app.becameActive()
                     case .background: app.wentToBackground()
                     default: break
                     }

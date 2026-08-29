@@ -62,6 +62,15 @@ final class AppState {
         if selectedMachineId == machine.id { selectedMachineId = machines.first?.id }
     }
 
+    /// A notification was tapped: switch to that Mac and remember where to go.
+    var openChatId: String?
+    func openFromPush(_ info: PushInfo) {
+        if let ws = info.workspaceId, let m = machines.first(where: { connections[$0.id]?.tree.flatMap(\.workspaces).contains { $0.id == ws } ?? false }) {
+            selectedMachineId = m.id
+        }
+        openChatId = info.chatId
+    }
+
     func registerPushToken(_ token: String) {
         pushToken = token
         for c in connections.values where c.state == .connected {
