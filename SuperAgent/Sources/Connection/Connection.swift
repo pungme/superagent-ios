@@ -54,6 +54,7 @@ final class Connection {
     private var attempt = 0
     private var wantConnected = false
     private var pingTask: Task<Void, Never>?
+    private var lastPong = Date()
 
     init(machine: PairedMachine) {
         self.machine = machine
@@ -185,17 +186,28 @@ final class Connection {
                 case .failure(let e): c.resume(throwing: e)
                 }
             }
-        case .pong, .unknown:
+        case .pong:
+            lastPong = Date()
+        case .unknown:
             break
         }
     }
 
     private func startPing() {
         pingTask?.cancel()
+        lastPong = Date()
         pingTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(25))
-                await self?.send(.ping)
+                guard let self else { return }
+                // Two unanswered pings: the socket is half-open (relay restarted,
+                // network changed). Drop it and reconnect instead of waiting forever.
+                if Date().timeIntervalSince(self.lastPong) > 60 {
+                    self.lastError = "the relay stopped answering"
+                    self.transport?.close()
+                    return
+                }
+                self.send(.ping)
             }
         }
     }

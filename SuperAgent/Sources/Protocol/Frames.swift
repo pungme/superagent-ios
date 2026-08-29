@@ -199,9 +199,10 @@ struct WireMachine: Codable, Hashable, Sendable {
 
 // MARK: - Frames
 
-struct RpcError: Codable, Hashable, Sendable, Error {
+struct RpcError: Codable, Hashable, Sendable, LocalizedError {
     var code: String
     var message: String
+    var errorDescription: String? { message }
 }
 
 /// Mac → phone. `res` carries its result as raw JSON so each call site decodes what it expects.

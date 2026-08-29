@@ -47,6 +47,10 @@ final class AppState {
     // MARK: Pairing / removal
 
     func add(_ machine: PairedMachine) {
+        // Re-pairing the same Mac changes its secret, token or relay: a cached
+        // connection would keep using the old record.
+        connections[machine.id]?.disconnect()
+        connections[machine.id] = nil
         MachineStore.upsert(machine)
         machines = MachineStore.load()
         selectedMachineId = machine.id
