@@ -17,10 +17,13 @@ struct ChatView: View {
     @State private var dictation = Dictation()
     @State private var atBottom = true
     @State private var now = Date()
+    @State private var showBrowser = false
+    @State private var showTasks = false
     @FocusState private var composerFocused: Bool
 
     private var transcript: Transcript { connection.transcripts[chat.id] ?? Transcript() }
     private var turns: [Turn] { TurnBuilder.build(transcript.events) }
+    private var tasks: [TaskItem] { TaskList.build(transcript.events) }
     private var isWorking: Bool {
         if !transcript.streaming.isEmpty { return true }
         if transcript.outbox.contains(where: { $0.status == .sending }) { return true }
@@ -112,7 +115,32 @@ struct ChatView: View {
                         .font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
                 }
             }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if !tasks.isEmpty {
+                    Button { showTasks = true } label: {
+                        Image(systemName: "checklist")
+                            .overlay(alignment: .topTrailing) {
+                                let open = tasks.filter { !$0.isDone }.count
+                                if open > 0 {
+                                    Text("\(open)").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.accentFg)
+                                        .padding(.horizontal, 4).padding(.vertical, 1)
+                                        .background(Theme.accent, in: Capsule()).offset(x: 8, y: -6)
+                                }
+                            }
+                    }
+                    .accessibilityLabel("Tasks")
+                }
+                Button { showBrowser = true } label: { Image(systemName: "safari") }
+                    .disabled(connection.state != .connected)
+                    .accessibilityLabel("Browser")
+            }
         }
+        .sheet(isPresented: $showBrowser) {
+            BrowserView(connection: connection, chat: chat) { data in
+                if let a = Attachment(imageData: data) { attachments.append(a) }
+            }
+        }
+        .sheet(isPresented: $showTasks) { TasksView(tasks: tasks) }
         .onAppear { connection.subscribe(chatId: chat.id) }
         .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
         .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)

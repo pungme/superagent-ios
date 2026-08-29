@@ -19,8 +19,17 @@ desktop palette light+dark, app icon, sidebar-style home (groups, favicons, `⎇
 status, previews), conversation list with rename/delete, block Markdown with code blocks,
 collapsed step groups with results, diff cards, ask-block choices, per-turn footers, Model/Mode
 pills (agent restarts on the same session when they change), photos, dictation, "/" commands.
-Next: Phase 2 panels (Tasks, Board, Routines, Files, git), then Phase 3 (Live Activity, widgets,
-iPad, share sheet, Watch).
+Sending is optimistic: the bubble appears at once (per-chat outbox), queues while the Mac is
+unreachable, delivers on the next welcome, and offers Retry/Discard when the Mac refuses. Photos are
+re-encoded to fit one relay frame (1 MiB Cloudflare ceiling).
+
+Phase 2 is built and verified the same way: the project screen has Chats / Files / Board / Routines
+tabs, a branch chip that switches branches, a Files browser with a read-only viewer (text, pictures),
+a Board with columns, add, edit and swipe-to-move, Routines with enable/run-now/last run, a Browser
+mirror in every chat (opens pages on the Mac, live capture every 2 s, back/forward/reload, "Send to
+agent" attaches the capture), a Tasks sheet fed by the agent's planning tools, and search across
+every conversation from the home screen.
+Next: Phase 3 (Live Activity, widgets, iPad, share sheet, Watch, offline cache).
 
 ## Milestones (iOS side)
 

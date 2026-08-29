@@ -24,7 +24,7 @@ enum WireEventData: Hashable, Sendable {
     case user(id: String, text: String, images: [ImageMeta], from: Origin)
     case assistant(id: String, text: String)
     case thinking(id: String, text: String)
-    case tool(id: String, name: String, detail: String)
+    case tool(id: String, name: String, detail: String, task: TaskInfo?)
     case toolResult(toolId: String, ok: Bool, summary: String)
     case diff(id: String, file: String, hunks: [DiffHunk])
     case turnEnd(ok: Bool, subtype: String, costUsd: Double?, tokens: Int?)
@@ -56,7 +56,7 @@ enum WireEventData: Hashable, Sendable {
 extension WireEventData: Codable {
     private enum K: String, CodingKey {
         case kind, id, text, images, from, name, detail, toolId, ok, summary, file, hunks
-        case subtype, costUsd, tokens, claudeSessionId, model, commands, toolName, preview, approvalKind, expiresAt, outcome, by
+        case subtype, costUsd, tokens, claudeSessionId, model, commands, toolName, preview, approvalKind, expiresAt, outcome, by, task
     }
 
     init(from decoder: Decoder) throws {
@@ -77,7 +77,8 @@ extension WireEventData: Codable {
             self = .tool(
                 id: try c.decode(String.self, forKey: .id),
                 name: try c.decode(String.self, forKey: .name),
-                detail: try c.decodeIfPresent(String.self, forKey: .detail) ?? "")
+                detail: try c.decodeIfPresent(String.self, forKey: .detail) ?? "",
+                task: try c.decodeIfPresent(TaskInfo.self, forKey: .task))
         case "tool_result":
             self = .toolResult(
                 toolId: try c.decode(String.self, forKey: .toolId),
@@ -128,8 +129,9 @@ extension WireEventData: Codable {
             try c.encode(from, forKey: .from)
         case let .assistant(id, text), let .thinking(id, text):
             try c.encode(id, forKey: .id); try c.encode(text, forKey: .text)
-        case let .tool(id, name, detail):
+        case let .tool(id, name, detail, task):
             try c.encode(id, forKey: .id); try c.encode(name, forKey: .name); try c.encode(detail, forKey: .detail)
+            try c.encodeIfPresent(task, forKey: .task)
         case let .toolResult(toolId, ok, summary):
             try c.encode(toolId, forKey: .toolId); try c.encode(ok, forKey: .ok); try c.encode(summary, forKey: .summary)
         case let .diff(id, file, hunks):
@@ -369,4 +371,111 @@ extension Data {
         base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
     }
+}
+
+// MARK: - Phase 2 payloads
+
+/// What a planning tool call said (TodoWrite, TaskCreate, TaskUpdate).
+struct TaskInfo: Codable, Hashable, Sendable {
+    struct Todo: Codable, Hashable, Sendable {
+        var text: String
+        var status: String
+    }
+    var todos: [Todo]?
+    var subject: String?
+    var description: String?
+    var taskId: String?
+    var status: String?
+}
+
+struct WireBrowserShot: Codable, Sendable {
+    var url: String
+    var title: String
+    var canGoBack: Bool
+    var canGoForward: Bool
+    var width: Int
+    var height: Int
+    var jpeg: String
+}
+
+enum WireFileContent: Decodable, Sendable {
+    case text(path: String, size: Int, text: String, truncated: Bool)
+    case image(path: String, size: Int, mediaType: String, data: String)
+    case binary(path: String, size: Int)
+
+    private enum K: String, CodingKey { case kind, path, size, text, truncated, mediaType, data }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: K.self)
+        let path = try c.decode(String.self, forKey: .path)
+        let size = try c.decodeIfPresent(Int.self, forKey: .size) ?? 0
+        switch try c.decode(String.self, forKey: .kind) {
+        case "text":
+            self = .text(path: path, size: size, text: try c.decodeIfPresent(String.self, forKey: .text) ?? "",
+                         truncated: try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false)
+        case "image":
+            self = .image(path: path, size: size, mediaType: try c.decodeIfPresent(String.self, forKey: .mediaType) ?? "image/jpeg",
+                          data: try c.decodeIfPresent(String.self, forKey: .data) ?? "")
+        default:
+            self = .binary(path: path, size: size)
+        }
+    }
+}
+
+struct WireFileList: Decodable, Sendable {
+    var root: String
+    var files: [String]
+}
+
+struct WireBranch: Codable, Hashable, Sendable, Identifiable {
+    var name: String
+    var current: Bool
+    var worktree: String?
+    var id: String { name }
+}
+
+struct WireSearchHit: Codable, Hashable, Sendable, Identifiable {
+    var chatId: String
+    var workspaceId: String
+    var title: String?
+    var ts: Double
+    var role: String
+    var snippet: String
+    var id: String { chatId + "/" + role }
+}
+
+enum CardStatus: String, Codable, CaseIterable, Sendable {
+    case todo, doing, testing, done
+    var label: String {
+        switch self { case .todo: "Todo"; case .doing: "Doing"; case .testing: "Testing"; case .done: "Done" }
+    }
+}
+
+struct WireCard: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var workspaceId: String
+    var title: String
+    var body: String
+    var status: CardStatus
+    var chatId: String?
+    var branch: String?
+    var images: [String]
+    var tags: [String]
+    var position: Double
+    var createdAt: Double
+    var updatedAt: Double
+}
+
+struct WireRoutine: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var workspaceId: String
+    var prompt: String
+    var intervalMs: Double
+    var enabled: Int
+    var nextRunAt: Double
+    var lastRunAt: Double?
+    var lastRunStatus: String?
+    var lastRunSummary: String?
+    var runCount: Int?
+    var lastRunTokens: Int?
+    var isEnabled: Bool { enabled != 0 }
 }

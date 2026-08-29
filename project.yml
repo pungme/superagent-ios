@@ -37,6 +37,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pungme.superagent.ios
+        # Renamed in Xcode; kept here so `xcodegen generate` doesn't undo it.
+        PRODUCT_NAME: SuperAgent - Companion
         CODE_SIGN_ENTITLEMENTS: SuperAgent/SuperAgent.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1"

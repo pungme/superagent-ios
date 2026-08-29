@@ -381,6 +381,81 @@ final class Connection {
     }
 }
 
+// MARK: - Projects, files, board, routines, browser, search
+
+extension Connection {
+    /// Re-read the sidebar (after a checkout, say); `tree` updates in place.
+    func refreshTree() async {
+        if let t: [WireGroup] = try? await rpc("tree.list", as: [WireGroup].self) { tree = t }
+    }
+
+    func searchChats(_ query: String) async throws -> [WireSearchHit] {
+        try await rpc("chat.search", .object(["query": .string(query), "limit": .number(40)]), as: [WireSearchHit].self)
+    }
+
+    func listFiles(workspaceId: String) async throws -> WireFileList {
+        try await rpc("files.list", .object(["workspaceId": .string(workspaceId)]), as: WireFileList.self)
+    }
+
+    func readFile(workspaceId: String, path: String) async throws -> WireFileContent {
+        try await rpc("files.read", .object(["workspaceId": .string(workspaceId), "path": .string(path)]), as: WireFileContent.self)
+    }
+
+    func branches(workspaceId: String) async throws -> [WireBranch] {
+        try await rpc("git.branches", .object(["workspaceId": .string(workspaceId)]), as: [WireBranch].self)
+    }
+
+    func checkout(workspaceId: String, branch: String) async throws {
+        _ = try await rpc("git.checkout", .object(["workspaceId": .string(workspaceId), "branch": .string(branch)]))
+        await refreshTree()
+    }
+
+    func listCards(workspaceId: String) async throws -> [WireCard] {
+        try await rpc("board.list", .object(["workspaceId": .string(workspaceId)]), as: [WireCard].self)
+    }
+
+    func addCard(workspaceId: String, title: String, body: String, status: CardStatus) async throws -> WireCard {
+        try await rpc("board.add", .object(["workspaceId": .string(workspaceId), "title": .string(title), "body": .string(body), "status": .string(status.rawValue)]), as: WireCard.self)
+    }
+
+    func updateCard(id: String, title: String? = nil, body: String? = nil, status: CardStatus? = nil) async throws -> WireCard {
+        var p: [String: JSONValue] = ["id": .string(id)]
+        if let title { p["title"] = .string(title) }
+        if let body { p["body"] = .string(body) }
+        if let status { p["status"] = .string(status.rawValue) }
+        return try await rpc("board.update", .object(p), as: WireCard.self)
+    }
+
+    func moveCard(id: String, to status: CardStatus) async throws -> WireCard {
+        try await rpc("board.move", .object(["id": .string(id), "status": .string(status.rawValue), "beforeId": .null]), as: WireCard.self)
+    }
+
+    func listRoutines() async throws -> [WireRoutine] {
+        try await rpc("routines.list", nil, as: [WireRoutine].self)
+    }
+
+    func setRoutineEnabled(id: String, enabled: Bool) async throws {
+        _ = try await rpc("routines.setEnabled", .object(["id": .string(id), "enabled": .bool(enabled)]))
+    }
+
+    func runRoutineNow(id: String) async throws {
+        _ = try await rpc("routines.runNow", .object(["id": .string(id)]))
+    }
+
+    func browserOpen(chatId: String, url: String) async throws -> String {
+        struct R: Decodable { var url: String }
+        return try await rpc("browser.open", .object(["chatId": .string(chatId), "url": .string(url)]), as: R.self).url
+    }
+
+    func browserShot(chatId: String) async throws -> WireBrowserShot {
+        try await rpc("browser.screenshot", .object(["chatId": .string(chatId), "maxWidth": .number(900)]), as: WireBrowserShot.self)
+    }
+
+    func browserNav(chatId: String, action: String) async throws {
+        _ = try await rpc("browser.nav", .object(["chatId": .string(chatId), "action": .string(action)]))
+    }
+}
+
 extension Bundle {
     var shortVersion: String { infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
 }

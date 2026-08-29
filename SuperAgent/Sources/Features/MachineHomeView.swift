@@ -5,6 +5,10 @@ import SwiftUI
 /// language — a spinner while the agent works, a dot when it needs you.
 struct MachineHomeView: View {
     let connection: Connection
+    @Environment(AppState.self) private var app
+    @State private var query = ""
+    @State private var hits: [WireSearchHit] = []
+    @State private var searching = false
 
     var body: some View {
         ScrollView {
@@ -14,7 +18,13 @@ struct MachineHomeView: View {
                         .padding(14)
                         .superCard()
                 }
-                ForEach(connection.tree) { group in
+                if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    SearchResults(hits: hits, searching: searching, workspaces: connection.tree.flatMap(\.workspaces)) { hit in
+                        query = ""
+                        app.openChatId = hit.chatId
+                    }
+                }
+                ForEach(query.isEmpty ? connection.tree : []) { group in
                     VStack(alignment: .leading, spacing: 6) {
                         GroupLabel(text: group.name).padding(.leading, 6)
                         VStack(spacing: 0) {
@@ -53,13 +63,63 @@ struct MachineHomeView: View {
             }
         }
         .navigationDestination(for: WireWorkspace.self) { ws in
-            ChatListView(connection: connection, workspace: ws)
+            WorkspaceView(connection: connection, workspace: ws)
         }
         .refreshable { connection.connect() }
+        .searchable(text: $query, prompt: "Search every conversation")
+        .task(id: query) {
+            let q = query.trimmingCharacters(in: .whitespaces)
+            guard !q.isEmpty else { hits = []; return }
+            searching = true
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            hits = (try? await connection.searchChats(q)) ?? []
+            searching = false
+        }
     }
 
     private func chats(for workspaceId: String) -> [WireChat] {
         connection.chats.filter { $0.workspaceId == workspaceId }
+    }
+}
+
+/// What the search box found, newest first; tapping opens the conversation.
+private struct SearchResults: View {
+    let hits: [WireSearchHit]
+    let searching: Bool
+    let workspaces: [WireWorkspace]
+    let open: (WireSearchHit) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            GroupLabel(text: searching && hits.isEmpty ? "SEARCHING…" : (hits.isEmpty ? "NO MATCHES" : "\(hits.count) MATCH\(hits.count == 1 ? "" : "ES")")).padding(.leading, 6)
+            if !hits.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(hits.enumerated()), id: \.element.id) { i, hit in
+                        Button { open(hit) } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(hit.title ?? "New conversation").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                                    Spacer()
+                                    Text(Date(timeIntervalSince1970: hit.ts / 1000), format: .relative(presentation: .named))
+                                        .font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
+                                }
+                                Text(hit.snippet).font(.system(size: 13)).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                                if let ws = workspaces.first(where: { $0.id == hit.workspaceId }) {
+                                    Text((ws.isBrowser ? ws.host ?? ws.name : ws.name) + " · " + (hit.role == "user" ? "you said" : "the agent said"))
+                                        .font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
+                                }
+                            }
+                            .padding(.horizontal, 14).padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if i < hits.count - 1 { Divider().overlay(Theme.border).padding(.leading, 14) }
+                    }
+                }
+                .superCard()
+            }
+        }
     }
 }
 

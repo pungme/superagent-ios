@@ -64,9 +64,9 @@ struct TurnTests {
             ev(1, .user(id: "u", text: "go", images: [], from: .ios)),
             ev(2, .session(claudeSessionId: "s", model: nil, commands: [])),
             ev(3, .assistant(id: "a1", text: "Looking.")),
-            ev(4, .tool(id: "t1", name: "Bash", detail: "ls")),
+            ev(4, .tool(id: "t1", name: "Bash", detail: "ls", task: nil)),
             ev(5, .toolResult(toolId: "t1", ok: true, summary: "")),
-            ev(6, .tool(id: "t2", name: "Read", detail: "a.ts")),
+            ev(6, .tool(id: "t2", name: "Read", detail: "a.ts", task: nil)),
             ev(7, .diff(id: "t3", file: "a.ts", hunks: [])),
             ev(8, .assistant(id: "a2", text: "Done.")),
             ev(9, .turnEnd(ok: true, subtype: "success", costUsd: 0.1, tokens: 1234))
@@ -86,7 +86,7 @@ struct TurnTests {
         #expect(StepGroup.verb(for: "mcp__cove-browser__browser_click") == "Browsing")
         #expect(StepGroup.verb(for: "Write") == "Editing")
         let g = StepGroup(id: "g", events: [
-            WireEvent(chatId: "c", seq: 1, ts: 0, data: .tool(id: "t", name: "Bash", detail: "")),
+            WireEvent(chatId: "c", seq: 1, ts: 0, data: .tool(id: "t", name: "Bash", detail: "", task: nil)),
             WireEvent(chatId: "c", seq: 2, ts: 0, data: .toolResult(toolId: "t", ok: false, summary: "boom"))
         ])
         #expect(g.failed == 1)

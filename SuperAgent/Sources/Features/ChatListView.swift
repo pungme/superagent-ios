@@ -43,11 +43,6 @@ struct ChatListView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.panel)
-        .navigationTitle(workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name)
-        .navigationBarTitleDisplayMode(.large)
-        .navigationDestination(for: WireChat.self) { chat in
-            ChatView(connection: connection, chat: chat, workspace: workspace)
-        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

@@ -44,7 +44,7 @@ struct StepGroup: Identifiable {
         for e in events {
             let verb: String?
             switch e.data {
-            case .tool(_, let name, _): verb = StepGroup.verb(for: name)
+            case .tool(_, let name, _, _): verb = StepGroup.verb(for: name)
             case .diff: verb = "Editing"
             default: verb = nil
             }
@@ -135,7 +135,7 @@ extension WireEvent {
     /// The id of a tool call or edit, for pairing it with its result.
     var toolIdIfCall: String? {
         switch data {
-        case .tool(let id, _, _), .diff(let id, _, _): id
+        case .tool(let id, _, _, _), .diff(let id, _, _): id
         default: nil
         }
     }
