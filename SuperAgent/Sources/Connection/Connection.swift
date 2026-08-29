@@ -37,6 +37,8 @@ final class Connection {
     }
 
     let machine: PairedMachine
+    /// Fired after the Mac sends a fresh chat list (welcome or `chats`).
+    var onChatsChanged: (() -> Void)?
     private(set) var state: State = .idle
     private(set) var info: WireMachine?
     private(set) var tree: [WireGroup] = []
@@ -137,6 +139,7 @@ final class Connection {
             info = machineInfo
             self.tree = tree
             self.chats = chats
+            onChatsChanged?()
             state = .connected
             lastError = nil
             // Resubscribe to whatever we were watching, from where we left off.
@@ -174,6 +177,7 @@ final class Connection {
             }
         case .chats(let list):
             chats = list
+            onChatsChanged?()
         case let .res(id, result):
             if let c = pending.removeValue(forKey: id) {
                 switch result {

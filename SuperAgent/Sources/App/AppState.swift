@@ -22,6 +22,7 @@ final class AppState {
     func connection(for machine: PairedMachine) -> Connection {
         if let c = connections[machine.id] { return c }
         let c = Connection(machine: machine)
+        c.onChatsChanged = { [weak self] in self?.chatsVersion += 1 }
         connections[machine.id] = c
         return c
     }
@@ -64,6 +65,8 @@ final class AppState {
 
     /// A notification was tapped: switch to that Mac and remember where to go.
     var openChatId: String?
+    /// Bumped when a connection's chat list changes, so a pending push open can retry.
+    var chatsVersion = 0
     func openFromPush(_ info: PushInfo) {
         if let ws = info.workspaceId, let m = machines.first(where: { connections[$0.id]?.tree.flatMap(\.workspaces).contains { $0.id == ws } ?? false }) {
             selectedMachineId = m.id
