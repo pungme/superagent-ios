@@ -1,70 +1,146 @@
 import SwiftUI
 
-/// Projects on one Mac, grouped like the desktop sidebar, with each agent's status.
+/// The desktop sidebar, as a phone screen: groups in small caps, projects with
+/// a folder (or the site's favicon), the branch chip, and the same status
+/// language — a spinner while the agent works, a dot when it needs you.
 struct MachineHomeView: View {
     let connection: Connection
 
     var body: some View {
-        List {
-            if connection.state != .connected {
-                Section { ConnectionBanner(connection: connection) }
-            }
-            ForEach(connection.tree) { group in
-                Section(group.name) {
-                    ForEach(group.workspaces) { ws in
-                        NavigationLink(value: ws) {
-                            HStack(spacing: 12) {
-                                StatusDot(status: ws.status)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(ws.name).font(.body)
-                                    Text(statusLabel(ws.status, live: chatsLive(ws.id)))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                if connection.state != .connected {
+                    ConnectionBanner(connection: connection)
+                        .padding(14)
+                        .superCard()
+                }
+                ForEach(connection.tree) { group in
+                    VStack(alignment: .leading, spacing: 6) {
+                        GroupLabel(text: group.name).padding(.leading, 6)
+                        VStack(spacing: 0) {
+                            ForEach(Array(group.workspaces.enumerated()), id: \.element.id) { i, ws in
+                                NavigationLink(value: ws) {
+                                    ProjectRow(workspace: ws, chats: chats(for: ws.id))
+                                }
+                                .buttonStyle(.plain)
+                                if i < group.workspaces.count - 1 {
+                                    Divider().overlay(Theme.border).padding(.leading, 52)
                                 }
                             }
+                            if group.workspaces.isEmpty {
+                                Text("Add a project on the Mac and it appears here.")
+                                    .font(.footnote).foregroundStyle(Theme.textTertiary)
+                                    .padding(14)
+                            }
                         }
+                        .superCard()
                     }
                 }
+                if connection.state == .connected, connection.tree.isEmpty {
+                    ContentUnavailableView("No projects yet", systemImage: "folder",
+                                           description: Text("Add a project on the Mac and it appears here."))
+                }
             }
-            if connection.state == .connected, connection.tree.isEmpty {
-                ContentUnavailableView("No projects yet", systemImage: "folder", description: Text("Add a project on the Mac and it appears here."))
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+        }
+        .background(Theme.panel)
+        .navigationTitle(connection.machine.name)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                ConnectionPill(state: connection.state)
             }
         }
-        .navigationTitle(connection.machine.name)
         .navigationDestination(for: WireWorkspace.self) { ws in
             ChatListView(connection: connection, workspace: ws)
         }
         .refreshable { connection.connect() }
     }
 
-    private func chatsLive(_ workspaceId: String) -> Int {
-        connection.chats.filter { $0.workspaceId == workspaceId && $0.live }.count
+    private func chats(for workspaceId: String) -> [WireChat] {
+        connection.chats.filter { $0.workspaceId == workspaceId }
+    }
+}
+
+struct ProjectRow: View {
+    let workspace: WireWorkspace
+    let chats: [WireChat]
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProjectIcon(workspace: workspace)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    if let b = workspace.branch, !b.isEmpty { BranchChip(branch: b) }
+                }
+                Text(subtitle)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            StatusIndicator(status: workspace.status)
+            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textTertiary)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 11)
+        .contentShape(Rectangle())
     }
 
-    private func statusLabel(_ s: WorkspaceStatus, live: Int) -> String {
-        switch s {
-        case .working: "Working"
-        case .needsYou: "Needs you"
-        case .idle: live > 0 ? "Idle · \(live) running" : "Idle"
+    private var subtitle: String {
+        switch workspace.status {
+        case .working: return "Working…"
+        case .needsYou: return "Needs you"
+        case .idle:
+            let live = chats.filter(\.live).count
+            if let p = chats.sorted(by: { $0.updatedAt > $1.updatedAt }).first?.preview, !p.isEmpty { return p }
+            if live > 0 { return "\(live) running" }
+            return chats.isEmpty ? "No conversations yet" : "\(chats.count) conversation\(chats.count == 1 ? "" : "s")"
         }
     }
 }
 
-struct StatusDot: View {
-    let status: WorkspaceStatus
+/// Folder for a code project; the site's favicon for a browser project.
+struct ProjectIcon: View {
+    let workspace: WireWorkspace
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 9, height: 9)
-            .overlay(Circle().stroke(color.opacity(0.35), lineWidth: 3).opacity(status == .working ? 1 : 0))
-            .accessibilityLabel(Text(status.rawValue))
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.accentSoft)
+            if workspace.isBrowser, let host = workspace.host, let url = URL(string: "https://\(host)/favicon.ico") {
+                AsyncImage(url: url) { phase in
+                    if let img = phase.image { img.resizable().scaledToFit().padding(6) }
+                    else { letter(host) }
+                }
+            } else {
+                Image(systemName: "folder").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .frame(width: 30, height: 30)
+    }
+    private func letter(_ host: String) -> some View {
+        Text(String(host.prefix(1)).uppercased()).font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.textSecondary)
+    }
+}
+
+struct ConnectionPill: View {
+    let state: Connection.State
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(label).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.textSecondary)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 4)
+        .background(Theme.accentSoft, in: Capsule())
     }
     private var color: Color {
-        switch status {
-        case .idle: .secondary.opacity(0.5)
-        case .working: .green
-        case .needsYou: .orange
-        }
+        switch state { case .connected: Theme.working; case .connecting: Theme.needsYou; default: Theme.textTertiary }
+    }
+    private var label: String {
+        switch state { case .connected: "Live"; case .connecting: "Connecting"; case .machineOffline: "Mac asleep"; default: "Offline" }
     }
 }
 
@@ -73,14 +149,14 @@ struct ConnectionBanner: View {
     var body: some View {
         HStack(spacing: 12) {
             if connection.state == .connecting { ProgressView() }
-            else { Image(systemName: icon).foregroundStyle(.orange) }
+            else { Image(systemName: icon).foregroundStyle(Theme.needsYou) }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.semibold))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.textPrimary)
+                Text(detail).font(.caption).foregroundStyle(Theme.textSecondary)
             }
             Spacer()
             if connection.state != .connecting {
-                Button("Retry") { connection.connect() }.font(.caption.weight(.semibold))
+                Button("Retry") { connection.connect() }.font(.caption.weight(.semibold)).tint(Theme.textPrimary)
             }
         }
     }

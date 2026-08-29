@@ -27,6 +27,9 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: SuperAgent uses the camera only to scan the pairing code shown on your Mac.
+        NSMicrophoneUsageDescription: SuperAgent listens only while you hold the microphone button, to dictate a message.
+        NSSpeechRecognitionUsageDescription: Your dictation is transcribed on this device when possible, so you can review it before sending.
+        UIUserInterfaceStyle: Automatic
         CFBundleURLTypes:
           - CFBundleURLName: dev.superagent.pair
             CFBundleURLSchemes: [superagent]

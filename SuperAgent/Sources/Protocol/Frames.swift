@@ -28,7 +28,7 @@ enum WireEventData: Hashable, Sendable {
     case toolResult(toolId: String, ok: Bool, summary: String)
     case diff(id: String, file: String, hunks: [DiffHunk])
     case turnEnd(ok: Bool, subtype: String, costUsd: Double?, tokens: Int?)
-    case session(claudeSessionId: String, model: String?)
+    case session(claudeSessionId: String, model: String?, commands: [String])
     case notice(text: String)
     case approval(id: String, toolName: String, preview: String, approvalKind: String, expiresAt: Double)
     case approvalEnd(id: String, outcome: ApprovalOutcome, by: Origin)
@@ -56,7 +56,7 @@ enum WireEventData: Hashable, Sendable {
 extension WireEventData: Codable {
     private enum K: String, CodingKey {
         case kind, id, text, images, from, name, detail, toolId, ok, summary, file, hunks
-        case subtype, costUsd, tokens, claudeSessionId, model, toolName, preview, approvalKind, expiresAt, outcome, by
+        case subtype, costUsd, tokens, claudeSessionId, model, commands, toolName, preview, approvalKind, expiresAt, outcome, by
     }
 
     init(from decoder: Decoder) throws {
@@ -97,7 +97,8 @@ extension WireEventData: Codable {
         case "session":
             self = .session(
                 claudeSessionId: try c.decode(String.self, forKey: .claudeSessionId),
-                model: try c.decodeIfPresent(String.self, forKey: .model))
+                model: try c.decodeIfPresent(String.self, forKey: .model),
+                commands: try c.decodeIfPresent([String].self, forKey: .commands) ?? [])
         case "notice":
             self = .notice(text: try c.decodeIfPresent(String.self, forKey: .text) ?? "")
         case "approval":
@@ -136,8 +137,9 @@ extension WireEventData: Codable {
         case let .turnEnd(ok, subtype, costUsd, tokens):
             try c.encode(ok, forKey: .ok); try c.encode(subtype, forKey: .subtype)
             try c.encodeIfPresent(costUsd, forKey: .costUsd); try c.encodeIfPresent(tokens, forKey: .tokens)
-        case let .session(sid, model):
+        case let .session(sid, model, commands):
             try c.encode(sid, forKey: .claudeSessionId); try c.encodeIfPresent(model, forKey: .model)
+            if !commands.isEmpty { try c.encode(commands, forKey: .commands) }
         case let .notice(text):
             try c.encode(text, forKey: .text)
         case let .approval(id, toolName, preview, approvalKind, expiresAt):
@@ -173,6 +175,12 @@ struct WireWorkspace: Codable, Hashable, Sendable, Identifiable {
     var path: String
     var kind: String
     var status: WorkspaceStatus
+    var branch: String?
+    var browserUrl: String?
+
+    var isBrowser: Bool { kind == "browser" }
+    /// Host of a browser project, for its favicon and a short label.
+    var host: String? { browserUrl.flatMap { URL(string: $0)?.host }?.replacingOccurrences(of: "www.", with: "") }
 }
 
 struct WireGroup: Codable, Hashable, Sendable, Identifiable {
@@ -188,6 +196,7 @@ struct WireChat: Codable, Hashable, Sendable, Identifiable {
     var title: String?
     var updatedAt: Double
     var live: Bool
+    var preview: String?
 }
 
 struct WireMachine: Codable, Hashable, Sendable {

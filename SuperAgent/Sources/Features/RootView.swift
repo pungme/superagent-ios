@@ -64,29 +64,35 @@ struct WelcomeView: View {
     var body: some View {
         VStack(spacing: 18) {
             Spacer()
-            Image(systemName: "laptopcomputer.and.iphone")
-                .font(.system(size: 56, weight: .light))
-                .foregroundStyle(.secondary)
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Theme.accent).frame(width: 84, height: 84)
+                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.accentFg).frame(width: 26, height: 26)
+            }
+            .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
             Text("Your Mac, in your pocket")
-                .font(.title2.bold())
+                .font(.system(size: 24, weight: .bold)).foregroundStyle(Theme.textPrimary)
             Text("Follow the agent, send it work, approve what it asks — from anywhere. Pair once; no accounts, no setup.")
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
                 .padding(.horizontal, 28)
             Spacer()
             Button(action: onPair) {
                 Text("Pair a Mac")
-                    .font(.headline)
+                    .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 12)
+                    .background(Theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .foregroundStyle(Theme.accentFg)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
             .padding(.horizontal, 24)
             Text("On the Mac: Settings → Phone → Show pairing code")
                 .font(.footnote)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Theme.textTertiary)
                 .padding(.bottom, 24)
         }
+        .frame(maxWidth: .infinity)
+        .background(Theme.panel)
         .navigationTitle("SuperAgent")
     }
 }

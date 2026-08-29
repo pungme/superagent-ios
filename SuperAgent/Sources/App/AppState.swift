@@ -11,6 +11,14 @@ final class AppState {
     var selectedMachineId: String?
     var pushToken: String?
 
+    /// The composer's Model / Mode pills, remembered like the desktop's.
+    var preferredModel: String = UserDefaults.standard.string(forKey: "composer.model") ?? "" {
+        didSet { UserDefaults.standard.set(preferredModel, forKey: "composer.model") }
+    }
+    var preferredMode: String = UserDefaults.standard.string(forKey: "composer.mode") ?? "bypassPermissions" {
+        didSet { UserDefaults.standard.set(preferredMode, forKey: "composer.mode") }
+    }
+
     var selected: PairedMachine? {
         machines.first { $0.id == selectedMachineId } ?? machines.first
     }

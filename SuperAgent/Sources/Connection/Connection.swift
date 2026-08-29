@@ -45,6 +45,8 @@ final class Connection {
     private(set) var chats: [WireChat] = []
     private(set) var transcripts: [String: Transcript] = [:]
     private(set) var lastError: String?
+    /// Slash commands the agent reported for a chat's session (for the "/" menu).
+    private(set) var commands: [String: [String]] = [:]
 
     private var transport: RelayTransport?
     private var sealer: Sealer
@@ -156,6 +158,7 @@ final class Connection {
             state = .failed(reason)
             wantConnected = reason == "version" ? false : wantConnected
         case .event(let e):
+            if case let .session(_, _, cmds) = e.data, !cmds.isEmpty { commands[e.chatId] = cmds }
             var t = transcripts[e.chatId] ?? Transcript()
             if !t.apply(e) {
                 // Gap: ask again from what we have.
@@ -253,12 +256,15 @@ final class Connection {
 
     // MARK: Convenience
 
-    func sendMessage(chatId: String, text: String, images: [(mediaType: String, data: Data)] = []) async throws {
+    func sendMessage(chatId: String, text: String, images: [(mediaType: String, data: Data)] = [],
+                     model: String? = nil, mode: String? = nil) async throws {
         var params: [String: JSONValue] = [
             "chatId": .string(chatId),
             "text": .string(text),
             "localId": .string("L-" + UUID().uuidString.prefix(8))
         ]
+        if let model { params["model"] = .string(model) }
+        if let mode { params["permissionMode"] = .string(mode) }
         if !images.isEmpty {
             params["images"] = .array(images.map { .object(["mediaType": .string($0.mediaType), "data": .string($0.data.base64EncodedString())]) })
         }
@@ -284,6 +290,17 @@ final class Connection {
             #endif
         }
         send(.req(id: UUID().uuidString, method: "device.presence", params: .object(params)))
+    }
+
+    func renameChat(chatId: String, title: String) async throws {
+        _ = try await rpc("chat.rename", .object(["chatId": .string(chatId), "title": .string(title)]))
+        chats = chats.map { var c = $0; if c.id == chatId { c.title = title }; return c }
+    }
+
+    func deleteChat(chatId: String) async throws {
+        _ = try await rpc("chat.delete", .object(["chatId": .string(chatId)]))
+        chats.removeAll { $0.id == chatId }
+        transcripts[chatId] = nil
     }
 
     func createChat(workspaceId: String) async throws -> String {
