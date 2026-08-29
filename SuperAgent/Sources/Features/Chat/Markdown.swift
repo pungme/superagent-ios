@@ -177,10 +177,14 @@ struct MarkdownView: View {
     }
 }
 
-/// A GitHub-style table, as the desktop renders it: header row bold on a
-/// tinted band, hairline rules, cells inline-styled; scrolls sideways if wide.
+/// A table, styled like the desktop's (`.md table` in main.css): 12 pt, a
+/// 1 px rule around every cell, a tinted header row, square corners — the
+/// bubble around it already has the only rounding in the message. Up to three
+/// columns share the width; wider tables keep a readable column and scroll.
 struct MarkdownTable: View {
     let rows: [String]
+
+    private static let wideColumn: CGFloat = 132
 
     private var cells: [[String]] {
         rows.map { row in
@@ -194,25 +198,34 @@ struct MarkdownTable: View {
     var body: some View {
         let table = cells
         let columns = table.map(\.count).max() ?? 0
-        ScrollView(.horizontal, showsIndicators: false) {
-            Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
-                ForEach(Array(table.enumerated()), id: \.offset) { i, row in
-                    GridRow {
-                        ForEach(0..<columns, id: \.self) { c in
-                            InlineText(c < row.count ? row[c] : "")
-                                .font(.system(size: 13, weight: i == 0 ? .semibold : .regular))
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .gridColumnAlignment(.leading)
-                        }
-                    }
-                    .background(i == 0 ? Theme.hover : Color.clear)
-                    if i < table.count - 1 { Divider().overlay(Theme.border) }
-                }
-            }
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.border))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        if columns > 3 {
+            ScrollView(.horizontal, showsIndicators: false) { grid(table, columns: columns, column: MarkdownTable.wideColumn) }
+        } else {
+            grid(table, columns: columns, column: nil)
         }
+    }
+
+    private func grid(_ table: [[String]], columns: Int, column: CGFloat?) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(table.enumerated()), id: \.offset) { i, row in
+                HStack(spacing: 0) {
+                    ForEach(0..<columns, id: \.self) { c in
+                        InlineText(c < row.count ? row[c] : "")
+                            .font(.system(size: 12, weight: i == 0 ? .semibold : .regular))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: column == nil ? .infinity : nil, alignment: .leading)
+                            .padding(.vertical, 4).padding(.horizontal, 9)
+                            .frame(width: column, alignment: .leading)
+                            .frame(maxHeight: .infinity, alignment: .topLeading)
+                            .background(i == 0 ? Theme.hover : Color.clear)
+                            .border(Theme.border, width: 1)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .fixedSize(horizontal: column != nil, vertical: true)
+        .padding(.bottom, 2)
     }
 }
 
