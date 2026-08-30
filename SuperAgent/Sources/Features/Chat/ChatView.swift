@@ -151,7 +151,15 @@ struct ChatView: View {
     @ViewBuilder
     private func transcript(proxyless _: Bool = true) -> some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
+            // Not lazy, deliberately. A LazyVStack only measures rows as it
+            // realises them, so its height is an estimate, and every way of
+            // asking for the end lands against that estimate: with a
+            // tool-heavy transcript, where a collapsed step group is one line
+            // and the reply under it is forty, the estimate is wrong by
+            // thousands of points and the view settles on a stretch with
+            // nothing realised in it. That is the blank chat. The Mac caps
+            // what it sends at 400 events, so measuring them all is affordable.
+            VStack(alignment: .leading, spacing: 12) {
                 if transcript.events.isEmpty, transcript.streaming.isEmpty {
                     emptyState
                 }
@@ -184,8 +192,7 @@ struct ChatView: View {
         // sizeChanges keeps it there while rows stream in and while the
         // keyboard opens, and is nil once the reader has scrolled up, so
         // arriving messages never yank them back down.
-        .defaultScrollAnchor(.bottom, for: .initialOffset)
-        .defaultScrollAnchor(atBottom ? .bottom : nil, for: .sizeChanges)
+        .defaultScrollAnchor(.bottom)
         .scrollPosition($position)
         // What the transcript actually got. Everything that is neither it nor
         // the docked page is the chrome, and knowing it is what lets the page
@@ -229,9 +236,7 @@ struct ChatView: View {
         // which leaves the newest message stranded mid-screen with blank under
         // it: the first-open bug. When events land and we were following the
         // conversation, say where to go rather than hoping the anchor knows.
-        .onChange(of: transcript.events.count) { _, _ in
-            if atBottom { scrollToEnd(animated: false) }
-        }
+
     }
 
     @ToolbarContentBuilder
@@ -401,14 +406,6 @@ struct ChatView: View {
     private func scrollToEnd(animated: Bool = true) {
         if animated { withAnimation(.easeOut(duration: 0.2)) { position.scrollTo(edge: .bottom) } }
         else { position.scrollTo(edge: .bottom) }
-        // Twice more, deliberately. Rows in a LazyVStack are measured as they
-        // are realised, so the content size changes underneath the first pass;
-        // these land on the real end once it exists. Both are no-ops when the
-        // first pass was already right.
-        DispatchQueue.main.async { position.scrollTo(edge: .bottom) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            if atBottom { position.scrollTo(edge: .bottom) }
-        }
     }
 
 }

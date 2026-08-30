@@ -548,6 +548,19 @@ extension Bundle {
 // is checked in: a new source file would not be compiled without xcodegen.
 
 extension Connection {
+    /// A real transcript, if one has been dropped into the app's Documents as
+    /// `realchat.json`. Exported from the Mac's own `chat_events`, so the rows
+    /// are the shapes the renderer actually meets: long tool runs, thinking,
+    /// diffs, the odd very long reply. The synthetic fixture is all user and
+    /// assistant bubbles, which is not the same view at all.
+    @MainActor
+    static func realTranscript() -> [WireEvent]? {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let url = dir.appendingPathComponent("realchat.json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode([WireEvent].self, from: data)
+    }
+
     @MainActor
     static func scrollHarness(chatId: String = "harness", turns: Int = 60) -> Connection {
         let machine = PairedMachine(id: "harness", name: "Harness", relay: "wss://example.invalid",
@@ -572,19 +585,38 @@ extension Connection {
             t.events.append(WireEvent(chatId: chatId, seq: seq, ts: now,
                                       data: .turnEnd(ok: true, subtype: "success", costUsd: 0.0123, tokens: 900 + i)))
         }
-        t.lastSeq = seq
+        if let real = realTranscript(), !real.isEmpty {
+            t = Transcript()
+            for e in real { _ = t.apply(e) }
+            seq = t.lastSeq
+        }
+        t.lastSeq = max(t.lastSeq, seq)
         // Delivered after the view appears, the way the Mac's replay actually
         // arrives. Handing the transcript over before first layout hid the
         // exact bug this harness is for.
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(400))
-            c.transcripts[chatId] = t
+            // In batches, the way the Mac's replay actually lands: session.ts
+            // sends one `event` frame per event and the phone appends them as
+            // they arrive. Handing the whole transcript over in one assignment
+            // is not the same thing, and hid the bug this harness exists for.
+            var live = Transcript()
+            var i = 0
+            while i < t.events.count {
+                let end = min(i + 9, t.events.count)
+                for e in t.events[i..<end] { _ = live.apply(e) }
+                c.transcripts[chatId] = live
+                i = end
+                try? await Task.sleep(for: .milliseconds(40))
+            }
         }
         // Pretend the Mac has a page open for this chat, so the docked mirror
         // above the transcript can be exercised too.
-        c.browsers[chatId] = WireBrowser(chatId: chatId, open: true,
+        if ProcessInfo.processInfo.arguments.contains("-withPage") {
+            c.browsers[chatId] = WireBrowser(chatId: chatId, open: true,
                                          url: "https://stripe.com/en-us", title: "Stripe",
-                                         canGoBack: false, canGoForward: false, loading: false)
+                                             canGoBack: false, canGoForward: false, loading: false)
+        }
         return c
     }
 }
