@@ -35,6 +35,14 @@ struct SidebarView: View {
     private var groups: [WireGroup] { connection.tree.filter { $0.id != "computer" && $0.name != Self.tabsGroup } }
 
     var body: some View {
+        sheetsAndAlerts(listView)
+    }
+
+    /// The list and its chrome. Split from the modifiers below because as one
+    /// expression this body took 704ms to type-check — the worst in the app by
+    /// five times — and that limit is a time limit: a slower machine gives up
+    /// where this one does not, which is exactly what Xcode Cloud kept doing.
+    private var listView: some View {
         List {
             if connection.state != .connected {
                 Section {
@@ -45,36 +53,10 @@ struct SidebarView: View {
             if !query.trimmingCharacters(in: .whitespaces).isEmpty {
                 searchSection
             } else {
-                // Computer and Chats: the two rows that are not projects.
-                Section {
-                    dashRow("Computer", icon: "desktopcomputer", status: computer?.status) {
-                        if let c = computer { Task { await run { try await openProject(c) } } }
-                    }
-                    dashRow("Chats", icon: "bubble.left", status: nil) {
-                        if let c = computer { path.append(WorkspacePanel(kind: .chats, workspace: c)) }
-                    }
-                }
-                Section {
-                    ForEach(tabs) { ws in projectRows(ws) }
-                    if tabs.isEmpty {
-                        Button { newTab() } label: {
-                            Label("Open a tab to browse", systemImage: "plus")
-                                .superFont(13.5).foregroundStyle(Theme.textTertiary)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowBackground(Theme.card)
-                    }
-                } header: {
-                    sectionHeader("Browse", caret: false) { newTab() }
-                }
+                machineSection
+                browseSection
                 ForEach(groups) { group in groupSection(group) }
-                Section {
-                    Button { newGroup() } label: {
-                        Label("New group", systemImage: "plus").superFont(13.5).foregroundStyle(Theme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(Theme.card)
-                }
+                newGroupSection
             }
         }
         .listStyle(.plain)
@@ -103,6 +85,10 @@ struct SidebarView: View {
                 }
             }
         }
+    }
+
+    private func sheetsAndAlerts(_ view: some View) -> some View {
+        view
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search every conversation")
         .task(id: query) {
             let q = query.trimmingCharacters(in: .whitespaces)
@@ -162,6 +148,56 @@ struct SidebarView: View {
     }
 
     /// A section header: the desktop's small caps, the caret and + as real buttons.
+    /// Plain browser tabs, above the projects.
+    @ViewBuilder
+    private var browseSection: some View {
+        Section {
+            ForEach(tabs) { ws in projectRows(ws) }
+            if tabs.isEmpty {
+                Button { newTab() } label: {
+                    Label("Open a tab to browse", systemImage: "plus")
+                        .superFont(13.5)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(Theme.card)
+            }
+        } header: {
+            sectionHeader("Browse", caret: false) { newTab() }
+        }
+    }
+
+    @ViewBuilder
+    private var newGroupSection: some View {
+        Section {
+            Button { newGroup() } label: {
+                Label("New group", systemImage: "plus")
+                    .superFont(13.5)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(Theme.card)
+        }
+    }
+
+    /// Computer and Chats: the two rows that are not projects.
+    ///
+    /// This file's `body` was 704ms to type-check, five times the next worst in
+    /// the app, and that is what kept failing on Xcode Cloud: the limit is a
+    /// time limit, so a slower machine gives up where this one does not. Each
+    /// piece is named now so no single expression is large.
+    @ViewBuilder
+    private var machineSection: some View {
+        Section {
+            dashRow("Computer", icon: "desktopcomputer", status: computer?.status) {
+                if let c = computer { Task { await run { try await openProject(c) } } }
+            }
+            dashRow("Chats", icon: "bubble.left", status: nil) {
+                if let c = computer { path.append(WorkspacePanel(kind: .chats, workspace: c)) }
+            }
+        }
+    }
+
     /// One project group. Extracted for the same reason as `groupMenu`: the
     /// List was a single expression the type checker would not finish, and it
     /// failed by blaming other files.

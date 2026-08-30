@@ -12,6 +12,36 @@ struct BranchSheet: View {
     @State private var confirm: WireBranch?
     @State private var error: String?
 
+    /// One branch. Named to keep `body` small enough to type-check quickly on
+    /// any machine, not just a fast one.
+    @ViewBuilder
+    private func branchRow(_ b: WireBranch) -> some View {
+        Button {
+            if !b.current { confirm = b }
+        } label: {
+            HStack {
+                Image(systemName: "arrow.triangle.branch")
+                    .foregroundStyle(Theme.textSecondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(b.name).foregroundStyle(Theme.textPrimary)
+                    if let wt = b.worktree, !wt.isEmpty, !b.current {
+                        let leaf = wt.split(separator: "/").last.map(String.init) ?? wt
+                        Text("Checked out in " + leaf)
+                            .font(.caption)
+                            .foregroundStyle(Theme.textTertiary)
+                    }
+                }
+                Spacer()
+                if switching == b.name {
+                    ProgressView()
+                } else if b.current {
+                    Image(systemName: "checkmark").foregroundStyle(Theme.textPrimary)
+                }
+            }
+        }
+        .disabled(switching != nil)
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -20,26 +50,7 @@ struct BranchSheet: View {
                 } else if branches.isEmpty {
                     Text("No branches — is this folder a git repo?").foregroundStyle(.secondary)
                 } else {
-                    ForEach(branches) { b in
-                        Button {
-                            if !b.current { confirm = b }
-                        } label: {
-                            HStack {
-                                Image(systemName: "arrow.triangle.branch").foregroundStyle(Theme.textSecondary)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(b.name).foregroundStyle(Theme.textPrimary)
-                                    if let wt = b.worktree, !wt.isEmpty, !b.current {
-                                        Text("Checked out in \(wt.split(separator: "/").last.map(String.init) ?? wt)")
-                                            .font(.caption).foregroundStyle(Theme.textTertiary)
-                                    }
-                                }
-                                Spacer()
-                                if switching == b.name { ProgressView() }
-                                else if b.current { Image(systemName: "checkmark").foregroundStyle(Theme.textPrimary) }
-                            }
-                        }
-                        .disabled(switching != nil)
-                    }
+                    ForEach(branches) { b in branchRow(b) }
                 }
             }
             .scrollContentBackground(.hidden)

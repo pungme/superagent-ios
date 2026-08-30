@@ -14,16 +14,35 @@ struct BoardView: View {
 
     private var shown: [WireCard] { cards.filter { $0.status == column }.sorted { $0.position < $1.position } }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("Column", selection: $column) {
-                ForEach(CardStatus.allCases, id: \.self) { s in
-                    let n = cards.filter { $0.status == s }.count
-                    Text(n > 0 ? "\(s.label) \(n)" : s.label).tag(s)
+    /// The column switcher, named to keep `body` quick to type-check.
+    @ViewBuilder
+    private var columnPicker: some View {
+        Picker("Column", selection: $column) {
+            ForEach(CardStatus.allCases, id: \.self) { s in
+                let n = cards.filter { $0.status == s }.count
+                Text(n > 0 ? "\(s.label) \(n)" : s.label).tag(s)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 6)
+    }
+
+    @ViewBuilder
+    private func boardRow(_ card: WireCard) -> some View {
+        Button { selected = card } label: { CardRow(card: card) }
+            .listRowBackground(Theme.card)
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                if let next = next(after: card.status) {
+                    Button { move(card, to: next) } label: { Label(next.label, systemImage: "arrow.right") }
+                        .tint(Theme.working)
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 14).padding(.bottom, 6)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            columnPicker
             List {
                 if loading {
                     HStack { ProgressView(); Text("Loading the board…").foregroundStyle(.secondary) }.listRowBackground(Theme.card)
@@ -31,13 +50,7 @@ struct BoardView: View {
                     Text("Nothing in \(column.label)").foregroundStyle(.secondary).listRowBackground(Theme.card)
                 }
                 ForEach(shown) { card in
-                    Button { selected = card } label: { CardRow(card: card) }
-                        .listRowBackground(Theme.card)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            if let next = next(after: card.status) {
-                                Button { move(card, to: next) } label: { Label(next.label, systemImage: "arrow.right") }.tint(Theme.working)
-                            }
-                        }
+                    boardRow(card)
                         .swipeActions(edge: .leading, allowsFullSwipe: false) {
                             if let prev = previous(before: card.status) {
                                 Button { move(card, to: prev) } label: { Label(prev.label, systemImage: "arrow.left") }.tint(Theme.textSecondary)
@@ -114,18 +127,18 @@ private struct CardRow: View {
     let card: WireCard
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(card.title).font(.system(size: 15.5, weight: .medium)).foregroundStyle(Theme.textPrimary).lineLimit(2)
+            Text(card.title).superFont(15.5, weight: .medium).foregroundStyle(Theme.textPrimary).lineLimit(2)
             if !card.body.isEmpty {
-                Text(card.body).font(.system(size: 13)).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                Text(card.body).superFont(13).foregroundStyle(Theme.textSecondary).lineLimit(2)
             }
             if !card.tags.isEmpty || card.branch != nil || !card.images.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(card.tags, id: \.self) { t in
-                        Text(t).font(.system(size: 11, weight: .medium)).padding(.horizontal, 7).padding(.vertical, 2)
+                        Text(t).superFont(11, weight: .medium).padding(.horizontal, 7).padding(.vertical, 2)
                             .background(Theme.accentSoft, in: Capsule()).foregroundStyle(Theme.textSecondary)
                     }
                     if let b = card.branch, !b.isEmpty { BranchChip(branch: b) }
-                    if !card.images.isEmpty { Label("\(card.images.count)", systemImage: "photo").font(.system(size: 11)).foregroundStyle(Theme.textTertiary) }
+                    if !card.images.isEmpty { Label("\(card.images.count)", systemImage: "photo").superFont(11).foregroundStyle(Theme.textTertiary) }
                 }
             }
         }

@@ -5,6 +5,13 @@ import SwiftUI
 /// the accent colour, assistant replies as Markdown, consecutive tool steps
 /// collapsed into one row, approvals as cards, a footer per turn.
 struct ChatView: View {
+    /// How this chat pushes a screen of its own. RootView owns the path; the
+    /// agent's `open_file` is the only thing that needs it so far.
+    var push: ((FileRef) -> Void)?
+    /// The round icon buttons hold a glyph that grows with the text size;
+    /// the well has to grow with it or the glyph spills over the circle.
+    @ScaledMetric(relativeTo: .subheadline) private var well: CGFloat = 34
+
     let connection: Connection
     let chat: WireChat
     let workspace: WireWorkspace
@@ -18,6 +25,12 @@ struct ChatView: View {
     /// Whether the transcript is showing its end, read from the scroll
     /// geometry rather than from a sentinel view appearing and disappearing.
     @State private var atBottom = true
+    /// Whether arriving rows should keep the view at the end. Deliberately not
+    /// `atBottom`: that one goes false for a frame every time a batch lands,
+    /// because the content grows before the anchor has moved the offset, and
+    /// following it would strand a cold open halfway up the transcript — the
+    /// bug this exists to stop. Only the reader's own scrolling changes it.
+    @State private var following = true
     @State private var position = ScrollPosition()
     /// Everything in the chat that is neither the docked page nor the
     /// transcript: the project bar, the drag handle, the offline banner, the
@@ -81,11 +94,11 @@ struct ChatView: View {
                     composerFocused = false
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "iphone").font(.system(size: 12))
-                        Text(simLabel).font(.system(size: 13)).lineLimit(1)
+                        Image(systemName: "iphone").superFont(12)
+                        Text(simLabel).superFont(13).lineLimit(1)
                         Spacer(minLength: 8)
-                        Text("Show").font(.system(size: 13, weight: .medium))
-                        Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+                        Text("Show").superFont(13, weight: .medium)
+                        Image(systemName: "chevron.down").superFont(11, weight: .semibold)
                     }
                     .padding(.horizontal, 14).padding(.vertical, 9)
                     .contentShape(Rectangle())
@@ -101,11 +114,11 @@ struct ChatView: View {
                     composerFocused = false
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "globe").font(.system(size: 12))
-                        Text(pageLabel).font(.system(size: 13)).lineLimit(1)
+                        Image(systemName: "globe").superFont(12)
+                        Text(pageLabel).superFont(13).lineLimit(1)
                         Spacer(minLength: 8)
-                        Text("Show").font(.system(size: 13, weight: .medium))
-                        Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+                        Text("Show").superFont(13, weight: .medium)
+                        Image(systemName: "chevron.down").superFont(11, weight: .semibold)
                     }
                     .padding(.horizontal, 14).padding(.vertical, 9)
                     .contentShape(Rectangle())
@@ -212,10 +225,24 @@ struct ChatView: View {
             .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
             .onChange(of: pickerItems) { _, items in loadPicked(items) }
             .onChange(of: dictation.transcript) { _, t in if !t.isEmpty { draft = t } }
-
+            // The agent called `open_file`. Show it, as the Mac just did — but
+            // only while this chat is the one on screen, so a file asked for by
+            // a conversation you have left does not open over the one you moved
+            // to. The transcript still says it was opened either way.
+            .onChange(of: connection.openFileRequest) { _, req in openIfOurs(req) }
             .alert("Couldn't send", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                 Button("OK") {}
             } message: { Text(error ?? "") }
+    }
+
+    /// The agent called `open_file`. Show it, as the Mac just did — but only
+    /// while this chat is the one on screen, so a file asked for by a
+    /// conversation you have left does not open over the one you moved to. The
+    /// transcript keeps its card either way.
+    private func openIfOurs(_ req: OpenFileRequest?) {
+        guard let req, req.chatId == nil || req.chatId == chat.id else { return }
+        connection.openFileRequest = nil
+        push?(FileRef(workspaceId: req.workspaceId, path: req.path, chatId: chat.id))
     }
 
     /// Extracted from `body`: with the composer's focus binding threaded
@@ -298,9 +325,9 @@ struct ChatView: View {
         )
         .overlay(alignment: .bottomTrailing) {
             if !atBottom {
-                Button { scrollToEnd() } label: {
-                    Image(systemName: "arrow.down").font(.system(size: 13, weight: .semibold))
-                        .frame(width: 34, height: 34)
+                Button { following = true; scrollToEnd() } label: {
+                    Image(systemName: "arrow.down").superFont(13, weight: .semibold)
+                        .frame(width: well, height: well)
                         .background(Theme.card, in: Circle())
                         .overlay(Circle().stroke(Theme.border))
                         .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
@@ -311,22 +338,25 @@ struct ChatView: View {
         }
         // Your own message always brings you back to the end, wherever you
         // were reading.
-        .onChange(of: transcript.outbox.count) { _, _ in scrollToEnd() }
-        // The transcript arrives after this view does. A bottom anchor alone
-        // settles against the content size measured while it was still empty,
-        // which leaves the newest message stranded mid-screen with blank under
-        // it: the first-open bug. When events land and we were following the
-        // conversation, say where to go rather than hoping the anchor knows.
-
+        .onChange(of: transcript.outbox.count) { _, _ in following = true; scrollToEnd() }
+        // A reply streams in without adding an event, so it grows the tail
+        // without going through rebuild(). Follow it too.
+        .onChange(of: transcript.streaming) { _, _ in if following { scrollToEnd(animated: false) } }
+        // Only the reader's own scrolling decides whether we keep following:
+        // a scroll phase is a gesture, where `atBottom` is just geometry and
+        // says false whenever a batch of rows outruns the anchor.
+        .onScrollPhaseChange { _, phase in
+            if phase == .idle { following = atBottom }
+        }
     }
 
     @ToolbarContentBuilder
     private var chatToolbar: some ToolbarContent {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
-                    Text(chat.title ?? "Conversation").font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                    Text(chat.title ?? "Conversation").superFont(15, weight: .semibold).lineLimit(1)
                     Text(workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name)
-                        .font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
+                        .superFont(11).foregroundStyle(Theme.textSecondary)
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -336,7 +366,7 @@ struct ChatView: View {
                             .overlay(alignment: .topTrailing) {
                                 let open = tasks.filter { !$0.isDone }.count
                                 if open > 0 {
-                                    Text("\(open)").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.accentFg)
+                                    Text("\(open)").superFont(9, weight: .bold).foregroundStyle(Theme.accentFg)
                                         .padding(.horizontal, 4).padding(.vertical, 1)
                                         .background(Theme.accent, in: Capsule()).offset(x: 8, y: -6)
                                 }
@@ -368,7 +398,7 @@ struct ChatView: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: "sparkles").font(.system(size: 28)).foregroundStyle(Theme.textTertiary)
+            Image(systemName: "sparkles").superFont(28).foregroundStyle(Theme.textTertiary)
             Text("Message Claude about \(workspace.name)")
                 .font(.subheadline.weight(.medium)).foregroundStyle(Theme.textSecondary)
             Text("It runs on your Mac; you'll see every step here.")
@@ -407,6 +437,13 @@ struct ChatView: View {
             }
         }
         pendingApprovals = open
+        // The transcript arrives after this view does and lands in batches, and
+        // the rows are wildly uneven — a collapsed step group is one line, the
+        // reply under it is forty. A bottom anchor on its own settles against
+        // whichever content size happened to be measured mid-arrival, which is
+        // how opening a conversation drops you into the middle of it. Say where
+        // to go on every batch instead of hoping the anchor knows.
+        if following { scrollToEnd(animated: false) }
     }
 
     private func send(text: String) {
@@ -563,7 +600,7 @@ struct WorkingRow: View {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small).tint(Theme.textSecondary)
                 Text("Working · \(Int(max(0, context.date.timeIntervalSince(since))))s")
-                    .font(.system(size: 12.5, weight: .medium).monospacedDigit())
+                    .superFont(12.5, weight: .medium, monospacedDigit: true)
                     .foregroundStyle(Theme.textSecondary)
             }
             .padding(.vertical, 4)
@@ -588,21 +625,28 @@ struct ProjectBar: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if !workspace.isBrowser, !workspace.isComputer {
-                NavigationLink(value: WorkspacePanel(kind: .files, workspace: workspace)) { barButton("Files", "doc.text") }
-                NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
-                NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
+            // The chips scroll rather than truncate: at the larger text sizes
+            // "Routines" and the branch name no longer fit across a phone, and
+            // a bar that reads "Ro…" is worse than one you push sideways.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    if !workspace.isBrowser, !workspace.isComputer {
+                        NavigationLink(value: WorkspacePanel(kind: .files, workspace: workspace)) { barButton("Files", "doc.text") }
+                        NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
+                        NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
+                    }
+                    if !pageAttached {
+                        Button(action: onBrowser) { barButton(nil, pageOpen ? "safari.fill" : "safari", on: pageOpen) }
+                            .buttonStyle(.plain).disabled(connection.state != .connected)
+                            .accessibilityLabel(pageOpen ? "Hide the page" : "Show the page")
+                    }
+                    if let b = workspace.branch, !b.isEmpty {
+                        Button(action: onBranches) { BranchChip(branch: b) }.buttonStyle(.plain)
+                    }
+                }
             }
-            if !pageAttached {
-                Button(action: onBrowser) { barButton(nil, pageOpen ? "safari.fill" : "safari", on: pageOpen) }
-                    .buttonStyle(.plain).disabled(connection.state != .connected)
-                    .accessibilityLabel(pageOpen ? "Hide the page" : "Show the page")
-            }
-            if let b = workspace.branch, !b.isEmpty {
-                Button(action: onBranches) { BranchChip(branch: b) }.buttonStyle(.plain).layoutPriority(-1)
-            }
-            Spacer(minLength: 0)
-            // ✎ at the right, as on the desktop.
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            // ✎ at the right, as on the desktop — outside the scroller, always reachable.
             Button(action: onNewChat) { barButton(nil, "square.and.pencil") }
                 .buttonStyle(.plain).disabled(creating || connection.state != .connected)
                 .accessibilityLabel("New chat")
@@ -614,8 +658,8 @@ struct ProjectBar: View {
 
     private func barButton(_ title: String?, _ icon: String, on: Bool = false) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 11, weight: .medium))
-            if let title { Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1) }
+            Image(systemName: icon).superFont(11, weight: .medium)
+            if let title { Text(title).superFont(12, weight: .medium).lineLimit(1) }
         }
         .foregroundStyle(on ? Theme.textPrimary : Theme.textSecondary)
         .padding(.horizontal, title == nil ? 7 : 8).padding(.vertical, 5)

@@ -18,10 +18,47 @@ struct ChatsListView: View {
         connection.chats.filter { $0.workspaceId == workspace.id }.sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    /// One conversation. Named rather than inline: this body was 296ms to
+    /// type-check, and that limit is a time limit, so a slower machine gives up
+    /// where this one does not — which is how it reached Xcode Cloud as errors
+    /// in other files entirely.
+    @ViewBuilder
+    private func chatRow(_ chat: WireChat) -> some View {
+        Button { open(chat) } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(chat.title ?? "New chat")
+                        .superFont(14.5, weight: .medium)
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    if chat.live { ProgressView().controlSize(.mini) }
+                    Spacer()
+                    Text(Date(timeIntervalSince1970: chat.updatedAt / 1000), format: .relative(presentation: .named))
+                        .superFont(11)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                if let p = chat.preview, !p.isEmpty {
+                    Text(p)
+                        .superFont(12.5)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(2)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Theme.card)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) { deleting = chat } label: { Label("Delete", systemImage: "trash") }
+            Button { newTitle = chat.title ?? ""; renaming = chat } label: { Label("Rename", systemImage: "pencil") }
+                .tint(Theme.textSecondary)
+        }
+    }
+
     var body: some View {
         List {
             Button { newChat() } label: {
-                Text("+ New chat").font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.textSecondary)
+                Text("+ New chat").superFont(13.5, weight: .medium).foregroundStyle(Theme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -29,34 +66,10 @@ struct ChatsListView: View {
             .listRowBackground(Theme.card)
 
             if chats.isEmpty {
-                Text("No conversations yet.").font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
+                Text("No conversations yet.").superFont(13).foregroundStyle(Theme.textTertiary)
                     .listRowBackground(Theme.card)
             }
-            ForEach(chats) { chat in
-                Button { open(chat) } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) {
-                            Text(chat.title ?? "New chat")
-                                .font(.system(size: 14.5, weight: .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
-                            if chat.live { ProgressView().controlSize(.mini) }
-                            Spacer()
-                            Text(Date(timeIntervalSince1970: chat.updatedAt / 1000), format: .relative(presentation: .named))
-                                .font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
-                        }
-                        if let p = chat.preview, !p.isEmpty {
-                            Text(p).font(.system(size: 12.5)).foregroundStyle(Theme.textSecondary).lineLimit(2)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .listRowBackground(Theme.card)
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) { deleting = chat } label: { Label("Delete", systemImage: "trash") }
-                    Button { newTitle = chat.title ?? ""; renaming = chat } label: { Label("Rename", systemImage: "pencil") }
-                        .tint(Theme.textSecondary)
-                }
-            }
+            ForEach(chats) { chat in chatRow(chat) }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
