@@ -538,3 +538,49 @@ extension Connection {
 extension Bundle {
     var shortVersion: String { infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
 }
+
+#if DEBUG
+// MARK: - Scroll harness
+//
+// Debug-only scaffolding so the transcript's scrolling can be exercised in the
+// simulator without pairing a Mac. Launch with `-scrollHarness`. Lives in this
+// file because `transcripts` has a private setter, and because the project file
+// is checked in: a new source file would not be compiled without xcodegen.
+
+extension Connection {
+    @MainActor
+    static func scrollHarness(chatId: String = "harness", turns: Int = 60) -> Connection {
+        let machine = PairedMachine(id: "harness", name: "Harness", relay: "wss://example.invalid",
+                                    deviceId: "harness-device", secret: Data(repeating: 7, count: 32),
+                                    token: "harness", pairedAt: .now)
+        let c = Connection(machine: machine)
+        var t = Transcript()
+        var seq = 0
+        let now = Date().timeIntervalSince1970 * 1000
+        for i in 0..<turns {
+            seq += 1
+            t.events.append(WireEvent(chatId: chatId, seq: seq, ts: now,
+                                      data: .user(id: "u\(i)", text: "Question \(i + 1). Does the transcript stay at the end?",
+                                                  images: [], from: .ios)))
+            seq += 1
+            // Deliberately uneven heights: a LazyVStack estimating uniform rows
+            // is exactly what made the old scrollTo land on blank space.
+            let body = String(repeating: "Reply \(i + 1) line. ", count: 3 + (i % 9) * 7)
+            t.events.append(WireEvent(chatId: chatId, seq: seq, ts: now,
+                                      data: .assistant(id: "a\(i)", text: body)))
+            seq += 1
+            t.events.append(WireEvent(chatId: chatId, seq: seq, ts: now,
+                                      data: .turnEnd(ok: true, subtype: "success", costUsd: 0.0123, tokens: 900 + i)))
+        }
+        t.lastSeq = seq
+        c.transcripts[chatId] = t
+        // Pretend the Mac has a page open for this chat, so the docked mirror
+        // above the transcript can be exercised too.
+        c.browsers[chatId] = WireBrowser(chatId: chatId, open: true,
+                                         url: "https://stripe.com/en-us", title: "Stripe",
+                                         canGoBack: false, canGoForward: false, loading: false)
+        return c
+    }
+}
+
+#endif
