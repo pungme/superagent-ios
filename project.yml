@@ -2,7 +2,7 @@ name: SuperAgent
 options:
   bundleIdPrefix: dev.superagent
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "18.0"
   xcodeVersion: "26.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true

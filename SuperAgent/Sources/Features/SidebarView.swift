@@ -6,6 +6,9 @@ import SwiftUI
 /// (once there is more than one) and its routines. "+ New group" at the end.
 /// Tapping a project opens the conversation it is on, like the desktop does.
 struct SidebarView: View {
+    /// The + target in a group header: 44 wide always, as tall as its glyph needs.
+    @ScaledMetric(relativeTo: .subheadline) private var addTarget: CGFloat = 36
+
     let connection: Connection
     @Binding var path: NavigationPath
     @Environment(AppState.self) private var app
@@ -45,7 +48,7 @@ struct SidebarView: View {
                 // Computer and Chats: the two rows that are not projects.
                 Section {
                     dashRow("Computer", icon: "desktopcomputer", status: computer?.status) {
-                        if let c = computer { openProject(c) }
+                        if let c = computer { Task { await run { try await openProject(c) } } }
                     }
                     dashRow("Chats", icon: "bubble.left", status: nil) {
                         if let c = computer { path.append(WorkspacePanel(kind: .chats, workspace: c)) }
@@ -56,7 +59,7 @@ struct SidebarView: View {
                     if tabs.isEmpty {
                         Button { newTab() } label: {
                             Label("Open a tab to browse", systemImage: "plus")
-                                .font(.system(size: 13.5)).foregroundStyle(Theme.textTertiary)
+                                .superFont(13.5).foregroundStyle(Theme.textTertiary)
                         }
                         .buttonStyle(.plain)
                         .listRowBackground(Theme.card)
@@ -64,30 +67,10 @@ struct SidebarView: View {
                 } header: {
                     sectionHeader("Browse", caret: false) { newTab() }
                 }
-                ForEach(groups) { group in
-                    Section {
-                        if !collapsed.contains(group.id) {
-                            ForEach(group.workspaces) { ws in projectRows(ws) }
-                            if group.workspaces.isEmpty {
-                                Button { addingTo = group } label: {
-                                    Label("Add a project…", systemImage: "plus")
-                                        .font(.system(size: 13.5)).foregroundStyle(Theme.textTertiary)
-                                }
-                                .buttonStyle(.plain)
-                                .listRowBackground(Theme.card)
-                            }
-                        }
-                    } header: {
-                        sectionHeader(group.name, caret: true, collapsedKey: group.id) { addingTo = group }
-                            .contextMenu {
-                                Button { groupName = group.name; renaming = group } label: { Label("Rename group", systemImage: "pencil") }
-                                Button(role: .destructive) { Task { await run { try await connection.deleteGroup(id: group.id) } } } label: { Label("Delete group", systemImage: "trash") }
-                            }
-                    }
-                }
+                ForEach(groups) { group in groupSection(group) }
                 Section {
                     Button { newGroup() } label: {
-                        Label("New group", systemImage: "plus").font(.system(size: 13.5)).foregroundStyle(Theme.textSecondary)
+                        Label("New group", systemImage: "plus").superFont(13.5).foregroundStyle(Theme.textSecondary)
                     }
                     .buttonStyle(.plain)
                     .listRowBackground(Theme.card)
@@ -101,7 +84,24 @@ struct SidebarView: View {
         .navigationTitle(connection.machine.name)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { ConnectionPill(state: connection.state) }
+            // iOS 26 gives every toolbar item its own glass capsule and squeezes
+            // it to a minimum width, which turned this pill into a white circle
+            // with a single letter in it — "L" for Live. The pill draws its own
+            // capsule already, so hide the system one and let it keep its width.
+            // sharedBackgroundVisibility is iOS 26 only, and the app ships to 18:
+            // on an older SDK it does not exist at all, which is what broke the
+            // Xcode Cloud archive. Guarded, the pill keeps its own capsule
+            // everywhere and only loses the system one where it can.
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .topBarLeading) {
+                    ConnectionPill(state: connection.state).fixedSize()
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarLeading) {
+                    ConnectionPill(state: connection.state).fixedSize()
+                }
+            }
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search every conversation")
         .task(id: query) {
@@ -146,11 +146,11 @@ struct SidebarView: View {
     private func dashRow(_ title: String, icon: String, status: WorkspaceStatus?, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: icon).font(.system(size: 15)).foregroundStyle(Theme.textSecondary).frame(width: 22)
-                Text(title).font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.textPrimary)
+                Image(systemName: icon).superFont(15).foregroundStyle(Theme.textSecondary).frame(width: 22)
+                Text(title).superFont(16, weight: .medium).foregroundStyle(Theme.textPrimary)
                 Spacer()
                 if let status, status != .idle { StatusIndicator(status: status) }
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.textTertiary.opacity(0.7))
+                Image(systemName: "chevron.right").superFont(13, weight: .semibold).foregroundStyle(Theme.textTertiary.opacity(0.7))
             }
             .frame(minHeight: 32)
             .contentShape(Rectangle())
@@ -162,6 +162,48 @@ struct SidebarView: View {
     }
 
     /// A section header: the desktop's small caps, the caret and + as real buttons.
+    /// One project group. Extracted for the same reason as `groupMenu`: the
+    /// List was a single expression the type checker would not finish, and it
+    /// failed by blaming other files.
+    @ViewBuilder
+    private func groupSection(_ group: WireGroup) -> some View {
+                Section {
+                    if !collapsed.contains(group.id) {
+                        ForEach(group.workspaces) { ws in projectRows(ws) }
+                        if group.workspaces.isEmpty {
+                            Button { addingTo = group } label: {
+                                Label("Add a project…", systemImage: "plus")
+                                    .superFont(13.5).foregroundStyle(Theme.textTertiary)
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(Theme.card)
+                        }
+                    }
+                } header: {
+                    sectionHeader(group.name, caret: true, collapsedKey: group.id) { addingTo = group }
+                        .contextMenu { groupMenu(for: group) }
+                }
+    }
+
+    /// Pulled out of the header's `.contextMenu` closure. Inline, with the two
+    /// buttons and their async work, the whole `List` became one expression the
+    /// type checker gave up on — and it gave up by inventing errors in other
+    /// files, which is what Xcode Cloud kept reporting.
+    @ViewBuilder
+    private func groupMenu(for group: WireGroup) -> some View {
+        Button {
+            groupName = group.name
+            renaming = group
+        } label: {
+            Label("Rename group", systemImage: "pencil")
+        }
+        Button(role: .destructive) {
+            Task { await run { try await connection.deleteGroup(id: group.id) } }
+        } label: {
+            Label("Delete group", systemImage: "trash")
+        }
+    }
+
     private func sectionHeader(_ title: String, caret: Bool, collapsedKey: String? = nil, add: @escaping () -> Void) -> some View {
         let isCollapsed = collapsedKey.map(collapsed.contains) ?? false
         return HStack(spacing: 2) {
@@ -170,7 +212,7 @@ struct SidebarView: View {
             } label: {
                 HStack(spacing: 5) {
                     if caret {
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                        Image(systemName: "chevron.right").superFont(10, weight: .bold)
                             .rotationEffect(.degrees(isCollapsed ? 0 : 90))
                             .foregroundStyle(Theme.textTertiary).frame(width: 12)
                     }
@@ -184,8 +226,8 @@ struct SidebarView: View {
             .buttonStyle(.plain)
             .disabled(collapsedKey == nil)
             Button(action: add) {
-                Image(systemName: "plus").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.textSecondary)
-                    .frame(width: 44, height: 36).contentShape(Rectangle())
+                Image(systemName: "plus").superFont(15, weight: .medium).foregroundStyle(Theme.textSecondary)
+                    .frame(width: 44, height: addTarget).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(connection.state != .connected)
@@ -215,15 +257,15 @@ struct SidebarView: View {
         let hasTree = !repos.isEmpty || showChats || !mine.isEmpty
 
         // .sidebar-item: status dot, kind icon, 13.5/500 name, branch chip; 7/8 padding, radius 8.
-        Button { openProject(ws) } label: {
+        Button { Task { await run { try await openProject(ws) } } } label: {
             HStack(spacing: 8) {
                 StatusIndicator(status: ws.status).frame(width: 10)
                 ProjectGlyph(workspace: ws)
                 Text(ws.isBrowser ? (ws.host ?? ws.name) : ws.name)
-                    .font(.system(size: 14.5, weight: .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                    .superFont(14.5, weight: .medium).foregroundStyle(Theme.textPrimary).lineLimit(1)
                 Spacer(minLength: 6)
                 if let b = ws.branch, !b.isEmpty {
-                    Text("⎇ \(b)").font(.system(size: 10)).foregroundStyle(Theme.textTertiary)
+                    Text("⎇ \(b)").superFont(10).foregroundStyle(Theme.textTertiary)
                         .padding(.horizontal, 7).padding(.vertical, 1)
                         .background(Theme.hover, in: Capsule()).lineLimit(1)
                 }
@@ -238,7 +280,7 @@ struct SidebarView: View {
             Button(role: .destructive) { removing = ws } label: { Label("Remove", systemImage: "xmark") }
         }
         .contextMenu {
-            Button { openProject(ws) } label: { Label("Open", systemImage: "arrow.right") }
+            Button { Task { await run { try await openProject(ws) } } } label: { Label("Open", systemImage: "arrow.right") }
             Button(role: .destructive) { removing = ws } label: { Label("Remove project", systemImage: "xmark") }
         }
 
@@ -250,7 +292,7 @@ struct SidebarView: View {
                         Button { toggle(ws.id) } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: reposOpen.contains(ws.id) ? "chevron.down" : "chevron.right")
-                                    .font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.textTertiary).frame(width: 10)
+                                    .superFont(9, weight: .semibold).foregroundStyle(Theme.textTertiary).frame(width: 10)
                                 Text("\(repos.count) repo\(repos.count == 1 ? "" : "s")")
                                 Spacer()
                             }
@@ -262,18 +304,18 @@ struct SidebarView: View {
                         ForEach(repos) { r in
                             TreeRow(depth: 2) {
                                 HStack(spacing: 6) {
-                                    Image(systemName: "chevron.left.forwardslash.chevron.right").font(.system(size: 10)).foregroundStyle(Theme.textTertiary)
+                                    Image(systemName: "chevron.left.forwardslash.chevron.right").superFont(10).foregroundStyle(Theme.textTertiary)
                                     Text(r.name).lineLimit(1)
                                     Spacer()
                                     if selectedRepo == r.path {
                                         Button { startSession(groupId: groupId(of: ws), repo: r) } label: {
-                                            Text("Start session →").font(.system(size: 11, weight: .semibold))
+                                            Text("Start session →").superFont(11, weight: .semibold)
                                                 .padding(.horizontal, 8).padding(.vertical, 3)
                                                 .background(Theme.accent, in: Capsule()).foregroundStyle(Theme.accentFg)
                                         }
                                         .buttonStyle(.borderless)
                                     } else if let b = r.branch, !b.isEmpty {
-                                        Text("⎇ \(b)").font(.system(size: 10.5)).foregroundStyle(Theme.textTertiary)
+                                        Text("⎇ \(b)").superFont(10.5).foregroundStyle(Theme.textTertiary)
                                     }
                                 }
                                 .contentShape(Rectangle())
@@ -333,12 +375,12 @@ struct SidebarView: View {
                 Button { query = ""; app.openChatId = hit.chatId } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
-                            Text(hit.title ?? "New chat").font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                            Text(hit.title ?? "New chat").superFont(13.5, weight: .medium).foregroundStyle(Theme.textPrimary).lineLimit(1)
                             Spacer()
                             Text(Date(timeIntervalSince1970: hit.ts / 1000), format: .relative(presentation: .named))
-                                .font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
+                                .superFont(11).foregroundStyle(Theme.textTertiary)
                         }
-                        Text(hit.snippet).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                        Text(hit.snippet).superFont(12).foregroundStyle(Theme.textSecondary).lineLimit(2)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
@@ -353,15 +395,21 @@ struct SidebarView: View {
 
     /// setActive(ws.id): the project opens on the conversation it is on — the
     /// most recent one, or a fresh one when it has none yet.
-    private func openProject(_ ws: WireWorkspace) {
+    /// Navigate into a project: its most recent chat, or a freshly created one
+    /// if it has none. `async throws` so every caller composes it under ONE
+    /// `run()` — this used to spawn its own `Task { await run { ... } } }`
+    /// nested inside whatever `run()` the caller (startSession, newTab) was
+    /// already inside. `run()`'s re-entrancy guard is one shared `busy` flag,
+    /// so the inner call could see it still `true` from the outer one and
+    /// silently do nothing — the first tap created the project but never
+    /// created or opened a chat for it, with no error shown; a second tap
+    /// (retrying "nothing happened") created a SECOND chat, which is what
+    /// showed up as two sessions after a restart pulled a fresh chat list.
+    private func openProject(_ ws: WireWorkspace) async throws {
         let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
         if let c = chats.first { path.append(c); return }
-        Task {
-            await run {
-                let id = try await connection.createChat(workspaceId: ws.id)
-                if let c = connection.chats.first(where: { $0.id == id }) { path.append(c) }
-            }
-        }
+        let id = try await connection.createChat(workspaceId: ws.id)
+        if let c = connection.chats.first(where: { $0.id == id }) { path.append(c) }
     }
 
     /// newTab(): a browser project in the tabs group, opened at once.
@@ -369,7 +417,7 @@ struct SidebarView: View {
         Task {
             await run {
                 let id = try await connection.createBrowserTab()
-                if let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == id }) { openProject(ws) }
+                if let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == id }) { try await openProject(ws) }
             }
         }
     }
@@ -382,7 +430,7 @@ struct SidebarView: View {
         Task {
             await run {
                 let id = try await connection.addWorkspace(groupId: groupId, name: repo.name, path: repo.path)
-                if let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == id }) { openProject(ws) }
+                if let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == id }) { try await openProject(ws) }
             }
         }
     }
@@ -445,7 +493,7 @@ struct FolderPickerView: View {
                                 .foregroundStyle(d.repo ? Theme.textSecondary : Theme.needsYou).frame(width: 20)
                             Text(d.name).foregroundStyle(Theme.textPrimary)
                             Spacer()
-                            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textTertiary)
+                            Image(systemName: "chevron.right").superFont(12, weight: .semibold).foregroundStyle(Theme.textTertiary)
                         }
                     }
                 }
@@ -493,7 +541,7 @@ private struct TreeRow<Content: View>: View {
             Spacer().frame(width: CGFloat(depth - 1) * 14)
             Rectangle().fill(Theme.border).frame(width: 8, height: 1).padding(.leading, 10).padding(.top, 16)
             content()
-                .font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
+                .superFont(13).foregroundStyle(Theme.textSecondary)
                 .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 4)
         }
         .frame(minHeight: 34)
@@ -502,6 +550,8 @@ private struct TreeRow<Content: View>: View {
 
 /// The kind glyph on a project row: folder, globe/favicon, or the Mac.
 private struct ProjectGlyph: View {
+    @ScaledMetric(relativeTo: .footnote) private var box: CGFloat = 16
+
     let workspace: WireWorkspace
     var body: some View {
         Group {
@@ -517,7 +567,7 @@ private struct ProjectGlyph: View {
                 Image(systemName: "folder")
             }
         }
-        .font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
-        .frame(width: 16, height: 16)
+        .superFont(13).foregroundStyle(Theme.textSecondary)
+        .frame(width: box, height: box)
     }
 }
