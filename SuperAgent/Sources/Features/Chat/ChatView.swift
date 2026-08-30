@@ -66,6 +66,7 @@ struct ChatView: View {
     private var chrome: some View {
         VStack(spacing: 0) {
             ProjectBar(connection: connection, workspace: workspace, pageOpen: pageShown,
+                       pageAttached: pageAttached,
                        onBrowser: togglePage, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating)
             // What the Mac has open sits above the conversation, as it sits
             // beside it on the desktop. The keyboard takes the room instead.
@@ -526,6 +527,10 @@ struct ProjectBar: View {
     let connection: Connection
     let workspace: WireWorkspace
     let pageOpen: Bool
+    /// A page is attached to this conversation. When one is, the bar below says
+    /// so and offers Show, so this bar does not need a button for it; the
+    /// compass is only how you open a page when there is not one.
+    var pageAttached = false
     let onBrowser: () -> Void
     let onBranches: () -> Void
     let onNewChat: () -> Void
@@ -538,9 +543,11 @@ struct ProjectBar: View {
                 NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
                 NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
             }
-            Button(action: onBrowser) { barButton(nil, pageOpen ? "safari.fill" : "safari", on: pageOpen) }
-                .buttonStyle(.plain).disabled(connection.state != .connected)
-                .accessibilityLabel(pageOpen ? "Hide the page" : "Show the page")
+            if !pageAttached {
+                Button(action: onBrowser) { barButton(nil, pageOpen ? "safari.fill" : "safari", on: pageOpen) }
+                    .buttonStyle(.plain).disabled(connection.state != .connected)
+                    .accessibilityLabel(pageOpen ? "Hide the page" : "Show the page")
+            }
             if let b = workspace.branch, !b.isEmpty {
                 Button(action: onBranches) { BranchChip(branch: b) }.buttonStyle(.plain).layoutPriority(-1)
             }
