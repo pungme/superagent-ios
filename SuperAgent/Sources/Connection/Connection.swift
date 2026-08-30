@@ -573,7 +573,13 @@ extension Connection {
                                       data: .turnEnd(ok: true, subtype: "success", costUsd: 0.0123, tokens: 900 + i)))
         }
         t.lastSeq = seq
-        c.transcripts[chatId] = t
+        // Delivered after the view appears, the way the Mac's replay actually
+        // arrives. Handing the transcript over before first layout hid the
+        // exact bug this harness is for.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            c.transcripts[chatId] = t
+        }
         // Pretend the Mac has a page open for this chat, so the docked mirror
         // above the transcript can be exercised too.
         c.browsers[chatId] = WireBrowser(chatId: chatId, open: true,

@@ -19,6 +19,11 @@ struct ChatView: View {
     /// geometry rather than from a sentinel view appearing and disappearing.
     @State private var atBottom = true
     @State private var position = ScrollPosition()
+    /// Everything in the chat that is neither the docked page nor the
+    /// transcript: the project bar, the drag handle, the offline banner, the
+    /// composer. Measured rather than assumed, because the banner comes and
+    /// goes and the composer grows with the draft.
+    @State private var chromeHeight: CGFloat = 200
     @State private var showBrowserSheet = false
     @State private var showTasks = false
     /// The docked page above the chat. Defaults to shown when the Mac has one
@@ -66,7 +71,7 @@ struct ChatView: View {
                               onHide: { withAnimation(.easeOut(duration: 0.2)) { pageHidden = true } },
                               onExpand: { showBrowserSheet = true },
                               paused: composerFocused)
-                    .frame(height: max(160, containerHeight * pageFraction))
+                    .frame(height: pageHeight)
                     .transition(.move(edge: .top).combined(with: .opacity))
                 // Drag the divider to give the page more or less room.
                 Rectangle().fill(Theme.border).frame(height: 1)
@@ -182,6 +187,14 @@ struct ChatView: View {
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .defaultScrollAnchor(atBottom ? .bottom : nil, for: .sizeChanges)
         .scrollPosition($position)
+        // What the transcript actually got. Everything that is neither it nor
+        // the docked page is the chrome, and knowing it is what lets the page
+        // cap itself without hard-coding the height of a banner or a composer.
+        .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height } action: { _, box in
+            guard box > 0, pageShown else { return }
+            let measured = containerHeight - pageHeight - box
+            if measured > 0, abs(measured - chromeHeight) > 1 { chromeHeight = measured }
+        }
         .onScrollGeometryChange(for: Bool.self) { geo in
             geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 40
         } action: { _, isAtEnd in
@@ -211,6 +224,14 @@ struct ChatView: View {
         // Your own message always brings you back to the end, wherever you
         // were reading.
         .onChange(of: transcript.outbox.count) { _, _ in scrollToEnd() }
+        // The transcript arrives after this view does. A bottom anchor alone
+        // settles against the content size measured while it was still empty,
+        // which leaves the newest message stranded mid-screen with blank under
+        // it: the first-open bug. When events land and we were following the
+        // conversation, say where to go rather than hoping the anchor knows.
+        .onChange(of: transcript.events.count) { _, _ in
+            if atBottom { scrollToEnd(animated: false) }
+        }
     }
 
     @ToolbarContentBuilder
@@ -318,6 +339,18 @@ struct ChatView: View {
     }
 
     /// The Mac has a page open here, and you haven't put it away.
+    /// The docked page's height, capped so the conversation keeps a usable
+    /// amount of room. At 42% of a 724pt chat area the page took 304pt and the
+    /// transcript was left with 219: less than one bubble, which reads as an
+    /// empty chat you have to scroll up to find. The page can still be dragged
+    /// bigger deliberately; it just will not start that way.
+    private var pageHeight: CGFloat {
+        let wanted = containerHeight * pageFraction
+        let floor: CGFloat = 300
+        let allowed = max(160, containerHeight - chromeHeight - floor)
+        return max(160, min(wanted, allowed))
+    }
+
     private var pageShown: Bool {
         connection.browsers[chat.id]?.open == true && !pageHidden && !composerFocused
     }
@@ -365,8 +398,17 @@ struct ChatView: View {
         }
     }
 
-    private func scrollToEnd() {
-        withAnimation(.easeOut(duration: 0.2)) { position.scrollTo(edge: .bottom) }
+    private func scrollToEnd(animated: Bool = true) {
+        if animated { withAnimation(.easeOut(duration: 0.2)) { position.scrollTo(edge: .bottom) } }
+        else { position.scrollTo(edge: .bottom) }
+        // Twice more, deliberately. Rows in a LazyVStack are measured as they
+        // are realised, so the content size changes underneath the first pass;
+        // these land on the real end once it exists. Both are no-ops when the
+        // first pass was already right.
+        DispatchQueue.main.async { position.scrollTo(edge: .bottom) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if atBottom { position.scrollTo(edge: .bottom) }
+        }
     }
 
 }
