@@ -14,7 +14,7 @@ the room; the project bar and the Model/Mode pills scroll sideways rather than t
 
 Legend: ✅ same on the phone · 🟡 partial (says how) · ❌ not on the phone yet · ➖ makes no sense on a phone
 
-Last full pass: 30 Aug 2026 evening (desktop `e728332`, 1.7.12 — the branch model:
+Last full pass: 30 Aug 2026 evening (desktop `8c71283`, 1.7.13 — the branch model:
 the sidebar is one row per branch, main included; a branch is cut on a chat's
 first message and named from it, so an unused chat leaves nothing behind; git is
 asked what exists rather than the app trusting what it recorded).
@@ -34,7 +34,8 @@ asked what exists rather than the app trusting what it recorded).
 | Unread dot on chats/projects | ❌ | needs `unread` in `chat.list` (the Mac tracks it per window today) |
 | × remove project | ✅ | swipe |
 | Nested repos tree, "Start session →" | ✅ | `workspace.add` |
-| Nested rows: one per branch, main first, each naming its conversation | 🟡 | rows render from `worktrees.list`; needs a Mac new enough to answer it, and falls back to listing conversations otherwise |
+| Project row **is** the folder's own conversation; the list below is the extras | ✅ | tapping the project opens the root chat, not whichever was touched last |
+| Nested rows: one per branch, plus chats with no branch yet; none means no list | 🟡 | rows render from `worktrees.list`; needs a Mac new enough to answer it, and falls back to listing conversations otherwise |
 | A branch with no conversation yet reads as one, and says so | ✅ | shown as `⎇ name · no chat yet`, not tappable |
 | Nested routines | ✅ | tap opens the Routines panel |
 | Drag to reorder projects / groups | ❌ | `moveWorkspace` / `moveGroup` need RPCs + drag UI |

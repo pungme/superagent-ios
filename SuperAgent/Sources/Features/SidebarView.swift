@@ -292,6 +292,16 @@ struct SidebarView: View {
         withAnimation(.easeOut(duration: 0.18)) { collapsedRaw = next.joined(separator: "\u{1}") }
     }
 
+    /// Conversations with no branch of their own yet, and none of the copies
+    /// git knows about. A chat waiting for its first message is one of these;
+    /// so is one whose copy has been merged away.
+    private func chatsWithoutBranch(_ ws: WireWorkspace, trees: [WireWorktree]) -> [WireChat] {
+        let claimed = Set(trees.compactMap(\.chatId))
+        return connection.chats
+            .filter { $0.workspaceId == ws.id && !claimed.contains($0.id) }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
     /// One branch of a project. The conversation is what you look for, so it
     /// reads first; the branch it runs in sits to the right. A row with no chat
     /// yet has nothing to put on the left, so the branch takes that place.
@@ -377,7 +387,12 @@ struct SidebarView: View {
         let mine = routines.filter { $0.workspaceId == ws.id }
         let repos = ws.subrepos ?? []
         let showChats = chats.count > 1
-        let hasTree = !repos.isEmpty || showChats || !mine.isEmpty
+        // With no extras there is no list — the same rule the Mac follows.
+        let extras: Int = {
+            guard let trees = worktrees[ws.id] else { return showChats ? chats.count : 0 }
+            return trees.filter { !$0.main }.count + chatsWithoutBranch(ws, trees: trees).count
+        }()
+        let hasTree = !repos.isEmpty || extras > 0 || !mine.isEmpty
 
         // .sidebar-item: status dot, kind icon, 13.5/500 name, branch chip; 7/8 padding, radius 8.
         Button { Task { await run { try await openProject(ws) } } } label: {
@@ -452,8 +467,12 @@ struct SidebarView: View {
                 // One row per branch, main first, the way the Mac lists them.
                 // A branch is a copy of the project with a conversation in it;
                 // a chat with no branch yet is just a conversation, and says so.
-                if let trees = worktrees[ws.id], trees.count > 1 {
-                    ForEach(trees) { wt in branchRow(wt, in: ws) }
+                if let trees = worktrees[ws.id] {
+                    // Only the extras. The folder's own conversation is the
+                    // project row above; listing it here too drew the root as
+                    // one more branch underneath itself.
+                    ForEach(trees.filter { !$0.main }) { wt in branchRow(wt, in: ws) }
+                    ForEach(chatsWithoutBranch(ws, trees: trees)) { chat in chatTreeRow(chat) }
                 } else if showChats {
                     ForEach(chats) { chat in chatTreeRow(chat) }
                 }
@@ -518,7 +537,15 @@ struct SidebarView: View {
     /// created or opened a chat for it, with no error shown; a second tap
     /// (retrying "nothing happened") created a SECOND chat, which is what
     /// showed up as two sessions after a restart pulled a fresh chat list.
+    /// The project row is the conversation in the folder itself — the Mac draws
+    /// it that way, so tapping it opens that chat rather than whichever was
+    /// touched last. The branches are the rows underneath.
     private func openProject(_ ws: WireWorkspace) async throws {
+        if let rootId = worktrees[ws.id]?.first(where: { $0.main })?.chatId,
+           let root = connection.chats.first(where: { $0.id == rootId }) {
+            path.append(root)
+            return
+        }
         let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
         if let c = chats.first { path.append(c); return }
         let id = try await connection.createChat(workspaceId: ws.id)
