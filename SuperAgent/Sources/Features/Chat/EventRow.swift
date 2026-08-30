@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// One turn: the user's message, the collapsed steps, the reply, a quiet footer.
@@ -415,8 +416,27 @@ struct FileHandoffCard: View {
 
     private var subtitle: String {
         guard let size else { return path }
-        let bytes = ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
-        return bytes + " · " + path
+        return FileHandoffCard.humanSize(size) + " · " + path
+    }
+
+    /// Plain arithmetic rather than ByteCountFormatter: this file imports
+    /// SwiftUI, and leaning on Foundation through it is exactly the kind of
+    /// thing that resolves on one toolchain and not another. Build 32 and 33
+    /// failed on Xcode Cloud with invented errors elsewhere in this file, which
+    /// is what the compiler does when it cannot resolve something here.
+    static func humanSize(_ bytes: Int) -> String {
+        if bytes < 1000 { return "\(bytes) bytes" }
+        let units = ["KB", "MB", "GB", "TB"]
+        var value = Double(bytes)
+        var unit = 0
+        while value >= 1000, unit < units.count - 1 {
+            value /= 1000
+            unit += 1
+        }
+        let rounded = (value * 10).rounded() / 10
+        let whole = rounded == rounded.rounded()
+        let number = whole ? "\(Int(rounded))" : "\(rounded)"
+        return number + " " + units[unit]
     }
 
     private var icon: String {
