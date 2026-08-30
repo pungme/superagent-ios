@@ -1,9 +1,14 @@
+import PDFKit
 import SwiftUI
 
 /// A file inside a project, for navigation.
 struct FileRef: Hashable {
     let workspaceId: String
     let path: String
+    /// The conversation it came from, when it came from one. A chat on its own
+    /// worktree keeps its files there, so reading them needs the chat, not just
+    /// the project.
+    var chatId: String?
 }
 
 /// A folder inside a project. Opening one pushes its own screen — the phone
@@ -125,12 +130,12 @@ private struct FileRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: isDir ? "folder" : icon)
-                .font(.system(size: 13))
+                .superFont(13)
                 .foregroundStyle(Theme.textSecondary)
                 .frame(width: 20)
-            Text(name).font(.system(size: 13.5)).foregroundStyle(Theme.textPrimary).lineLimit(1).truncationMode(.middle)
+            Text(name).superFont(13.5).foregroundStyle(Theme.textPrimary).lineLimit(1).truncationMode(.middle)
             Spacer()
-            if isDir { Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textTertiary) }
+            if isDir { Image(systemName: "chevron.right").superFont(12, weight: .semibold).foregroundStyle(Theme.textTertiary) }
         }
     }
     private var icon: String {
@@ -168,7 +173,7 @@ struct FileView: View {
                                     MarkdownView(text: text).padding(14)
                                 } else {
                                     Text(text)
-                                        .font(.system(size: 12.5, design: .monospaced))
+                                        .superFont(12.5, design: .monospaced)
                                         .foregroundStyle(Theme.textPrimary)
                                         .textSelection(.enabled)
                                         .padding(14)
@@ -187,6 +192,8 @@ struct FileView: View {
                     } else {
                         ContentUnavailableView("Couldn't decode the picture", systemImage: "photo")
                     }
+                case let .pdf(_, size, chunks):
+                    PDFFileView(connection: connection, ref: ref, size: size, chunks: chunks)
                 case let .binary(_, size):
                     ContentUnavailableView("No preview", systemImage: "doc.zipper",
                                            description: Text("\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) · not text or a picture"))
@@ -208,7 +215,7 @@ struct FileView: View {
             }
         }
         .task {
-            do { content = try await connection.readFile(workspaceId: ref.workspaceId, path: ref.path) }
+            do { content = try await connection.readFile(workspaceId: ref.workspaceId, path: ref.path, chatId: ref.chatId) }
             catch { self.error = error.localizedDescription }
         }
     }
@@ -220,8 +227,88 @@ struct PanelTitle: View {
     let subtitle: String
     var body: some View {
         VStack(spacing: 1) {
-            Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-            Text(subtitle).font(.system(size: 11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+            Text(title).superFont(15, weight: .semibold).lineLimit(1)
+            Text(subtitle).superFont(11).foregroundStyle(Theme.textSecondary).lineLimit(1)
         }
+    }
+}
+
+/// A PDF, pulled over in slices and rendered by PDFKit so the text stays
+/// selectable and searchable rather than becoming pictures of pages.
+private struct PDFFileView: View {
+    let connection: Connection
+    let ref: FileRef
+    let size: Int
+    let chunks: Int
+
+    @State private var document: PDFDocument?
+    @State private var loaded = 0
+    @State private var error: String?
+
+    var body: some View {
+        Group {
+            if let document {
+                PDFKitView(document: document)
+            } else if let error {
+                ContentUnavailableView("Couldn\'t open the PDF", systemImage: "doc.richtext",
+                                       description: Text(error))
+            } else {
+                VStack(spacing: 10) {
+                    ProgressView(value: Double(loaded), total: Double(max(chunks, 1)))
+                        .frame(maxWidth: 220)
+                    Text("\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))")
+                        .font(.footnote).foregroundStyle(Theme.textSecondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: ref.path) { await load() }
+    }
+
+    private func load() async {
+        guard document == nil, chunks > 0 else { return }
+        var bytes = Data()
+        bytes.reserveCapacity(size)
+        for i in 0..<chunks {
+            do {
+                let slice = try await connection.readFileChunk(workspaceId: ref.workspaceId, path: ref.path, index: i, chatId: ref.chatId)
+                guard let d = Data(base64Encoded: slice.data) else {
+                    error = "That slice of the file didn\'t decode."
+                    return
+                }
+                bytes.append(d)
+                loaded = i + 1
+            } catch let e as RpcError {
+                error = e.message
+                return
+            } catch let e {
+                error = e.localizedDescription
+                return
+            }
+        }
+        guard let doc = PDFDocument(data: bytes) else {
+            error = "The file arrived but PDFKit wouldn\'t open it."
+            return
+        }
+        document = doc
+    }
+}
+
+/// PDFKit\'s own view: paging, pinch to zoom, selection and Find all come with it.
+private struct PDFKitView: UIViewRepresentable {
+    let document: PDFDocument
+
+    func makeUIView(context: Context) -> PDFView {
+        let v = PDFView()
+        v.autoScales = true
+        v.displayMode = .singlePageContinuous
+        v.displayDirection = .vertical
+        v.backgroundColor = .clear
+        v.document = document
+        return v
+    }
+
+    func updateUIView(_ v: PDFView, context: Context) {
+        if v.document !== document { v.document = document }
     }
 }

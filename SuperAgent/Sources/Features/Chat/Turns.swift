@@ -113,7 +113,10 @@ enum TurnBuilder {
             case .tool, .diff, .thinking:
                 if group == nil { group = StepGroup(id: "g-\(e.id)", events: []) }
                 group!.events.append(e)
-            case .assistant, .approval, .approvalEnd, .notice:
+            // A file the agent handed over is a thing you came back for, not a
+            // step it took: it gets its own row rather than folding into a
+            // "3 steps" group you would have to open to find it again.
+            case .assistant, .approval, .approvalEnd, .notice, .file:
                 closeGroup()
                 current.items.append(.event(e))
             case let .turnEnd(_, _, cost, tokens):

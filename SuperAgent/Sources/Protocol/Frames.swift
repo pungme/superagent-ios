@@ -30,6 +30,8 @@ enum WireEventData: Hashable, Sendable {
     case turnEnd(ok: Bool, subtype: String, costUsd: Double?, tokens: Int?)
     case session(claudeSessionId: String, model: String?, commands: [String])
     case notice(text: String)
+    /// A file the agent handed over: a generated PDF, an export, a report.
+    case file(id: String, path: String, name: String, workspaceId: String?, size: Int?, mediaType: String?)
     case approval(id: String, toolName: String, preview: String, approvalKind: String, expiresAt: Double)
     case approvalEnd(id: String, outcome: ApprovalOutcome, by: Origin)
     /// A kind this build doesn't know. Kept so an old app never chokes on a new Mac.
@@ -46,6 +48,7 @@ enum WireEventData: Hashable, Sendable {
         case .turnEnd: "turn_end"
         case .session: "session"
         case .notice: "notice"
+        case .file: "file"
         case .approval: "approval"
         case .approvalEnd: "approval_end"
         case .unknown(let k): k
@@ -55,7 +58,7 @@ enum WireEventData: Hashable, Sendable {
 
 extension WireEventData: Codable {
     private enum K: String, CodingKey {
-        case kind, id, text, images, from, name, detail, toolId, ok, summary, file, hunks
+        case kind, id, text, images, from, name, detail, toolId, ok, summary, file, hunks, path, size, mediaType, workspaceId
         case subtype, costUsd, tokens, claudeSessionId, model, commands, toolName, preview, approvalKind, expiresAt, outcome, by, task
     }
 
@@ -100,6 +103,16 @@ extension WireEventData: Codable {
                 claudeSessionId: try c.decode(String.self, forKey: .claudeSessionId),
                 model: try c.decodeIfPresent(String.self, forKey: .model),
                 commands: try c.decodeIfPresent([String].self, forKey: .commands) ?? [])
+        case "file":
+            // Decoded a field at a time: as one call the type checker gave up.
+            let fileId = try c.decode(String.self, forKey: .id)
+            let filePath = try c.decode(String.self, forKey: .path)
+            let fileName = try c.decode(String.self, forKey: .name)
+            let fileWs = try c.decodeIfPresent(String.self, forKey: .workspaceId)
+            let fileSize = try c.decodeIfPresent(Int.self, forKey: .size)
+            let fileType = try c.decodeIfPresent(String.self, forKey: .mediaType)
+            self = .file(id: fileId, path: filePath, name: fileName,
+                         workspaceId: fileWs, size: fileSize, mediaType: fileType)
         case "notice":
             self = .notice(text: try c.decodeIfPresent(String.self, forKey: .text) ?? "")
         case "approval":
@@ -134,6 +147,13 @@ extension WireEventData: Codable {
             try c.encodeIfPresent(task, forKey: .task)
         case let .toolResult(toolId, ok, summary):
             try c.encode(toolId, forKey: .toolId); try c.encode(ok, forKey: .ok); try c.encode(summary, forKey: .summary)
+        case let .file(id, path, name, workspaceId, size, mediaType):
+            try c.encode(id, forKey: .id)
+            try c.encode(path, forKey: .path)
+            try c.encode(name, forKey: .name)
+            try c.encodeIfPresent(workspaceId, forKey: .workspaceId)
+            try c.encodeIfPresent(size, forKey: .size)
+            try c.encodeIfPresent(mediaType, forKey: .mediaType)
         case let .diff(id, file, hunks):
             try c.encode(id, forKey: .id); try c.encode(file, forKey: .file); try c.encode(hunks, forKey: .hunks)
         case let .turnEnd(ok, subtype, costUsd, tokens):
@@ -243,13 +263,15 @@ enum ServerFrame: Sendable {
     case chats([WireChat])
     case browser(WireBrowser)
     case simulator(WireSimulator)
+    /// The agent called `open_file`: show this file, as the Mac just did.
+    case openFile(workspaceId: String, path: String, chatId: String?)
     case res(id: String, result: Result<Data, RpcError>)
     case pong
     case unknown(t: String)
 }
 
 extension ServerFrame: Decodable {
-    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser, simulator }
+    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser, simulator, path }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -276,6 +298,10 @@ extension ServerFrame: Decodable {
             self = .simulator(try c.decode(WireSimulator.self, forKey: .simulator))
         case "chats":
             self = .chats(try c.decode([WireChat].self, forKey: .chats))
+        case "openFile":
+            self = .openFile(workspaceId: try c.decode(String.self, forKey: .workspaceId),
+                             path: try c.decode(String.self, forKey: .path),
+                             chatId: try c.decodeIfPresent(String.self, forKey: .chatId))
         case "res":
             let id = try c.decode(String.self, forKey: .id)
             if try c.decode(Bool.self, forKey: .ok) {
@@ -447,12 +473,24 @@ struct WireBrowserShot: Codable, Sendable {
     var jpeg: String
 }
 
+/// `files.chunk`: one slice of a file's bytes, base64, indexed from 0.
+struct WireFileChunk: Decodable, Sendable {
+    var path: String
+    var index: Int
+    var chunks: Int
+    var data: String
+}
+
 enum WireFileContent: Decodable, Sendable {
     case text(path: String, size: Int, text: String, truncated: Bool)
     case image(path: String, size: Int, mediaType: String, data: String)
+    /// A PDF the phone renders itself, so the text stays selectable and
+    /// searchable. The bytes do not ride along: the relay caps a frame at 1 MB,
+    /// so they come in `chunks` pulls of `files.chunk`.
+    case pdf(path: String, size: Int, chunks: Int)
     case binary(path: String, size: Int)
 
-    private enum K: String, CodingKey { case kind, path, size, text, truncated, mediaType, data }
+    private enum K: String, CodingKey { case kind, path, size, text, truncated, mediaType, data, chunks }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
         let path = try c.decode(String.self, forKey: .path)
@@ -464,6 +502,8 @@ enum WireFileContent: Decodable, Sendable {
         case "image":
             self = .image(path: path, size: size, mediaType: try c.decodeIfPresent(String.self, forKey: .mediaType) ?? "image/jpeg",
                           data: try c.decodeIfPresent(String.self, forKey: .data) ?? "")
+        case "pdf":
+            self = .pdf(path: path, size: size, chunks: try c.decodeIfPresent(Int.self, forKey: .chunks) ?? 0)
         default:
             self = .binary(path: path, size: size)
         }

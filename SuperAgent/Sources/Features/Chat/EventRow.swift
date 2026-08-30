@@ -35,15 +35,15 @@ struct StepGroupRow: View {
             Button { withAnimation(.easeInOut(duration: 0.18)) { open.toggle() } } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
+                        .superFont(10, weight: .bold)
                         .rotationEffect(.degrees(open ? 90 : 0))
                         .foregroundStyle(Theme.textTertiary)
-                    Text(headline).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.textSecondary)
+                    Text(headline).superFont(13, weight: .medium).foregroundStyle(Theme.textSecondary)
                     if !group.summary.isEmpty {
-                        Text("· " + group.summary).font(.system(size: 13)).foregroundStyle(Theme.textTertiary).lineLimit(1)
+                        Text("· " + group.summary).superFont(13).foregroundStyle(Theme.textTertiary).lineLimit(1)
                     }
                     if group.failed > 0 {
-                        Text("· \(group.failed) failed").font(.system(size: 13)).foregroundStyle(Theme.danger)
+                        Text("· \(group.failed) failed").superFont(13).foregroundStyle(Theme.danger)
                     }
                 }
                 .padding(.vertical, 2)
@@ -88,28 +88,31 @@ struct StepRow: View {
         case let .tool(_, name, detail, _):
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: result?.ok == false ? "xmark.circle" : icon(for: name))
-                    .font(.system(size: 11)).foregroundStyle(result?.ok == false ? Theme.danger : Theme.textTertiary)
+                    .superFont(11).foregroundStyle(result?.ok == false ? Theme.danger : Theme.textTertiary)
                     .frame(width: 14)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(StepGroup.verb(for: name)).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.textSecondary)
-                        Text(prettyName(name)).font(.system(size: 11.5)).foregroundStyle(Theme.textTertiary)
+                        Text(StepGroup.verb(for: name)).superFont(12.5, weight: .medium).foregroundStyle(Theme.textSecondary)
+                        Text(prettyName(name)).superFont(11.5).foregroundStyle(Theme.textTertiary)
                     }
                     if !detail.isEmpty {
-                        Text(detail).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                        Text(detail).superFont(12, design: .monospaced).foregroundStyle(Theme.textSecondary).lineLimit(2)
                     }
                     if let r = result, !r.ok, !r.summary.isEmpty {
-                        Text(r.summary).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.danger.opacity(0.85)).lineLimit(3)
+                        Text(r.summary).superFont(11.5, design: .monospaced).foregroundStyle(Theme.danger.opacity(0.85)).lineLimit(3)
                     }
                 }
             }
+        case let .file(_, path, name, workspaceId, size, mediaType):
+            FileHandoffCard(path: path, name: name, workspaceId: workspaceId,
+                            chatId: event.chatId, size: size, mediaType: mediaType)
         case let .diff(_, file, hunks):
             DiffCard(file: file, hunks: hunks)
         case let .thinking(_, text):
             DisclosureGroup {
-                Text(text).font(.system(size: 12.5)).foregroundStyle(Theme.textSecondary).padding(.top, 4)
+                Text(text).superFont(12.5).foregroundStyle(Theme.textSecondary).padding(.top, 4)
             } label: {
-                Label("Thought", systemImage: "sparkle").font(.system(size: 12.5)).foregroundStyle(Theme.textTertiary)
+                Label("Thought", systemImage: "sparkle").superFont(12.5).foregroundStyle(Theme.textTertiary)
             }
             .tint(Theme.textTertiary)
         case .toolResult:
@@ -145,12 +148,12 @@ struct DiffCard: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { withAnimation(.easeInOut(duration: 0.18)) { open.toggle() } } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "doc.text").font(.system(size: 11)).foregroundStyle(Theme.textTertiary).frame(width: 14)
-                    Text(file).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.textSecondary)
-                    Text("+\(added)").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.added)
-                    Text("−\(removed)").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.removed)
+                    Image(systemName: "doc.text").superFont(11).foregroundStyle(Theme.textTertiary).frame(width: 14)
+                    Text(file).superFont(12.5, weight: .medium).foregroundStyle(Theme.textSecondary)
+                    Text("+\(added)").superFont(11.5, design: .monospaced).foregroundStyle(Theme.added)
+                    Text("−\(removed)").superFont(11.5, design: .monospaced).foregroundStyle(Theme.removed)
                     Spacer()
-                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).rotationEffect(.degrees(open ? 90 : 0)).foregroundStyle(Theme.textTertiary)
+                    Image(systemName: "chevron.right").superFont(10, weight: .bold).rotationEffect(.degrees(open ? 90 : 0)).foregroundStyle(Theme.textTertiary)
                 }
                 .contentShape(Rectangle())
             }
@@ -179,7 +182,7 @@ struct DiffLine: View {
             Text(sign).foregroundStyle(sign == "+" ? Theme.added : Theme.removed)
             Text(text.isEmpty ? " " : text)
         }
-        .font(.system(size: 11.5, design: .monospaced))
+        .superFont(11.5, design: .monospaced)
         .padding(.horizontal, 6).padding(.vertical, 1)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background((sign == "+" ? Theme.added : Theme.removed).opacity(0.09))
@@ -200,7 +203,7 @@ struct EventRow: View {
                 Spacer(minLength: 48)
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(text)
-                        .font(.system(size: 15.5))
+                        .superFont(15.5)
                         .foregroundStyle(Theme.accentFg)
                         .padding(.horizontal, 14).padding(.vertical, 9)
                         .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
@@ -208,7 +211,7 @@ struct EventRow: View {
                     if !images.isEmpty || from == .ios {
                         Text([images.isEmpty ? nil : "\(images.count) image\(images.count == 1 ? "" : "s")", from == .ios ? "from this phone" : nil]
                             .compactMap { $0 }.joined(separator: " · "))
-                            .font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
+                            .superFont(11).foregroundStyle(Theme.textTertiary)
                     }
                 }
             }
@@ -219,7 +222,7 @@ struct EventRow: View {
                 if let choices { ChoicesView(choices: choices, choose: choose) }
             }
         case let .notice(text):
-            Text(text).font(.system(size: 12.5)).foregroundStyle(Theme.textSecondary)
+            Text(text).superFont(12.5).foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 6)
@@ -227,7 +230,7 @@ struct EventRow: View {
             ApprovalCard(id: id, toolName: toolName, preview: preview, pending: pending, answer: answer)
         case let .approvalEnd(_, outcome, by):
             Text("\(outcome == .approved ? "Approved" : outcome == .denied ? "Denied" : "Expired") · \(by == .ios ? "from this phone" : "on the Mac")")
-                .font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
+                .superFont(11).foregroundStyle(Theme.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .center)
         default:
             EmptyView()
@@ -242,7 +245,7 @@ struct AssistantBubble: View {
         HStack {
             VStack(alignment: .leading, spacing: 0) {
                 MarkdownView(text: text)
-                    .font(.system(size: 15.5))
+                    .superFont(15.5)
                     .foregroundStyle(Theme.textPrimary)
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
@@ -273,7 +276,7 @@ struct ChoicesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !choices.question.isEmpty {
-                Text(choices.question).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.textPrimary)
+                Text(choices.question).superFont(14, weight: .medium).foregroundStyle(Theme.textPrimary)
             }
             ForEach(choices.options, id: \.label) { opt in
                 Button {
@@ -284,8 +287,8 @@ struct ChoicesView: View {
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(opt.label).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.textPrimary)
-                            if let h = opt.hint, !h.isEmpty { Text(h).font(.system(size: 12)).foregroundStyle(Theme.textSecondary) }
+                            Text(opt.label).superFont(14, weight: .medium).foregroundStyle(Theme.textPrimary)
+                            if let h = opt.hint, !h.isEmpty { Text(h).superFont(12).foregroundStyle(Theme.textSecondary) }
                         }
                         Spacer()
                         Image(systemName: choices.multiple ? (picked.contains(opt.label) ? "checkmark.circle.fill" : "circle") : "arrow.right")
@@ -300,7 +303,7 @@ struct ChoicesView: View {
             if choices.multiple {
                 Button("Send \(picked.count) choice\(picked.count == 1 ? "" : "s")") { choose(picked.sorted().joined(separator: ", ")) }
                     .disabled(picked.isEmpty)
-                    .font(.system(size: 13, weight: .semibold))
+                    .superFont(13, weight: .semibold)
                     .tint(Theme.textPrimary)
             }
         }
@@ -318,9 +321,9 @@ struct ApprovalCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(pending ? "Claude wants to \(verb)" : "Asked to \(verb)", systemImage: "hand.raised")
-                .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.textPrimary)
+                .superFont(14, weight: .semibold).foregroundStyle(Theme.textPrimary)
             Text(preview)
-                .font(.system(size: 12, design: .monospaced))
+                .superFont(12, design: .monospaced)
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(6)
                 .padding(8)
@@ -363,7 +366,7 @@ struct OutgoingRow: View {
             VStack(alignment: .trailing, spacing: 4) {
                 if !message.text.isEmpty {
                     Text(message.text)
-                        .font(.system(size: 15.5))
+                        .superFont(15.5)
                         .foregroundStyle(Theme.accentFg)
                         .padding(.horizontal, 14).padding(.vertical, 9)
                         .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
@@ -384,11 +387,67 @@ struct OutgoingRow: View {
                         Button("Discard", action: discard).foregroundStyle(Theme.textPrimary)
                     }
                 }
-                .font(.system(size: 11))
+                .superFont(11)
                 .foregroundStyle(failed ? Theme.danger : Theme.textTertiary)
             }
         }
     }
 
     private var failed: Bool { if case .failed = message.status { return true }; return false }
+}
+
+
+/// A file the agent handed over, kept in the conversation so you can come back
+/// to it. Tapping opens the same viewer the Files tab uses; a file outside any
+/// project has nowhere to fetch from, so it says where it is instead.
+struct FileHandoffCard: View {
+    let path: String
+    let name: String
+    let workspaceId: String?
+    let chatId: String
+    let size: Int?
+    let mediaType: String?
+
+    private var subtitle: String {
+        var parts: [String] = []
+        if let size { parts.append(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) }
+        parts.append(path)
+        return parts.joined(separator: " · ")
+    }
+
+    private var icon: String {
+        switch mediaType {
+        case let t? where t.hasPrefix("image/"): "photo"
+        case "application/pdf": "doc.richtext"
+        case "application/zip": "shippingbox"
+        case "text/csv": "tablecells"
+        default: "doc"
+        }
+    }
+
+    private var card: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon).superFont(16).foregroundStyle(Theme.accent).frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).superFont(13.5, weight: .medium).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                Text(subtitle).superFont(11.5).foregroundStyle(Theme.textTertiary).lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            if workspaceId != nil {
+                Image(systemName: "chevron.right").superFont(11, weight: .semibold).foregroundStyle(Theme.textTertiary)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+    }
+
+    var body: some View {
+        if let workspaceId {
+            NavigationLink(value: FileRef(workspaceId: workspaceId, path: path, chatId: chatId)) { card }
+                .buttonStyle(.plain)
+        } else {
+            card
+        }
+    }
 }

@@ -71,6 +71,9 @@ final class Connection {
     private(set) var browsers: [String: WireBrowser] = [:]
     /// What each conversation has open in the Mac's simulator pane.
     private(set) var simulators: [String: WireSimulator] = [:]
+    /// The agent asked (via `open_file`) that a file be shown. Whoever is on
+    /// screen for that chat picks it up and pushes the viewer, then clears it.
+    var openFileRequest: OpenFileRequest?
 
     private var transport: RelayTransport?
     private var sealer: Sealer
@@ -231,6 +234,8 @@ final class Connection {
             if b.open { browsers[b.chatId] = b } else { browsers[b.chatId] = nil }
         case .simulator(let sim):
             if sim.open { simulators[sim.chatId] = sim } else { simulators[sim.chatId] = nil }
+        case let .openFile(workspaceId, path, chatId):
+            openFileRequest = OpenFileRequest(workspaceId: workspaceId, path: path, chatId: chatId)
         case .chats(let list):
             chats = list
             OfflineCache.save(machine.id, "chats", list)
@@ -436,12 +441,31 @@ extension Connection {
         try await rpc("chat.search", .object(["query": .string(query), "limit": .number(40)]), as: [WireSearchHit].self)
     }
 
-    func listFiles(workspaceId: String) async throws -> WireFileList {
-        try await rpc("files.list", .object(["workspaceId": .string(workspaceId)]), as: WireFileList.self)
+    /// `chatId` matters on a git project: a conversation with its own worktree
+    /// writes there and nowhere else, so asking for the project's files would
+    /// show main and none of what the agent just made.
+    func listFiles(workspaceId: String, chatId: String? = nil) async throws -> WireFileList {
+        try await rpc("files.list", fileParams(workspaceId, chatId), as: WireFileList.self)
     }
 
-    func readFile(workspaceId: String, path: String) async throws -> WireFileContent {
-        try await rpc("files.read", .object(["workspaceId": .string(workspaceId), "path": .string(path)]), as: WireFileContent.self)
+    func readFile(workspaceId: String, path: String, chatId: String? = nil) async throws -> WireFileContent {
+        let p = fileParams(workspaceId, chatId, extra: ["path": .string(path)])
+        return try await rpc("files.read", p, as: WireFileContent.self)
+    }
+
+    /// One slice of a file's bytes. `files.read` says how many there are.
+    func readFileChunk(workspaceId: String, path: String, index: Int, chatId: String? = nil) async throws -> WireFileChunk {
+        let p = fileParams(workspaceId, chatId,
+                           extra: ["path": .string(path), "index": .number(Double(index))])
+        return try await rpc("files.chunk", p, as: WireFileChunk.self)
+    }
+
+    private func fileParams(_ workspaceId: String, _ chatId: String?,
+                            extra: [String: JSONValue] = [:]) -> JSONValue {
+        var o: [String: JSONValue] = ["workspaceId": .string(workspaceId)]
+        if let chatId { o["chatId"] = .string(chatId) }
+        for (k, v) in extra { o[k] = v }
+        return .object(o)
     }
 
     func branches(workspaceId: String) async throws -> [WireBranch] {
@@ -641,3 +665,13 @@ extension Connection {
 }
 
 #endif
+
+/// A file the agent asked to show, from the Mac's `open_file` tool.
+struct OpenFileRequest: Identifiable, Equatable, Sendable {
+    var workspaceId: String
+    var path: String
+    /// The conversation that asked. nil means the workspace's own agent, which
+    /// any of its chats may show.
+    var chatId: String?
+    var id: String { "\(workspaceId)|\(path)|\(chatId ?? "")" }
+}
