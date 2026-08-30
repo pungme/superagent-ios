@@ -8,7 +8,17 @@ struct SuperAgentApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            Group {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-scrollHarness") {
+                    NavigationStack { ChatHarness() }
+                } else {
+                    RootView()
+                }
+                #else
+                RootView()
+                #endif
+            }
                 .environment(app)
                 .onAppear { PushDelegate.app = app }
                 .onChange(of: scenePhase, initial: true) { _, phase in

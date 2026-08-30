@@ -15,7 +15,10 @@ struct ChatView: View {
     @State private var attachments: [Attachment] = []
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var dictation = Dictation()
+    /// Whether the transcript is showing its end, read from the scroll
+    /// geometry rather than from a sentinel view appearing and disappearing.
     @State private var atBottom = true
+    @State private var position = ScrollPosition()
     @State private var showBrowserSheet = false
     @State private var showTasks = false
     /// The docked page above the chat. Defaults to shown when the Mac has one
@@ -85,61 +88,72 @@ struct ChatView: View {
                     .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        if transcript.events.isEmpty, transcript.streaming.isEmpty {
-                            emptyState
-                        }
-                        ForEach(turns) { turn in
-                            TurnView(turn: turn, pendingApprovals: pendingApprovals,
-                                     answer: answer, choose: { send(text: $0) })
-                        }
-                        ForEach(transcript.outbox) { msg in
-                            OutgoingRow(message: msg,
-                                        retry: { connection.retry(chatId: chat.id, id: msg.id) },
-                                        discard: { connection.discard(chatId: chat.id, id: msg.id) })
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                        }
-                        tail
-                        Color.clear.frame(height: 1).id("bottom")
-                            .onAppear { atBottom = true }
-                            .onDisappear { atBottom = false }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if transcript.events.isEmpty, transcript.streaming.isEmpty {
+                        emptyState
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    ForEach(turns) { turn in
+                        TurnView(turn: turn, pendingApprovals: pendingApprovals,
+                                 answer: answer, choose: { send(text: $0) })
+                    }
+                    ForEach(transcript.outbox) { msg in
+                        OutgoingRow(message: msg,
+                                    retry: { connection.retry(chatId: chat.id, id: msg.id) },
+                                    discard: { connection.discard(chatId: chat.id, id: msg.id) })
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    tail
+                    Color.clear.frame(height: 8)
                 }
-                // Open on the newest message: the transcript arrives after the
-                // view does, so scrolling on appear alone landed mid-history.
-                .defaultScrollAnchor(.bottom)
-                .background(Theme.content)
-                .scrollDismissesKeyboard(.interactively)
-                .overlay(alignment: .bottomTrailing) {
-                    if !atBottom {
-                        Button { scrollToBottom(proxy) } label: {
-                            Image(systemName: "arrow.down").font(.system(size: 13, weight: .semibold))
-                                .frame(width: 34, height: 34)
-                                .background(Theme.card, in: Circle())
-                                .overlay(Circle().stroke(Theme.border))
-                                .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-                        }
-                        .padding(14)
-                        .transition(.scale.combined(with: .opacity))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+            // The scroll view keeps itself at the newest message. Nothing here
+            // scrolls by hand, which is the whole point: driving the offset with
+            // a ScrollViewReader while the keyboard, the composer's height and a
+            // batch of arriving rows were all resizing the content meant the
+            // offset was computed for a layout that no longer existed, and a
+            // LazyVStack had nothing realised there, so the transcript landed on
+            // a blank stretch.
+            //
+            // initialOffset opens on the end, so a cold open lands on the newest
+            // message even though the transcript arrives after the view does.
+            // sizeChanges keeps it there while rows stream in and while the
+            // keyboard opens, and is nil once the reader has scrolled up, so
+            // arriving messages never yank them back down.
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(atBottom ? .bottom : nil, for: .sizeChanges)
+            .scrollPosition($position)
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 40
+            } action: { _, isAtEnd in
+                if atBottom != isAtEnd { atBottom = isAtEnd }
+            }
+            .background(Theme.content)
+            .scrollDismissesKeyboard(.interactively)
+            // Tap the transcript to put the keyboard away, the way Messages
+            // does. Simultaneous, so a tap that lands on an approval button or
+            // a choice still reaches it.
+            .simultaneousGesture(
+                TapGesture().onEnded { if composerFocused { composerFocused = false } }
+            )
+            .overlay(alignment: .bottomTrailing) {
+                if !atBottom {
+                    Button { scrollToEnd() } label: {
+                        Image(systemName: "arrow.down").font(.system(size: 13, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                            .background(Theme.card, in: Circle())
+                            .overlay(Circle().stroke(Theme.border))
+                            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
                     }
-                }
-                .onChange(of: transcript.events.count) { _, _ in if atBottom { scrollToBottom(proxy) } }
-                .onChange(of: transcript.outbox.count) { _, _ in scrollToBottom(proxy) }
-                .onChange(of: transcript.streaming) { _, _ in if atBottom { scrollToBottom(proxy) } }
-                .onAppear { scrollToBottom(proxy, animated: false) }
-                // Keep pinning to the end while the first events stream in.
-                .task(id: chat.id) {
-                    for _ in 0..<12 {
-                        try? await Task.sleep(for: .milliseconds(150))
-                        guard atBottom else { return }
-                        scrollToBottom(proxy, animated: false)
-                    }
+                    .padding(14)
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
+            // Your own message always brings you back to the end, wherever you
+            // were reading.
+            .onChange(of: transcript.outbox.count) { _, _ in scrollToEnd() }
             Divider().overlay(Theme.border)
             Composer(
                 draft: $draft, attachments: $attachments, pickerItems: $pickerItems,
@@ -201,11 +215,8 @@ struct ChatView: View {
         .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
         .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
         .onChange(of: pickerItems) { _, items in loadPicked(items) }
-        .onChange(of: composerFocused) { _, focused in
-            // The keyboard takes the page's room; the chat stays at the bottom.
-            withAnimation(.easeOut(duration: 0.22)) { atBottom = focused ? true : atBottom }
-        }
         .onChange(of: dictation.transcript) { _, t in if !t.isEmpty { draft = t } }
+
         .alert("Couldn't send", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") {}
         } message: { Text(error ?? "") }
@@ -317,9 +328,8 @@ struct ChatView: View {
         }
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
-        if animated { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) } }
-        else { proxy.scrollTo("bottom", anchor: .bottom) }
+    private func scrollToEnd() {
+        withAnimation(.easeOut(duration: 0.2)) { position.scrollTo(edge: .bottom) }
     }
 
 }
@@ -433,3 +443,26 @@ struct ProjectBar: View {
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.border))
     }
 }
+
+#if DEBUG
+/// Debug-only: `-scrollHarness` opens a synthetic transcript so the scrolling
+/// can be exercised in the simulator without pairing a Mac.
+struct ChatHarness: View {
+    @State private var connection: Connection?
+    var body: some View {
+        Group {
+            if let c = connection {
+                ChatView(connection: c,
+                         chat: WireChat(id: "harness", workspaceId: "w", title: "Scroll harness",
+                                        updatedAt: 0, live: false, preview: nil),
+                         workspace: WireWorkspace(id: "w", name: "harness", path: "/tmp/harness",
+                                                  kind: "repo", status: .idle, branch: "main",
+                                                  browserUrl: nil, subrepos: nil))
+            } else {
+                ProgressView()
+            }
+        }
+        .task { if connection == nil { connection = Connection.scrollHarness() } }
+    }
+}
+#endif
