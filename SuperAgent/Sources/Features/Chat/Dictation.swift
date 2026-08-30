@@ -52,24 +52,11 @@ final class Dictation {
             // otherwise leave a tap behind, and a second tap on the same bus
             // is another uncatchable exception.
             input.removeTap(onBus: 0)
-            // @Sendable on both callbacks below, deliberately. This class is
-            // @MainActor, so a plain closure written here inherits that
-            // isolation, and both of these are called somewhere else: the tap
-            // on AVFAudio's realtime queue, the recognition callback on
-            // Speech's. The concurrency runtime checks, finds the wrong
-            // executor, and traps the process.
-            nonisolated(unsafe) let sink = req
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in
-                sink.append(buffer)
-            }
+            Self.installTap(on: input, format: format, into: req)
             engine.prepare()
             try engine.start()
             listening = true
-            task = recognizer.recognitionTask(with: req) { @Sendable [weak self] result, err in
-                // Read what we need here, on Speech's own queue: the result
-                // itself is not Sendable, a String and a Bool are.
-                let text = result?.bestTranscription.formattedString
-                let finished = err != nil || (result?.isFinal ?? false)
+            task = Self.recognize(recognizer, req) { [weak self] text, finished in
                 Task { @MainActor in
                     guard let self else { return }
                     if let text { self.transcript = text }
