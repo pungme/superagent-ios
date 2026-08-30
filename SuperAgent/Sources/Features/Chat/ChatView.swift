@@ -24,6 +24,10 @@ struct ChatView: View {
     /// composer. Measured rather than assumed, because the banner comes and
     /// goes and the composer grows with the draft.
     @State private var chromeHeight: CGFloat = 200
+    /// Set once the divider has been dragged. The cap that keeps the
+    /// conversation readable is a default, not a rule: if you deliberately
+    /// pull the page bigger, it goes bigger.
+    @State private var pageResized = false
     @State private var showBrowserSheet = false
     @State private var showTasks = false
     /// The docked page above the chat. Defaults to shown when the Mac has one
@@ -65,6 +69,29 @@ struct ChatView: View {
                        onBrowser: togglePage, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating)
             // What the Mac has open sits above the conversation, as it sits
             // beside it on the desktop. The keyboard takes the room instead.
+            // Attached but not on screen: say so, and offer it back. Without
+            // this the page simply vanishes when you hide it or start typing,
+            // and nothing says the conversation still has one.
+            if pageAttached, !pageShown {
+                Button {
+                    pageHidden = false
+                    composerFocused = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "globe").font(.system(size: 12))
+                        Text(pageLabel).font(.system(size: 13)).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text("Show").font(.system(size: 13, weight: .medium))
+                        Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .contentShape(Rectangle())
+                }
+                .tint(Theme.textSecondary)
+                .background(Theme.panel)
+                .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
             if pageShown {
                 BrowserMirror(connection: connection, chat: chat, compact: true,
                               onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
@@ -85,6 +112,7 @@ struct ChatView: View {
                             .onChanged { v in
                                 let start = dragStart ?? pageFraction
                                 dragStart = start
+                                pageResized = true
                                 pageFraction = min(0.72, max(0.2, start + v.translation.height / max(1, containerHeight)))
                             }
                             .onEnded { _ in dragStart = nil }
@@ -198,9 +226,17 @@ struct ChatView: View {
         // the docked page is the chrome, and knowing it is what lets the page
         // cap itself without hard-coding the height of a banner or a composer.
         .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height } action: { _, box in
-            guard box > 0, pageShown else { return }
+            // Never while the divider is being dragged. The page's height is
+            // derived from this measurement, and this measurement is taken from
+            // the height the page leaves behind, so measuring mid-drag has the
+            // two chasing each other every frame: that was the jank. A drag
+            // reads the last settled value and the measurement resumes on
+            // release. The threshold is generous for the same reason; chrome
+            // only really changes when the banner appears or the composer grows
+            // a line, and neither needs to be caught to the point.
+            guard box > 0, pageShown, dragStart == nil else { return }
             let measured = containerHeight - pageHeight - box
-            if measured > 0, abs(measured - chromeHeight) > 1 { chromeHeight = measured }
+            if measured > 0, abs(measured - chromeHeight) > 8 { chromeHeight = measured }
         }
         .onScrollGeometryChange(for: Bool.self) { geo in
             geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 40
@@ -349,9 +385,20 @@ struct ChatView: View {
     /// transcript was left with 219: less than one bubble, which reads as an
     /// empty chat you have to scroll up to find. The page can still be dragged
     /// bigger deliberately; it just will not start that way.
+    private var pageAttached: Bool { connection.browsers[chat.id]?.open == true }
+
+    /// The page's host, or its title when there is no useful host.
+    private var pageLabel: String {
+        guard let b = connection.browsers[chat.id] else { return "Page" }
+        if let host = URL(string: b.url)?.host?.replacingOccurrences(of: "www.", with: ""), !host.isEmpty {
+            return host
+        }
+        return b.title.isEmpty ? "Page" : b.title
+    }
+
     private var pageHeight: CGFloat {
         let wanted = containerHeight * pageFraction
-        let floor: CGFloat = 300
+        let floor: CGFloat = pageResized ? 140 : 300
         let allowed = max(160, containerHeight - chromeHeight - floor)
         return max(160, min(wanted, allowed))
     }

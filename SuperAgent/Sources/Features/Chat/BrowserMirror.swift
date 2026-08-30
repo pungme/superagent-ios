@@ -82,10 +82,6 @@ struct BrowserMirror: View {
                 Button(action: open) { Image(systemName: "arrow.right.circle.fill").font(.system(size: compact ? 16 : 20)) }
                     .tint(Theme.textPrimary).accessibilityLabel("Open")
             }
-            if let onHide {
-                Button(action: onHide) { Image(systemName: "chevron.up").font(.system(size: 12, weight: .semibold)) }
-                    .tint(Theme.textSecondary).accessibilityLabel("Hide the page")
-            }
         }
         .padding(.horizontal, compact ? 10 : 12).padding(.vertical, compact ? 6 : 9)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -101,6 +97,10 @@ struct BrowserMirror: View {
             if let onExpand {
                 Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                     .accessibilityLabel("Open full screen")
+            }
+            if let onHide {
+                Button(action: onHide) { Image(systemName: "chevron.up") }
+                    .tint(Theme.textSecondary).accessibilityLabel("Hide the page")
             }
             Spacer()
             if let title = shot?.title, !title.isEmpty, !compact {
