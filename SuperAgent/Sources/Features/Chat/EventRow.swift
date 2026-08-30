@@ -222,6 +222,9 @@ struct EventRow: View {
                 if !body.isEmpty { AssistantBubble(text: body, streaming: false) }
                 if let choices { ChoicesView(choices: choices, choose: choose) }
             }
+        case let .file(_, path, name, workspaceId, size, mediaType):
+            FileHandoffCard(path: path, name: name, workspaceId: workspaceId,
+                            chatId: event.chatId, size: size, mediaType: mediaType)
         case let .notice(text):
             Text(text).superFont(12.5).foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -428,7 +431,9 @@ struct FileHandoffCard: View {
         if bytes < 1000 { return "\(bytes) bytes" }
         let units = ["KB", "MB", "GB", "TB"]
         var value = Double(bytes)
-        var unit = 0
+        // -1 because the first division is what gets us to KB: starting at 0
+        // called 1,700 bytes "1.7 MB".
+        var unit = -1
         while value >= 1000, unit < units.count - 1 {
             value /= 1000
             unit += 1
