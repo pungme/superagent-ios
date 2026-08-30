@@ -400,6 +400,11 @@ struct OutgoingRow: View {
 /// A file the agent handed over, kept in the conversation so you can come back
 /// to it. Tapping opens the same viewer the Files tab uses; a file outside any
 /// project has nowhere to fetch from, so it says where it is instead.
+///
+/// Written plainly on purpose. The first version used a switch expression with
+/// an optional pattern and a `where` clause, which builds here and does not on
+/// Xcode Cloud's older toolchain — where it failed as two invented errors on
+/// unrelated lines further up this file. Nothing here needs to be clever.
 struct FileHandoffCard: View {
     let path: String
     let name: String
@@ -409,43 +414,57 @@ struct FileHandoffCard: View {
     let mediaType: String?
 
     private var subtitle: String {
-        var parts: [String] = []
-        if let size { parts.append(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) }
-        parts.append(path)
-        return parts.joined(separator: " · ")
+        guard let size else { return path }
+        let bytes = ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+        return bytes + " · " + path
     }
 
     private var icon: String {
-        switch mediaType {
-        case let t? where t.hasPrefix("image/"): "photo"
-        case "application/pdf": "doc.richtext"
-        case "application/zip": "shippingbox"
-        case "text/csv": "tablecells"
-        default: "doc"
-        }
+        let type = mediaType ?? ""
+        if type.hasPrefix("image/") { return "photo" }
+        if type == "application/pdf" { return "doc.richtext" }
+        if type == "application/zip" { return "shippingbox" }
+        if type == "text/csv" { return "tablecells" }
+        return "doc"
     }
 
     private var card: some View {
         HStack(spacing: 10) {
-            Image(systemName: icon).superFont(16).foregroundStyle(Theme.accent).frame(width: 22)
+            Image(systemName: icon)
+                .superFont(16)
+                .foregroundStyle(Theme.accent)
+                .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).superFont(13.5, weight: .medium).foregroundStyle(Theme.textPrimary).lineLimit(1)
-                Text(subtitle).superFont(11.5).foregroundStyle(Theme.textTertiary).lineLimit(1).truncationMode(.middle)
+                Text(name)
+                    .superFont(13.5, weight: .medium)
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .superFont(11.5)
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Spacer(minLength: 8)
             if workspaceId != nil {
-                Image(systemName: "chevron.right").superFont(11, weight: .semibold).foregroundStyle(Theme.textTertiary)
+                Image(systemName: "chevron.right")
+                    .superFont(11, weight: .semibold)
+                    .foregroundStyle(Theme.textTertiary)
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
     }
 
+    @ViewBuilder
     var body: some View {
         if let workspaceId {
-            NavigationLink(value: FileRef(workspaceId: workspaceId, path: path, chatId: chatId)) { card }
-                .buttonStyle(.plain)
+            NavigationLink(value: FileRef(workspaceId: workspaceId, path: path, chatId: chatId)) {
+                card
+            }
+            .buttonStyle(.plain)
         } else {
             card
         }
