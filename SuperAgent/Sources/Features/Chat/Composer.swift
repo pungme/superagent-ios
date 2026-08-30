@@ -17,7 +17,11 @@ struct Composer: View {
     let onSend: () -> Void
     let onStop: () -> Void
 
-    @FocusState private var focused: Bool
+    /// Owned by ChatView. The chat needs to know when the keyboard is up: it
+    /// gives the docked page's room back to the transcript, pauses the mirror,
+    /// and lets a tap on the transcript put the keyboard away. A private
+    /// @FocusState here left all three dead, since nothing outside could see it.
+    var focused: FocusState<Bool>.Binding
 
     static let models: [(id: String, label: String, hint: String)] = [
         ("", "Default", "Whatever your account uses"),
@@ -93,7 +97,7 @@ struct Composer: View {
                         .lineLimit(1...6)
                         .font(.system(size: 15.5))
                         .textFieldStyle(.plain)
-                        .focused($focused)
+                        .focused(focused)
                         .padding(.leading, 12).padding(.vertical, 9)
                     Button {
                         Task { if dictation.listening { dictation.stop() } else { await dictation.start() } }

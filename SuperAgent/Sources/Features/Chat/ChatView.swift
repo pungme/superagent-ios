@@ -49,6 +49,12 @@ struct ChatView: View {
     }
 
     var body: some View {
+        events(sheets(chrome))
+    }
+
+    /// `body` split into stages on purpose. As one chained expression, with the
+    /// composer's focus binding threaded through it, the type checker gave up.
+    private var chrome: some View {
         VStack(spacing: 0) {
             ProjectBar(connection: connection, workspace: workspace, pageOpen: pageShown,
                        onBrowser: togglePage, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating)
@@ -88,96 +94,127 @@ struct ChatView: View {
                     .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    if transcript.events.isEmpty, transcript.streaming.isEmpty {
-                        emptyState
-                    }
-                    ForEach(turns) { turn in
-                        TurnView(turn: turn, pendingApprovals: pendingApprovals,
-                                 answer: answer, choose: { send(text: $0) })
-                    }
-                    ForEach(transcript.outbox) { msg in
-                        OutgoingRow(message: msg,
-                                    retry: { connection.retry(chatId: chat.id, id: msg.id) },
-                                    discard: { connection.discard(chatId: chat.id, id: msg.id) })
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    tail
-                    Color.clear.frame(height: 8)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-            }
-            // The scroll view keeps itself at the newest message. Nothing here
-            // scrolls by hand, which is the whole point: driving the offset with
-            // a ScrollViewReader while the keyboard, the composer's height and a
-            // batch of arriving rows were all resizing the content meant the
-            // offset was computed for a layout that no longer existed, and a
-            // LazyVStack had nothing realised there, so the transcript landed on
-            // a blank stretch.
-            //
-            // initialOffset opens on the end, so a cold open lands on the newest
-            // message even though the transcript arrives after the view does.
-            // sizeChanges keeps it there while rows stream in and while the
-            // keyboard opens, and is nil once the reader has scrolled up, so
-            // arriving messages never yank them back down.
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .defaultScrollAnchor(atBottom ? .bottom : nil, for: .sizeChanges)
-            .scrollPosition($position)
-            .onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 40
-            } action: { _, isAtEnd in
-                if atBottom != isAtEnd { atBottom = isAtEnd }
-            }
-            .background(Theme.content)
-            .scrollDismissesKeyboard(.interactively)
-            // Tap the transcript to put the keyboard away, the way Messages
-            // does. Simultaneous, so a tap that lands on an approval button or
-            // a choice still reaches it.
-            .simultaneousGesture(
-                TapGesture().onEnded { if composerFocused { composerFocused = false } }
-            )
-            .overlay(alignment: .bottomTrailing) {
-                if !atBottom {
-                    Button { scrollToEnd() } label: {
-                        Image(systemName: "arrow.down").font(.system(size: 13, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .background(Theme.card, in: Circle())
-                            .overlay(Circle().stroke(Theme.border))
-                            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-                    }
-                    .padding(14)
-                    .transition(.scale.combined(with: .opacity))
-                }
-            }
-            // Your own message always brings you back to the end, wherever you
-            // were reading.
-            .onChange(of: transcript.outbox.count) { _, _ in scrollToEnd() }
+            transcript(proxyless: true)
             Divider().overlay(Theme.border)
-            Composer(
-                draft: $draft, attachments: $attachments, pickerItems: $pickerItems,
-                dictation: dictation, connected: connection.state == .connected,
-                working: isWorking, commands: connection.commands[chat.id] ?? [],
-                model: Binding(get: { app.preferredModel }, set: { app.preferredModel = $0 }),
-                mode: Binding(get: { app.preferredMode }, set: { app.preferredMode = $0 }),
-                onSend: { send(text: draft) },
-                onStop: { Task { try? await connection.interrupt(chatId: chat.id) } })
+            composer
+        }
+            .background(Theme.content)
+            // The docked page is a fraction of the screen; reading that height in the
+            // background keeps a GeometryReader out of the layout path (it made every
+            // pass re-measure the whole conversation).
+            .background {
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { containerHeight = geo.size.height }
+                        .onChange(of: geo.size.height) { _, h in containerHeight = h }
+                }
+            }
+            .navigationTitle(chat.title ?? "Conversation")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { chatToolbar }
+    }
+
+    private func sheets(_ view: some View) -> some View {
+        view
+            .sheet(isPresented: $showBranches) { BranchSheet(connection: connection, workspace: workspace) }
+            .sheet(isPresented: $showBrowserSheet) {
+                BrowserSheet(connection: connection, chat: chat) { data in
+                    if let a = Attachment(imageData: data) { attachments.append(a) }
+                }
+            }
+            .sheet(isPresented: $showTasks) { TasksView(tasks: tasks) }
+    }
+
+    private func events(_ view: some View) -> some View {
+        view
+            .onAppear { connection.subscribe(chatId: chat.id); rebuild() }
+            .onChange(of: transcript.lastSeq) { _, _ in rebuild() }
+            .onChange(of: transcript.events.count) { _, _ in rebuild() }
+            .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
+            .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
+            .onChange(of: pickerItems) { _, items in loadPicked(items) }
+            .onChange(of: dictation.transcript) { _, t in if !t.isEmpty { draft = t } }
+
+            .alert("Couldn't send", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button("OK") {}
+            } message: { Text(error ?? "") }
+    }
+
+    /// Extracted from `body`: with the composer's focus binding threaded
+    /// through, the whole view was one expression too large for the type
+    /// checker to finish.
+    @ViewBuilder
+    private func transcript(proxyless _: Bool = true) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                if transcript.events.isEmpty, transcript.streaming.isEmpty {
+                    emptyState
+                }
+                ForEach(turns) { turn in
+                    TurnView(turn: turn, pendingApprovals: pendingApprovals,
+                             answer: answer, choose: { send(text: $0) })
+                }
+                ForEach(transcript.outbox) { msg in
+                    OutgoingRow(message: msg,
+                                retry: { connection.retry(chatId: chat.id, id: msg.id) },
+                                discard: { connection.discard(chatId: chat.id, id: msg.id) })
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                tail
+                Color.clear.frame(height: 8)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
+        // The scroll view keeps itself at the newest message. Nothing here
+        // scrolls by hand, which is the whole point: driving the offset with
+        // a ScrollViewReader while the keyboard, the composer's height and a
+        // batch of arriving rows were all resizing the content meant the
+        // offset was computed for a layout that no longer existed, and a
+        // LazyVStack had nothing realised there, so the transcript landed on
+        // a blank stretch.
+        //
+        // initialOffset opens on the end, so a cold open lands on the newest
+        // message even though the transcript arrives after the view does.
+        // sizeChanges keeps it there while rows stream in and while the
+        // keyboard opens, and is nil once the reader has scrolled up, so
+        // arriving messages never yank them back down.
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .defaultScrollAnchor(atBottom ? .bottom : nil, for: .sizeChanges)
+        .scrollPosition($position)
+        .onScrollGeometryChange(for: Bool.self) { geo in
+            geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 40
+        } action: { _, isAtEnd in
+            if atBottom != isAtEnd { atBottom = isAtEnd }
         }
         .background(Theme.content)
-        // The docked page is a fraction of the screen; reading that height in the
-        // background keeps a GeometryReader out of the layout path (it made every
-        // pass re-measure the whole conversation).
-        .background {
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { containerHeight = geo.size.height }
-                    .onChange(of: geo.size.height) { _, h in containerHeight = h }
+        .scrollDismissesKeyboard(.interactively)
+        // Tap the transcript to put the keyboard away, the way Messages
+        // does. Simultaneous, so a tap that lands on an approval button or
+        // a choice still reaches it.
+        .simultaneousGesture(
+            TapGesture().onEnded { if composerFocused { composerFocused = false } }
+        )
+        .overlay(alignment: .bottomTrailing) {
+            if !atBottom {
+                Button { scrollToEnd() } label: {
+                    Image(systemName: "arrow.down").font(.system(size: 13, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                        .background(Theme.card, in: Circle())
+                        .overlay(Circle().stroke(Theme.border))
+                        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+                }
+                .padding(14)
+                .transition(.scale.combined(with: .opacity))
             }
         }
-        .navigationTitle(chat.title ?? "Conversation")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
+        // Your own message always brings you back to the end, wherever you
+        // were reading.
+        .onChange(of: transcript.outbox.count) { _, _ in scrollToEnd() }
+    }
+
+    @ToolbarContentBuilder
+    private var chatToolbar: some ToolbarContent {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
                     Text(chat.title ?? "Conversation").font(.system(size: 15, weight: .semibold)).lineLimit(1)
@@ -201,25 +238,25 @@ struct ChatView: View {
                     .accessibilityLabel("Tasks")
                 }
             }
-        }
-        .sheet(isPresented: $showBranches) { BranchSheet(connection: connection, workspace: workspace) }
-        .sheet(isPresented: $showBrowserSheet) {
-            BrowserSheet(connection: connection, chat: chat) { data in
-                if let a = Attachment(imageData: data) { attachments.append(a) }
-            }
-        }
-        .sheet(isPresented: $showTasks) { TasksView(tasks: tasks) }
-        .onAppear { connection.subscribe(chatId: chat.id); rebuild() }
-        .onChange(of: transcript.lastSeq) { _, _ in rebuild() }
-        .onChange(of: transcript.events.count) { _, _ in rebuild() }
-        .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
-        .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
-        .onChange(of: pickerItems) { _, items in loadPicked(items) }
-        .onChange(of: dictation.transcript) { _, t in if !t.isEmpty { draft = t } }
+    }
 
-        .alert("Couldn't send", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-            Button("OK") {}
-        } message: { Text(error ?? "") }
+    private var modelBinding: Binding<String> {
+        Binding(get: { app.preferredModel }, set: { app.preferredModel = $0 })
+    }
+
+    private var modeBinding: Binding<String> {
+        Binding(get: { app.preferredMode }, set: { app.preferredMode = $0 })
+    }
+
+    private var composer: some View {
+        Composer(
+            draft: $draft, attachments: $attachments, pickerItems: $pickerItems,
+            dictation: dictation, connected: connection.state == .connected,
+            working: isWorking, commands: connection.commands[chat.id] ?? [],
+            model: modelBinding, mode: modeBinding,
+            onSend: { send(text: draft) },
+            onStop: { Task { try? await connection.interrupt(chatId: chat.id) } },
+            focused: $composerFocused)
     }
 
     private var emptyState: some View {
