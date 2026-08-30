@@ -574,6 +574,11 @@ extension Connection {
         }
         t.lastSeq = seq
         c.transcripts[chatId] = t
+        // Pretend the Mac has a page open for this chat, so the docked mirror
+        // above the transcript can be exercised too.
+        c.browsers[chatId] = WireBrowser(chatId: chatId, open: true,
+                                         url: "https://stripe.com/en-us", title: "Stripe",
+                                         canGoBack: false, canGoForward: false, loading: false)
         return c
     }
 }
