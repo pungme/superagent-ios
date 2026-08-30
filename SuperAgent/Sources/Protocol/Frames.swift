@@ -242,13 +242,14 @@ enum ServerFrame: Sendable {
     case status(workspaceId: String, status: WorkspaceStatus)
     case chats([WireChat])
     case browser(WireBrowser)
+    case simulator(WireSimulator)
     case res(id: String, result: Result<Data, RpcError>)
     case pong
     case unknown(t: String)
 }
 
 extension ServerFrame: Decodable {
-    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser }
+    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser, simulator }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -271,6 +272,8 @@ extension ServerFrame: Decodable {
             self = .status(workspaceId: try c.decode(String.self, forKey: .workspaceId), status: try c.decode(WorkspaceStatus.self, forKey: .status))
         case "browser":
             self = .browser(try c.decode(WireBrowser.self, forKey: .browser))
+        case "simulator":
+            self = .simulator(try c.decode(WireSimulator.self, forKey: .simulator))
         case "chats":
             self = .chats(try c.decode([WireChat].self, forKey: .chats))
         case "res":
@@ -416,6 +419,22 @@ struct WireBrowser: Codable, Hashable, Sendable {
     var canGoBack: Bool
     var canGoForward: Bool
     var loading: Bool
+}
+
+/// The iOS Simulator a conversation has open on the Mac.
+struct WireSimulator: Codable, Hashable, Sendable {
+    var chatId: String
+    var open: Bool
+    var udid: String
+    var device: String
+}
+
+/// One still of that device, as the Mac's own pane draws it.
+struct WireSimulatorShot: Codable, Sendable {
+    var udid: String
+    var device: String
+    /// A whole `data:image/jpeg;base64,…` URL.
+    var url: String
 }
 
 struct WireBrowserShot: Codable, Sendable {

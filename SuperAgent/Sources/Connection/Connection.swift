@@ -69,6 +69,8 @@ final class Connection {
     private(set) var commands: [String: [String]] = [:]
     /// What each conversation has open in the Mac's browser pane.
     private(set) var browsers: [String: WireBrowser] = [:]
+    /// What each conversation has open in the Mac's simulator pane.
+    private(set) var simulators: [String: WireSimulator] = [:]
 
     private var transport: RelayTransport?
     private var sealer: Sealer
@@ -114,6 +116,7 @@ final class Connection {
 
     func disconnect() {
         browsers.removeAll()
+        simulators.removeAll()
         wantConnected = false
         reconnectTask?.cancel()
         pingTask?.cancel()
@@ -226,6 +229,8 @@ final class Connection {
             }
         case .browser(let b):
             if b.open { browsers[b.chatId] = b } else { browsers[b.chatId] = nil }
+        case .simulator(let sim):
+            if sim.open { simulators[sim.chatId] = sim } else { simulators[sim.chatId] = nil }
         case .chats(let list):
             chats = list
             OfflineCache.save(machine.id, "chats", list)
@@ -526,6 +531,16 @@ extension Connection {
         return try await rpc("browser.open", .object(["chatId": .string(chatId), "url": .string(url)]), as: R.self).url
     }
 
+    func simShot(chatId: String) async throws -> WireSimulatorShot {
+        try await rpc("sim.screenshot", .object(["chatId": .string(chatId)]), as: WireSimulatorShot.self)
+    }
+
+    /// Tap or swipe the mirrored device. Coordinates are the still's own pixels;
+    /// the Mac's injector takes it from there.
+    func simInput(chatId: String, action: [String: JSONValue]) async throws {
+        _ = try await rpc("sim.input", .object(["chatId": .string(chatId), "action": .object(action)]))
+    }
+
     func browserShot(chatId: String) async throws -> WireBrowserShot {
         try await rpc("browser.screenshot", .object(["chatId": .string(chatId), "maxWidth": .number(900)]), as: WireBrowserShot.self)
     }
@@ -612,6 +627,10 @@ extension Connection {
         }
         // Pretend the Mac has a page open for this chat, so the docked mirror
         // above the transcript can be exercised too.
+        if ProcessInfo.processInfo.arguments.contains("-withSim") {
+            c.simulators[chatId] = WireSimulator(chatId: chatId, open: true,
+                                                 udid: "harness", device: "iPhone 17 Pro · iOS 26.5")
+        }
         if ProcessInfo.processInfo.arguments.contains("-withPage") {
             c.browsers[chatId] = WireBrowser(chatId: chatId, open: true,
                                          url: "https://stripe.com/en-us", title: "Stripe",

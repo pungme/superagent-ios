@@ -33,6 +33,8 @@ struct ChatView: View {
     /// The docked page above the chat. Defaults to shown when the Mac has one
     /// open; hidden again is remembered per conversation.
     @State private var pageHidden = false
+    /// Hidden by hand for this conversation, like the page above it.
+    @State private var simHidden = false
     @State private var pageFraction: CGFloat = 0.42
     @State private var dragStart: CGFloat?
     @State private var containerHeight: CGFloat = 600
@@ -73,6 +75,26 @@ struct ChatView: View {
             // Attached but not on screen: say so, and offer it back. Without
             // this the page simply vanishes when you hide it or start typing,
             // and nothing says the conversation still has one.
+            if simAttached, !simShown, !pageShown {
+                Button {
+                    simHidden = false
+                    composerFocused = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "iphone").font(.system(size: 12))
+                        Text(simLabel).font(.system(size: 13)).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text("Show").font(.system(size: 13, weight: .medium))
+                        Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .contentShape(Rectangle())
+                }
+                .tint(Theme.textSecondary)
+                .background(Theme.panel)
+                .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
             if pageAttached, !pageShown {
                 Button {
                     pageHidden = false
@@ -92,6 +114,28 @@ struct ChatView: View {
                 .background(Theme.panel)
                 .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
                 .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            if simShown {
+                SimulatorMirror(connection: connection, chat: chat,
+                                onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
+                                onHide: { withAnimation(.easeOut(duration: 0.2)) { simHidden = true } },
+                                paused: composerFocused)
+                    .frame(height: pageHeight)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                Rectangle().fill(Theme.border).frame(height: 1)
+                    .overlay { Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 36, height: 4) }
+                    .frame(height: 18).contentShape(Rectangle())
+                    .background(Theme.panel)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { v in
+                                let start = dragStart ?? pageFraction
+                                dragStart = start
+                                pageResized = true
+                                pageFraction = min(0.72, max(0.2, start + v.translation.height / max(1, containerHeight)))
+                            }
+                            .onEnded { _ in dragStart = nil }
+                    )
             }
             if pageShown {
                 BrowserMirror(connection: connection, chat: chat, compact: true,
@@ -387,6 +431,12 @@ struct ChatView: View {
     /// empty chat you have to scroll up to find. The page can still be dragged
     /// bigger deliberately; it just will not start that way.
     private var pageAttached: Bool { connection.browsers[chat.id]?.open == true }
+
+    private var simAttached: Bool { connection.simulators[chat.id]?.open == true }
+    /// The simulator gets the docked slot only when there is no page in it: two
+    /// mirrors over one conversation on a phone leaves room for neither.
+    private var simShown: Bool { simAttached && !pageShown && !simHidden && !composerFocused }
+    private var simLabel: String { connection.simulators[chat.id]?.device ?? "Simulator" }
 
     /// The page's host, or its title when there is no useful host.
     private var pageLabel: String {
