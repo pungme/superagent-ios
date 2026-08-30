@@ -81,9 +81,29 @@ struct SidebarView: View {
             // goes with it and the errors surface anywhere but here. The pill
             // draws its own capsule, so the system's shows through behind it
             // until this can come back.
-            ToolbarItem(placement: .topBarLeading) {
-                ConnectionPill(state: connection.state, inToolbar: true).fixedSize()
+            // The pill draws its own capsule, so the toolbar's would sit around
+            // it as a halo. Hiding the system one needs an iOS 26 API, and the
+            // SDK Xcode Cloud builds against does not have it — `if #available`
+            // is no help there, since the symbol still has to resolve at
+            // compile time. `#if compiler` is: on an older Xcode this is not
+            // compiled at all, and the halo comes back until that Xcode catches
+            // up. Nothing else changes.
+            #if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .topBarLeading) {
+                    ConnectionPill(state: connection.state).fixedSize()
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarLeading) {
+                    ConnectionPill(state: connection.state).fixedSize()
+                }
             }
+            #else
+            ToolbarItem(placement: .topBarLeading) {
+                ConnectionPill(state: connection.state).fixedSize()
+            }
+            #endif
         }
     }
 
