@@ -448,6 +448,24 @@ struct WireBrowser: Codable, Hashable, Sendable {
 }
 
 /// The iOS Simulator a conversation has open on the Mac.
+/// One checkout of a project: the folder you opened, or a branch cut from it.
+/// The Mac's sidebar is a row per one of these, so this one is too.
+struct WireWorktree: Codable, Hashable, Sendable, Identifiable {
+    var path: String
+    var branch: String?
+    /// The folder the project was opened as, rather than a branch cut from it.
+    var main: Bool
+    /// Where this branch merges home to. Nil for main.
+    var base: String?
+    /// The conversation happening in it, when there is one.
+    var chatId: String?
+    var chatTitle: String?
+
+    var id: String { path }
+    /// What the row calls itself when there is no conversation in it yet.
+    var label: String { branch ?? (path as NSString).lastPathComponent }
+}
+
 struct WireSimulator: Codable, Hashable, Sendable {
     var chatId: String
     var open: Bool

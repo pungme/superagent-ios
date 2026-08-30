@@ -14,6 +14,10 @@ struct SidebarView: View {
     @Environment(AppState.self) private var app
 
     @State private var routines: [WireRoutine] = []
+    /// Every copy of each git project — the folder itself and the branches cut
+    /// from it — keyed by project. The Mac's sidebar is a row per one of these,
+    /// asked of git rather than of anything the app recorded.
+    @State private var worktrees: [String: [WireWorktree]] = [:]
     @State private var reposOpen: Set<String> = []
     /// Collapsed groups, remembered on this phone (the caret is a real button
     /// here — on the desktop it's a 16 px glyph you can hit with a mouse).
@@ -93,8 +97,17 @@ struct SidebarView: View {
             guard !Task.isCancelled else { return }
             hits = (try? await connection.searchChats(q)) ?? []
         }
-        .task(id: connection.state) { if connection.state == .connected { await loadRoutines() } }
-        .refreshable { connection.connect(); await connection.refreshTree(); await loadRoutines() }
+        .task(id: connection.state) {
+            guard connection.state == .connected else { return }
+            await loadRoutines()
+            await loadWorktrees()
+        }
+        .refreshable {
+            connection.connect()
+            await connection.refreshTree()
+            await loadRoutines()
+            await loadWorktrees()
+        }
         .sheet(item: $addingTo) { group in
             FolderPickerView(connection: connection) { dir in
                 Task { await run { _ = try await connection.addWorkspace(groupId: group.id, name: dir.name, path: dir.path) } }
@@ -279,6 +292,84 @@ struct SidebarView: View {
         withAnimation(.easeOut(duration: 0.18)) { collapsedRaw = next.joined(separator: "\u{1}") }
     }
 
+    /// One branch of a project. The conversation is what you look for, so it
+    /// reads first; the branch it runs in sits to the right. A row with no chat
+    /// yet has nothing to put on the left, so the branch takes that place.
+    @ViewBuilder
+    private func branchRow(_ wt: WireWorktree, in ws: WireWorkspace) -> some View {
+        let chat = wt.chatId.flatMap { id in connection.chats.first { $0.id == id } }
+        TreeRow {
+            Button {
+                if let chat { path.append(chat) }
+            } label: {
+                HStack(spacing: 7) {
+                    if chat?.live == true { ProgressView().controlSize(.mini) }
+                    if let chat {
+                        Text(chat.title ?? "New chat").lineLimit(1)
+                    } else {
+                        Text("⎇ " + wt.label).lineLimit(1).foregroundStyle(Theme.textSecondary)
+                    }
+                    Spacer(minLength: 6)
+                    if chat != nil, let b = wt.branch, !b.isEmpty {
+                        Text(wt.main ? b : "⎇ " + b)
+                            .superFont(10.5)
+                            .foregroundStyle(Theme.textTertiary)
+                            .lineLimit(1)
+                    } else if chat == nil {
+                        Text("no chat yet").superFont(10.5).foregroundStyle(Theme.textTertiary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(chat == nil)
+            .contextMenu {
+                if let chat {
+                    Button(role: .destructive) {
+                        Task { await run { try await connection.deleteChat(chatId: chat.id) } }
+                    } label: {
+                        Label("Delete conversation", systemImage: "trash")
+                    }
+                }
+            }
+        }
+        .id(wt.path)
+    }
+
+    @ViewBuilder
+    private func chatTreeRow(_ chat: WireChat) -> some View {
+        TreeRow {
+            Button { path.append(chat) } label: {
+                HStack(spacing: 7) {
+                    if chat.live { ProgressView().controlSize(.mini) }
+                    Text(chat.title ?? "New chat").lineLimit(1)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button(role: .destructive) {
+                    Task { await run { try await connection.deleteChat(chatId: chat.id) } }
+                } label: {
+                    Label("Delete conversation", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    /// Ask the Mac which copies of each project exist. Cheap, and only for git
+    /// projects: a browser tab or a plain folder has no branches to list.
+    private func loadWorktrees() async {
+        for ws in connection.tree.flatMap({ $0.workspaces }) where !ws.isBrowser && !ws.isComputer {
+            if let rows = try? await connection.worktrees(workspaceId: ws.id), rows.count > 1 {
+                worktrees[ws.id] = rows
+            } else {
+                worktrees[ws.id] = nil
+            }
+        }
+    }
+
     /// A project and, under it, the same tree the desktop shows.
     @ViewBuilder
     private func projectRows(_ ws: WireWorkspace) -> some View {
@@ -358,23 +449,13 @@ struct SidebarView: View {
                 }
                 // A project holds many conversations; show them only once there's a
                 // choice to make, so a single-chat project stays as quiet as before.
-                if showChats {
-                    ForEach(chats) { chat in
-                        TreeRow {
-                            Button { path.append(chat) } label: {
-                                HStack(spacing: 7) {
-                                    if chat.live { ProgressView().controlSize(.mini) }
-                                    Text(chat.title ?? "New chat").lineLimit(1)
-                                    Spacer()
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button(role: .destructive) { Task { await run { try await connection.deleteChat(chatId: chat.id) } } } label: { Label("Delete conversation", systemImage: "trash") }
-                            }
-                        }
-                    }
+                // One row per branch, main first, the way the Mac lists them.
+                // A branch is a copy of the project with a conversation in it;
+                // a chat with no branch yet is just a conversation, and says so.
+                if let trees = worktrees[ws.id], trees.count > 1 {
+                    ForEach(trees) { wt in branchRow(wt, in: ws) }
+                } else if showChats {
+                    ForEach(chats) { chat in chatTreeRow(chat) }
                 }
                 ForEach(mine) { r in
                     TreeRow {

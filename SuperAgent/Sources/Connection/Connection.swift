@@ -468,6 +468,13 @@ extension Connection {
         return .object(o)
     }
 
+    /// Every copy of a project: the folder itself and each branch cut from it,
+    /// with the conversation in each. The Mac's sidebar is a row per one of
+    /// these, and asks git rather than trusting what it recorded.
+    func worktrees(workspaceId: String) async throws -> [WireWorktree] {
+        try await rpc("worktrees.list", .object(["workspaceId": .string(workspaceId)]), as: [WireWorktree].self)
+    }
+
     func branches(workspaceId: String) async throws -> [WireBranch] {
         try await rpc("git.branches", .object(["workspaceId": .string(workspaceId)]), as: [WireBranch].self)
     }

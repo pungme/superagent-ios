@@ -14,7 +14,10 @@ the room; the project bar and the Model/Mode pills scroll sideways rather than t
 
 Legend: ✅ same on the phone · 🟡 partial (says how) · ❌ not on the phone yet · ➖ makes no sense on a phone
 
-Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
+Last full pass: 30 Aug 2026 evening (desktop `e728332`, 1.7.12 — the branch model:
+the sidebar is one row per branch, main included; a branch is cut on a chat's
+first message and named from it, so an unused chat leaves nothing behind; git is
+asked what exists rather than the app trusting what it recorded).
 
 ## Sidebar (`Sidebar.tsx`)
 
@@ -31,7 +34,8 @@ Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
 | Unread dot on chats/projects | ❌ | needs `unread` in `chat.list` (the Mac tracks it per window today) |
 | × remove project | ✅ | swipe |
 | Nested repos tree, "Start session →" | ✅ | `workspace.add` |
-| Nested conversations (when > 1), spinner while working | ✅ | |
+| Nested rows: one per branch, main first, each naming its conversation | 🟡 | rows render from `worktrees.list`; needs a Mac new enough to answer it, and falls back to listing conversations otherwise |
+| A branch with no conversation yet reads as one, and says so | ✅ | shown as `⎇ name · no chat yet`, not tappable |
 | Nested routines | ✅ | tap opens the Routines panel |
 | Drag to reorder projects / groups | ❌ | `moveWorkspace` / `moveGroup` need RPCs + drag UI |
 | Settings ⚙ | ✅ | phone's own settings (pair, remove Mac) |
@@ -44,7 +48,7 @@ Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
 |---|---|---|
 | Opens on the active conversation | ✅ | most recent, or a fresh one |
 | Header: Files, Todo, name, path, branch chip, New chat | ✅ | bar above the chat; path omitted |
-| New chat creates a **worktree** on a git repo | ❌ | phone's `chat.create` makes a plain chat; add `worktree.create` + Keep/Discard on delete |
+| First message cuts a branch, named from what you asked for | ❌ | the Mac does this when a chat's first message is sent, so a chat started on the phone gets one too — but the phone cannot yet choose or see the name it picked |
 | Keep / discard a worktree chat's changes | ❌ | `keepWorktreeChat` |
 | Browser preview beside the chat (real, interactive) | 🟡 | docked **above** the chat when the Mac has a page open (drag to resize, compass hides it, collapses for the keyboard), URL bar, back/forward/reload, "Send to agent"; no tapping/typing into the page |
 | Layout toggle (chat beside / below the page) | ➖ | |
