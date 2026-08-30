@@ -148,6 +148,17 @@ struct BrowserMirror: View {
         do {
             let s = try await connection.browserShot(chatId: chat.id)
             let previous = shot
+            // The Mac tells us when the picture is byte-identical to the last
+            // one it sent, and sends no bytes with it. Keep what we have: the
+            // whole point is that a still page costs nothing.
+            if s.unchanged == true {
+                shot = WireBrowserShot(url: s.url, title: s.title, canGoBack: s.canGoBack,
+                                       canGoForward: s.canGoForward, width: s.width,
+                                       height: s.height, jpeg: previous?.jpeg ?? "",
+                                       unchanged: true)
+                unavailable = nil
+                return previous?.url != s.url || previous?.title != s.title
+            }
             shot = s
             unavailable = nil
             let frame = s.jpeg.hashValue
@@ -324,32 +335,46 @@ struct SimulatorMirror: View {
         await refresh(force: true)
     }
 
+    /// Polls while it is on screen, and backs off when the device is not doing
+    /// anything: a still screen went from a JPEG a second to nothing at all,
+    /// which is most of what a mirror costs.
     private func loop() async {
+        var quiet = 0
         while !Task.isCancelled {
             if paused { return }
-            await refresh(force: false)
-            try? await Task.sleep(for: .milliseconds(1200))
+            let moved = await refresh(force: false)
+            quiet = moved ? 0 : min(quiet + 1, 8)
+            let wait = quiet == 0 ? 1200 : min(1200 * (quiet + 1), 6000)
+            try? await Task.sleep(for: .milliseconds(wait))
         }
     }
 
-    private func refresh(force: Bool) async {
-        guard !inFlight, connection.state == .connected else { return }
-        guard force || !paused else { return }
+    /// Returns whether the picture actually changed, so the loop can slow down.
+    @discardableResult
+    private func refresh(force: Bool) async -> Bool {
+        guard !inFlight, connection.state == .connected else { return false }
+        guard force || !paused else { return false }
         inFlight = true
         defer { inFlight = false }
         do {
             let s = try await connection.simShot(chatId: chat.id)
             shot = s
+            // The Mac says so rather than sending the same bytes again.
+            if s.unchanged == true { return false }
             if let comma = s.url.firstIndex(of: ","),
                let data = Data(base64Encoded: String(s.url[s.url.index(after: comma)...])),
                let ui = UIImage(data: data) {
                 image = ui
                 unavailable = nil
+                return true
             }
+            return false
         } catch let e as RpcError {
             unavailable = e.message
+            return false
         } catch {
             unavailable = "The simulator isn't available right now."
+            return false
         }
     }
 }

@@ -477,8 +477,10 @@ struct WireSimulator: Codable, Hashable, Sendable {
 struct WireSimulatorShot: Codable, Sendable {
     var udid: String
     var device: String
-    /// A whole `data:image/jpeg;base64,…` URL.
+    /// A whole `data:image/jpeg;base64,…` URL. Empty when `unchanged`.
     var url: String
+    /// Byte-identical to the last frame we were sent, so it was not sent again.
+    var unchanged: Bool?
 }
 
 struct WireBrowserShot: Codable, Sendable {
@@ -488,7 +490,10 @@ struct WireBrowserShot: Codable, Sendable {
     var canGoForward: Bool
     var width: Int
     var height: Int
+    /// Empty when `unchanged`.
     var jpeg: String
+    /// Byte-identical to the last frame we were sent, so it was not sent again.
+    var unchanged: Bool?
 }
 
 /// `files.chunk`: one slice of a file's bytes, base64, indexed from 0.

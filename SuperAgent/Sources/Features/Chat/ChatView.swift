@@ -46,6 +46,10 @@ struct ChatView: View {
     @State private var showTasks = false
     /// The docked page above the chat. Defaults to shown when the Mac has one
     /// open; hidden again is remembered per conversation.
+    /// Hidden by hand, remembered per conversation. It used to be plain view
+    /// state, so it came back the moment the Mac pushed the next browser frame
+    /// — and with it the polling, and a pane parked back in the Mac's window.
+    /// Hiding a page should stay hidden and cost nothing until you ask for it.
     @State private var pageHidden = false
     /// Hidden by hand for this conversation, like the page above it.
     @State private var simHidden = false
@@ -111,7 +115,7 @@ struct ChatView: View {
             }
             if pageAttached, !pageShown {
                 Button {
-                    pageHidden = false
+                    setPageHidden(false)
                     composerFocused = false
                 } label: {
                     HStack(spacing: 8) {
@@ -154,7 +158,7 @@ struct ChatView: View {
             if pageShown {
                 BrowserMirror(connection: connection, chat: chat, compact: true,
                               onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
-                              onHide: { withAnimation(.easeOut(duration: 0.2)) { pageHidden = true } },
+                              onHide: { withAnimation(.easeOut(duration: 0.2)) { setPageHidden(true) } },
                               onExpand: { showBrowserSheet = true },
                               paused: composerFocused)
                     .frame(height: pageHeight)
@@ -219,7 +223,7 @@ struct ChatView: View {
 
     private func events(_ view: some View) -> some View {
         view
-            .onAppear { connection.subscribe(chatId: chat.id); rebuild() }
+            .onAppear { connection.subscribe(chatId: chat.id); rebuild(); loadPageHidden() }
             .onChange(of: transcript.lastSeq) { _, _ in rebuild() }
             .onChange(of: transcript.events.count) { _, _ in rebuild() }
             .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
@@ -492,6 +496,17 @@ struct ChatView: View {
         return max(160, min(wanted, allowed))
     }
 
+    private static func hiddenKey(_ chatId: String) -> String { "pageHidden:" + chatId }
+
+    private func loadPageHidden() {
+        pageHidden = UserDefaults.standard.bool(forKey: Self.hiddenKey(chat.id))
+    }
+
+    private func setPageHidden(_ hidden: Bool) {
+        pageHidden = hidden
+        UserDefaults.standard.set(hidden, forKey: Self.hiddenKey(chat.id))
+    }
+
     private var pageShown: Bool {
         connection.browsers[chat.id]?.open == true && !pageHidden && !composerFocused
     }
@@ -500,7 +515,7 @@ struct ChatView: View {
     /// full-screen mirror so you can type an address.
     private func togglePage() {
         if connection.browsers[chat.id]?.open == true {
-            withAnimation(.easeOut(duration: 0.2)) { pageHidden.toggle() }
+            withAnimation(.easeOut(duration: 0.2)) { setPageHidden(!pageHidden) }
         } else {
             showBrowserSheet = true
         }
