@@ -10,6 +10,10 @@ import UIKit
 enum PairFlow {
     enum Failure: LocalizedError {
         case badLink, machineOffline, rejected(String), timedOut, transport(String)
+        /// The relay was fine and the Mac hung up on our first frame: it holds
+        /// no key that opens it. Its pairing has been restarted since this code
+        /// was made, which leaving and re-entering the Phone pane does.
+        case codeNotCurrent
         var errorDescription: String? {
             switch self {
             case .badLink: "That isn't a Superagent pairing code."
@@ -19,6 +23,8 @@ enum PairFlow {
                 : "The Mac refused: \(r)."
             case .timedOut: "No answer from the Mac. Tap Accept on it within two minutes."
             case .transport(let m): "Couldn't reach the relay: \(m)"
+            case .codeNotCurrent:
+                "That code is no longer the current one. On the Mac, show the pairing code again and scan or open the link straight away, without leaving Settings in between." 
             }
         }
     }
@@ -36,6 +42,9 @@ enum PairFlow {
     private final class Attempt {
         private let payload: PairPayload
         private let secret: Data
+        /// Our first frame is out. Anything that closes the socket after this
+        /// is the Mac's decision, not the network's.
+        private var sentHello = false
         private var sealer: Sealer
         private var opener: Opener
         private var transport: RelayTransport?
@@ -75,6 +84,7 @@ enum PairFlow {
                       let sealed = try? sealer.seal(text) else { return finish(.failure(Failure.badLink)) }
                 let fp = SHA256.hash(data: secret).prefix(4).map { String(format: "%02x", $0) }.joined()
                 log.info("pair: secretFp=\(fp, privacy: .public) m=\(self.payload.m.prefix(8), privacy: .public) frame=\(sealed.prefix(24), privacy: .public) len=\(sealed.count)")
+                sentHello = true
                 transport?.send(sealed)
             case .text(let text):
                 if text.hasPrefix("{") {
@@ -93,6 +103,11 @@ enum PairFlow {
                 default:
                     break
                 }
+            case .closed(let code, let reason) where self.sentHello:
+                // We got as far as sending our first frame, so the relay is
+                // reachable and the room is live: the Mac chose to drop us.
+                finish(.failure(Failure.codeNotCurrent))
+                _ = (code, reason)
             case .closed(let code, let reason):
                 if code == 4404 { finish(.failure(Failure.machineOffline)) }
                 else { finish(.failure(Failure.transport(reason.isEmpty ? "connection closed" : reason))) }
