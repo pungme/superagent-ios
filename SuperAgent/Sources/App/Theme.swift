@@ -40,6 +40,81 @@ enum Theme {
     static let cardRadius: CGFloat = 12
 }
 
+/// The desktop's type sizes, but scaling. SwiftUI's `.system(size:)` is fixed by
+/// design — `relativeTo:` exists only for custom fonts — so the size is scaled
+/// here against the text style nearest it and handed back as a plain system font.
+/// Reading `dynamicTypeSize` from the environment is what makes a view redraw
+/// when Larger Text moves; an ambient `UITraitCollection.current` would not.
+private struct ScaledFont: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    let size: CGFloat
+    let weight: Font.Weight
+    let design: Font.Design
+    let monospacedDigit: Bool
+
+    /// `ViewModifier` is a main-actor protocol, which would make both this
+    /// initialiser and `superFont` main-actor too — and they are called from
+    /// plain escaping label closures (`PhotosPicker`, `Button`) that are not.
+    nonisolated init(size: CGFloat, weight: Font.Weight, design: Font.Design, monospacedDigit: Bool) {
+        self.size = size
+        self.weight = weight
+        self.design = design
+        self.monospacedDigit = monospacedDigit
+    }
+
+    func body(content: Content) -> some View {
+        let traits = UITraitCollection { $0.preferredContentSizeCategory = Self.category(for: typeSize) }
+        let scaled = UIFontMetrics(forTextStyle: Self.style(for: size)).scaledValue(for: size, compatibleWith: traits)
+        let font = Font.system(size: scaled, weight: weight, design: design)
+        return content.font(monospacedDigit ? font.monospacedDigit() : font)
+    }
+
+    /// The style whose default size is nearest, so each size grows on the curve
+    /// meant for text of its own rank — captions stretch less than titles do.
+    private static func style(for size: CGFloat) -> UIFont.TextStyle {
+        switch size {
+        case ..<11.5: .caption2      // 11
+        case ..<12.75: .caption1     // 12
+        case ..<14: .footnote        // 13
+        case ..<15.75: .subheadline  // 15
+        case ..<16.5: .callout       // 16
+        case ..<19: .body            // 17
+        case ..<21: .title3          // 20
+        case ..<25: .title2          // 22
+        case ..<31: .title1          // 28
+        default: .largeTitle         // 34
+        }
+    }
+
+    private static func category(for size: DynamicTypeSize) -> UIContentSizeCategory {
+        switch size {
+        case .xSmall: .extraSmall
+        case .small: .small
+        case .medium: .medium
+        case .large: .large
+        case .xLarge: .extraLarge
+        case .xxLarge: .extraExtraLarge
+        case .xxxLarge: .extraExtraExtraLarge
+        case .accessibility1: .accessibilityMedium
+        case .accessibility2: .accessibilityLarge
+        case .accessibility3: .accessibilityExtraLarge
+        case .accessibility4: .accessibilityExtraExtraLarge
+        case .accessibility5: .accessibilityExtraExtraExtraLarge
+        @unknown default: .large
+        }
+    }
+}
+
+extension View {
+    /// `.superFont(13, weight: .semibold)` — the desktop's 13 pt at the default
+    /// text size, scaling from there. Clamp a row too cramped to grow with
+    /// `.dynamicTypeSize(...(.accessibility2))`; it flows into this.
+    nonisolated func superFont(_ size: CGFloat, weight: Font.Weight = .regular,
+                               design: Font.Design = .default, monospacedDigit: Bool = false) -> some View {
+        modifier(ScaledFont(size: size, weight: weight, design: design, monospacedDigit: monospacedDigit))
+    }
+}
+
 extension View {
     /// Standard card on the panel background.
     func superCard() -> some View {
@@ -54,7 +129,7 @@ struct GroupLabel: View {
     let text: String
     var body: some View {
         Text(text.uppercased())
-            .font(.system(size: 11, weight: .semibold))
+            .superFont(11, weight: .semibold)
             .tracking(0.9)
             .foregroundStyle(Theme.textTertiary)
     }
@@ -65,8 +140,8 @@ struct BranchChip: View {
     let branch: String
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: "arrow.triangle.branch").font(.system(size: 9, weight: .semibold))
-            Text(branch).font(.system(size: 11, weight: .medium)).lineLimit(1)
+            Image(systemName: "arrow.triangle.branch").superFont(9, weight: .semibold)
+            Text(branch).superFont(11, weight: .medium).lineLimit(1)
         }
         .foregroundStyle(Theme.textSecondary)
         .padding(.horizontal, 7).padding(.vertical, 3)
@@ -96,7 +171,7 @@ struct ControlPill<Label: View>: View {
     let label: () -> Label
     var body: some View {
         label()
-            .font(.system(size: 12, weight: .medium))
+            .superFont(12, weight: .medium)
             .foregroundStyle(Theme.textSecondary)
             .padding(.horizontal, 9).padding(.vertical, 5)
             .background(Theme.panel, in: Capsule())

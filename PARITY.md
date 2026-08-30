@@ -7,6 +7,11 @@ The look is the desktop's; the *structure and sizes* are the phone's — a nativ
 sticky headers, separators and swipe actions, at 40–44 pt rows — every row is a 40–44 pt target, which is
 why the sidebar is roomier than the Mac's 24 pt rows.
 
+Type is the desktop's sizes *at the default text size only*: `.superFont(13)` renders 13 pt there
+and scales from it, so Larger Text moves the app the way it moves the rest of iOS. Dense chrome —
+the composer's round buttons, the connection banner's glyph — stops growing early so the words keep
+the room; the project bar and the Model/Mode pills scroll sideways rather than truncate.
+
 Legend: ✅ same on the phone · 🟡 partial (says how) · ❌ not on the phone yet · ➖ makes no sense on a phone
 
 Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
@@ -44,7 +49,7 @@ Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
 | Browser preview beside the chat (real, interactive) | 🟡 | docked **above** the chat when the Mac has a page open (drag to resize, compass hides it, collapses for the keyboard), URL bar, back/forward/reload, "Send to agent"; no tapping/typing into the page |
 | Layout toggle (chat beside / below the page) | ➖ | |
 | Files tree | ✅ | a folder per screen (push, swipe back), filter searches everything below |
-| File viewer (text, Markdown rendered, images, PDF) | 🟡 | text + images + Markdown rendered; PDF ❌ |
+| File viewer (text, Markdown rendered, images, PDF) | ✅ | PDFs come over in `files.chunk` slices and render in PDFKit, so the text stays selectable |
 | File **editor** (Edit → Save) | ❌ | needs `files.write` |
 | Drop files into the project | ➖ | share-sheet import later |
 | Todo board: columns, add, edit, move, tags, images | 🟡 | columns/add/edit/move ✅; tags read-only; card images ❌ |
@@ -76,6 +81,7 @@ Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
 | Search across conversations | ✅ | phone-only convenience |
 | Optimistic send, offline queue | ✅ | phone-only |
 | Voice dictation | ✅ | phone-only |
+| Agent's `open_file` opens the viewer | ✅ | `openFile` push frame; opens only while you are in the chat that asked |
 
 ## Computer (`ComputerPanel`, `DesktopBrowser`, `DesktopWindow`, `FolderView`)
 
@@ -102,6 +108,7 @@ Last full pass: 29 Aug 2026 evening (ios sweep in dark mode; desktop `0068ba7`).
 | Pairing by QR / link, multiple Macs | ✅ |
 | Push notifications (done, needs-you, approvals with actions) | ✅ |
 | Offline cache (sidebar, chats, recent transcripts) | ✅ |
+| Dynamic Type — every size scales, Larger Text moves the whole app | ✅ |
 | iPad split layout | ❌ |
 | Live Activity, widgets, share extension, Watch | ❌ (each needs a new target / capability) |
 

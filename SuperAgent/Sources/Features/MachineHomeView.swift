@@ -11,19 +11,19 @@ struct ProjectRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name)
-                        .font(.system(size: 16, weight: .medium))
+                        .superFont(16, weight: .medium)
                         .foregroundStyle(Theme.textPrimary)
                         .lineLimit(1)
                     if let b = workspace.branch, !b.isEmpty { BranchChip(branch: b) }
                 }
                 Text(subtitle)
-                    .font(.system(size: 13))
+                    .superFont(13)
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
             StatusIndicator(status: workspace.status)
-            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textTertiary)
+            Image(systemName: "chevron.right").superFont(12, weight: .semibold).foregroundStyle(Theme.textTertiary)
         }
         .padding(.horizontal, 14).padding(.vertical, 11)
         .contentShape(Rectangle())
@@ -44,6 +44,8 @@ struct ProjectRow: View {
 
 /// Folder for a code project; the site's favicon for a browser project.
 struct ProjectIcon: View {
+    @ScaledMetric(relativeTo: .subheadline) private var box: CGFloat = 30
+
     let workspace: WireWorkspace
     var body: some View {
         ZStack {
@@ -54,17 +56,17 @@ struct ProjectIcon: View {
                     else { letter(host) }
                 }
             } else if workspace.isBrowser {
-                Image(systemName: "globe").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.textSecondary)
+                Image(systemName: "globe").superFont(14, weight: .medium).foregroundStyle(Theme.textSecondary)
             } else if workspace.isComputer {
-                Image(systemName: "desktopcomputer").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.textSecondary)
+                Image(systemName: "desktopcomputer").superFont(14, weight: .medium).foregroundStyle(Theme.textSecondary)
             } else {
-                Image(systemName: "folder").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.textSecondary)
+                Image(systemName: "folder").superFont(14, weight: .medium).foregroundStyle(Theme.textSecondary)
             }
         }
-        .frame(width: 30, height: 30)
+        .frame(width: box, height: box)
     }
     private func letter(_ host: String) -> some View {
-        Text(String(host.prefix(1)).uppercased()).font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.textSecondary)
+        Text(String(host.prefix(1)).uppercased()).superFont(13, weight: .bold).foregroundStyle(Theme.textSecondary)
     }
 }
 
@@ -79,7 +81,7 @@ struct ConnectionPill: View {
     var body: some View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 7, height: 7)
-            Text(label).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.textSecondary)
+            Text(label).superFont(12, weight: .medium).foregroundStyle(Theme.textSecondary)
         }
         .padding(.horizontal, 9).padding(.vertical, 4)
         .background(Theme.accentSoft, in: Capsule())
@@ -94,19 +96,33 @@ struct ConnectionPill: View {
 
 struct ConnectionBanner: View {
     let connection: Connection
+    /// At the accessibility sizes the row cannot hold icon, two lines of text
+    /// and Retry side by side — "Not connected" comes out as "Not c…". Stack it
+    /// instead, which is what the rest of iOS does with a control in a row.
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        HStack(spacing: 12) {
-            if connection.state == .connecting { ProgressView() }
-            else { Image(systemName: icon).foregroundStyle(Theme.needsYou) }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.textPrimary)
-                Text(detail).font(.caption).foregroundStyle(Theme.textSecondary)
+        let stacked = typeSize.isAccessibilitySize
+        return AnyLayout(stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                                 : AnyLayout(HStackLayout(spacing: 12))) {
+            HStack(spacing: 12) {
+                // The glyph stops growing where the words still need the room.
+                Group {
+                    if connection.state == .connecting { ProgressView() }
+                    else { Image(systemName: icon).foregroundStyle(Theme.needsYou) }
+                }
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.textPrimary)
+                    Text(detail).font(.caption).foregroundStyle(Theme.textSecondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                if !stacked { Spacer() }
             }
-            Spacer()
             if connection.state != .connecting {
                 Button("Retry") { connection.connect() }.font(.caption.weight(.semibold)).tint(Theme.textPrimary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
     private var icon: String {
         switch connection.state {

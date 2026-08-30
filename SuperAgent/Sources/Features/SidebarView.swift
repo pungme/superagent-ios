@@ -70,19 +70,15 @@ struct SidebarView: View {
             // it to a minimum width, which turned this pill into a white circle
             // with a single letter in it — "L" for Live. The pill draws its own
             // capsule already, so hide the system one and let it keep its width.
-            // sharedBackgroundVisibility is iOS 26 only, and the app ships to 18:
-            // on an older SDK it does not exist at all, which is what broke the
-            // Xcode Cloud archive. Guarded, the pill keeps its own capsule
-            // everywhere and only loses the system one where it can.
-            if #available(iOS 26.0, *) {
-                ToolbarItem(placement: .topBarLeading) {
-                    ConnectionPill(state: connection.state).fixedSize()
-                }
-                .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .topBarLeading) {
-                    ConnectionPill(state: connection.state).fixedSize()
-                }
+            // No sharedBackgroundVisibility here. It is an iOS 26 API, and
+            // `if #available` does not help: availability guards the run, not
+            // the compile — a symbol the build's SDK has never heard of still
+            // has to resolve, and when one SwiftUI symbol fails to, the module
+            // goes with it and the errors surface anywhere but here. The pill
+            // draws its own capsule, so the system's shows through behind it
+            // until this can come back.
+            ToolbarItem(placement: .topBarLeading) {
+                ConnectionPill(state: connection.state).fixedSize()
             }
         }
     }

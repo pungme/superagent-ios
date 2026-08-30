@@ -77,7 +77,7 @@ private struct RoutineRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 Button(action: open) {
-                    Text(routine.prompt).font(.system(size: 15)).foregroundStyle(Theme.textPrimary).lineLimit(2)
+                    Text(routine.prompt).superFont(15).foregroundStyle(Theme.textPrimary).lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
                 .buttonStyle(.plain)
@@ -86,10 +86,10 @@ private struct RoutineRow: View {
             }
             HStack(spacing: 6) {
                 Image(systemName: statusIcon).foregroundStyle(statusColor)
-                Text(summary).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                Text(summary).superFont(12).foregroundStyle(Theme.textSecondary).lineLimit(1)
                 Spacer()
                 Button(action: runNow) {
-                    Label("Run now", systemImage: "play.fill").font(.system(size: 12, weight: .semibold))
+                    Label("Run now", systemImage: "play.fill").superFont(12, weight: .semibold)
                 }
                 .buttonStyle(.bordered).controlSize(.small).tint(Theme.textPrimary)
                 .disabled(routine.lastRunStatus == "running")

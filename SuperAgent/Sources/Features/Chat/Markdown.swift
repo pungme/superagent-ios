@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// A small block-level Markdown renderer: headings, paragraphs, lists, fenced
 /// code, block quotes, rules and tables (as monospace). Inline styling inside
@@ -211,7 +212,7 @@ struct MarkdownTable: View {
                 HStack(spacing: 0) {
                     ForEach(0..<columns, id: \.self) { c in
                         InlineText(c < row.count ? row[c] : "")
-                            .font(.system(size: 12, weight: i == 0 ? .semibold : .regular))
+                            .superFont(12, weight: i == 0 ? .semibold : .regular)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: column == nil ? .infinity : nil, alignment: .leading)
                             .padding(.vertical, 4).padding(.horizontal, 9)
@@ -249,7 +250,7 @@ struct CodeBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(language ?? "code").font(.system(size: 10, weight: .semibold)).tracking(0.6)
+                Text(language ?? "code").superFont(10, weight: .semibold).tracking(0.6)
                     .foregroundStyle(Theme.textTertiary).textCase(.uppercase)
                 Spacer()
                 Button {
@@ -259,14 +260,14 @@ struct CodeBlock: View {
                     Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 11, weight: .medium)).labelStyle(.titleAndIcon)
+                        .superFont(11, weight: .medium).labelStyle(.titleAndIcon)
                 }
                 .foregroundStyle(Theme.textSecondary)
             }
             .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(.system(size: 12.5, design: .monospaced))
+                    .superFont(12.5, design: .monospaced)
                     .textSelection(.enabled)
                     .padding(.horizontal, 10).padding(.bottom, 10)
             }

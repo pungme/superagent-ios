@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 
 /// One conversation, rendered the way the desktop renders it: user bubbles in
 /// the accent colour, assistant replies as Markdown, consecutive tool steps

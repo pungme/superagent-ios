@@ -5,6 +5,14 @@ import SwiftUI
 /// a mic and a send button, and the Model / Mode pills underneath. Typing "/"
 /// opens the commands the agent reported for this session.
 struct Composer: View {
+    /// The round icon buttons hold a glyph that grows with the text size;
+    /// the well has to grow with it or the glyph spills over the circle. It
+    /// stops growing at 46 pt, and the glyphs stop at .accessibility1, because
+    /// past that the three wells eat the whole row and there is nowhere left to
+    /// type — the message field and the transcript keep scaling without them.
+    @ScaledMetric(relativeTo: .subheadline) private var wellMetric: CGFloat = 34
+    private var well: CGFloat { min(wellMetric, 46) }
+
     @Binding var draft: String
     @Binding var attachments: [Attachment]
     @Binding var pickerItems: [PhotosPickerItem]
@@ -55,7 +63,7 @@ struct Composer: View {
                     HStack(spacing: 6) {
                         ForEach(matchingCommands, id: \.self) { c in
                             Button { draft = "/\(c) "; Haptics.tap() } label: {
-                                Text("/" + c).font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                                Text("/" + c).superFont(12.5, weight: .medium, design: .monospaced)
                                     .padding(.horizontal, 10).padding(.vertical, 6)
                                     .background(Theme.accentSoft, in: Capsule())
                             }
@@ -73,7 +81,7 @@ struct Composer: View {
                                 Image(uiImage: a.thumbnail).resizable().scaledToFill()
                                     .frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 Button { attachments.removeAll { $0.id == a.id } } label: {
-                                    Image(systemName: "xmark.circle.fill").font(.system(size: 16))
+                                    Image(systemName: "xmark.circle.fill").superFont(16)
                                         .foregroundStyle(.white, .black.opacity(0.6))
                                 }
                                 .offset(x: 5, y: -5)
@@ -85,17 +93,18 @@ struct Composer: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
                 PhotosPicker(selection: $pickerItems, maxSelectionCount: 4, matching: .images) {
-                    Image(systemName: "plus").font(.system(size: 15, weight: .semibold))
-                        .frame(width: 34, height: 34)
+                    Image(systemName: "plus").superFont(15, weight: .semibold)
+                        .frame(width: well, height: well)
                         .background(Theme.accentSoft, in: Circle())
                 }
                 .buttonStyle(.plain).foregroundStyle(Theme.textSecondary)
                 .accessibilityLabel("Add a photo")
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
 
                 HStack(alignment: .bottom, spacing: 6) {
                     TextField(dictation.listening ? "Listening…" : "Message Claude…", text: $draft, axis: .vertical)
                         .lineLimit(1...6)
-                        .font(.system(size: 15.5))
+                        .superFont(15.5)
                         .textFieldStyle(.plain)
                         .focused(focused)
                         .padding(.leading, 12).padding(.vertical, 9)
@@ -103,38 +112,46 @@ struct Composer: View {
                         Task { if dictation.listening { dictation.stop() } else { await dictation.start() } }
                     } label: {
                         Image(systemName: dictation.listening ? "waveform.circle.fill" : "mic")
-                            .font(.system(size: 15, weight: .medium))
+                            .superFont(15, weight: .medium)
                             .foregroundStyle(dictation.listening ? Theme.danger : Theme.textTertiary)
-                            .frame(width: 34, height: 34)
+                            .frame(width: well, height: well)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(dictation.listening ? "Stop dictation" : "Dictate")
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 }
                 .background(Theme.panel, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Theme.border))
 
                 if working {
                     Button(action: onStop) {
-                        Image(systemName: "stop.fill").font(.system(size: 13, weight: .bold))
-                            .frame(width: 34, height: 34)
+                        Image(systemName: "stop.fill").superFont(13, weight: .bold)
+                            .frame(width: well, height: well)
                             .background(Theme.accentSoft, in: Circle())
                     }
                     .buttonStyle(.plain).foregroundStyle(Theme.textPrimary)
                     .accessibilityLabel("Stop")
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 }
                 Button(action: onSend) {
-                    Image(systemName: "arrow.up").font(.system(size: 15, weight: .bold))
-                        .frame(width: 34, height: 34)
+                    Image(systemName: "arrow.up").superFont(15, weight: .bold)
+                        .frame(width: well, height: well)
                         .background(canSend ? Theme.accent : Theme.accentSoft, in: Circle())
                         .foregroundStyle(canSend ? Theme.accentFg : Theme.textTertiary)
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .accessibilityLabel("Send")
             }
             .padding(.horizontal, 12)
 
             HStack(spacing: 8) {
+                // Same reasoning as the project bar: at the accessibility sizes
+                // two pills no longer fit across a phone, and "M… D…" tells you
+                // nothing about which model you are on.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
                 Menu {
                     ForEach(Composer.models, id: \.id) { m in
                         Button { model = m.id } label: {
@@ -142,7 +159,7 @@ struct Composer: View {
                         }
                     }
                 } label: {
-                    ControlPill { HStack(spacing: 4) { Text("Model").foregroundStyle(Theme.textTertiary); Text(Composer.models.first { $0.id == model }?.label ?? "Default"); Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)) } }
+                    ControlPill { HStack(spacing: 4) { Text("Model").foregroundStyle(Theme.textTertiary); Text(Composer.models.first { $0.id == model }?.label ?? "Default"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
                 Menu {
                     ForEach(Composer.modes, id: \.id) { m in
@@ -151,10 +168,12 @@ struct Composer: View {
                         }
                     }
                 } label: {
-                    ControlPill { HStack(spacing: 4) { Text("Mode").foregroundStyle(Theme.textTertiary); Text(Composer.modes.first { $0.id == mode }?.label ?? "Full"); Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)) } }
+                    ControlPill { HStack(spacing: 4) { Text("Mode").foregroundStyle(Theme.textTertiary); Text(Composer.modes.first { $0.id == mode }?.label ?? "Full"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
-                Spacer()
-                if let e = dictation.error { Text(e).font(.system(size: 11)).foregroundStyle(Theme.danger).lineLimit(1) }
+                    }
+                }
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                if let e = dictation.error { Text(e).superFont(11).foregroundStyle(Theme.danger).lineLimit(1) }
             }
             .padding(.horizontal, 12)
         }

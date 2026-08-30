@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The Mac's browser pane for one conversation, mirrored: a fresh capture
 /// every second or two, a URL bar that opens pages on the Mac, back / forward
@@ -42,7 +43,7 @@ struct BrowserMirror: View {
                     .scrollDisabled(compact)
                 } else if let unavailable {
                     if compact {
-                        Text(unavailable).font(.system(size: 12)).foregroundStyle(Theme.textTertiary)
+                        Text(unavailable).superFont(12).foregroundStyle(Theme.textTertiary)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         ContentUnavailableView("Nothing to show yet", systemImage: "safari",
@@ -68,9 +69,9 @@ struct BrowserMirror: View {
 
     private var omnibar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "globe").font(.system(size: compact ? 12 : 15)).foregroundStyle(Theme.textTertiary)
+            Image(systemName: "globe").superFont(compact ? 12 : 15).foregroundStyle(Theme.textTertiary)
             TextField("Open a page on the Mac…", text: $url)
-                .font(.system(size: compact ? 12.5 : 16))
+                .superFont(compact ? 12.5 : 16)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -79,7 +80,7 @@ struct BrowserMirror: View {
                 .onSubmit(open)
             if opening { ProgressView().controlSize(.small) }
             else if !url.isEmpty, url != shot?.url {
-                Button(action: open) { Image(systemName: "arrow.right.circle.fill").font(.system(size: compact ? 16 : 20)) }
+                Button(action: open) { Image(systemName: "arrow.right.circle.fill").superFont(compact ? 16 : 20) }
                     .tint(Theme.textPrimary).accessibilityLabel("Open")
             }
         }
@@ -104,7 +105,7 @@ struct BrowserMirror: View {
             }
             Spacer()
             if let title = shot?.title, !title.isEmpty, !compact {
-                Text(title).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                Text(title).superFont(12).foregroundStyle(Theme.textSecondary).lineLimit(1)
                 Spacer()
             }
             if let onAttach {
@@ -118,7 +119,7 @@ struct BrowserMirror: View {
                 .controlSize(compact ? .small : .regular)
             }
         }
-        .font(.system(size: compact ? 14 : 17, weight: .medium))
+        .superFont(compact ? 14 : 17, weight: .medium)
         .tint(Theme.textPrimary)
         .padding(.horizontal, compact ? 12 : 16).padding(.vertical, compact ? 6 : 10)
         .background(Theme.panel)
@@ -242,8 +243,8 @@ struct SimulatorMirror: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "iphone").font(.system(size: 12)).foregroundStyle(Theme.textTertiary)
-                Text(device).font(.system(size: 13)).lineLimit(1).foregroundStyle(Theme.textSecondary)
+                Image(systemName: "iphone").superFont(12).foregroundStyle(Theme.textTertiary)
+                Text(device).superFont(13).lineLimit(1).foregroundStyle(Theme.textSecondary)
                 Spacer(minLength: 8)
                 if sending { ProgressView().controlSize(.mini) }
             }
@@ -265,7 +266,7 @@ struct SimulatorMirror: View {
                         .buttonStyle(.plain).tint(Theme.textSecondary).accessibilityLabel("Send this screen to the agent")
                 }
             }
-            .font(.system(size: 15))
+            .superFont(15)
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(Theme.panel)
         }
@@ -291,7 +292,7 @@ struct SimulatorMirror: View {
                             }
                         )
                 } else if let unavailable {
-                    Text(unavailable).font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
+                    Text(unavailable).superFont(13).foregroundStyle(Theme.textTertiary)
                         .multilineTextAlignment(.center).padding()
                 } else {
                     ProgressView()

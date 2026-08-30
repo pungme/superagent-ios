@@ -1,5 +1,6 @@
 import PDFKit
 import SwiftUI
+import UIKit
 
 /// A file inside a project, for navigation.
 struct FileRef: Hashable {

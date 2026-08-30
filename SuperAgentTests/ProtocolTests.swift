@@ -18,7 +18,7 @@ struct ProtocolTests {
 
     @Test func decodesEveryServerFrame() throws {
         let f = try JSONDecoder().decode(Frames.self, from: fixture("frames"))
-        #expect(f.server.count == 9)
+        #expect(f.server.count == 10)
         guard case let .welcome(machine, tree, chats) = f.server[0] else { Issue.record("welcome"); return }
         #expect(machine.name == "Fixture Mac")
         #expect(machine.protocolVersion == 1)
@@ -39,6 +39,8 @@ struct ProtocolTests {
         guard case let .res(_, r2) = f.server[7], case .failure(let err) = r2 else { Issue.record("res err"); return }
         #expect(err.code == "gone")
         guard case .pong = f.server[8] else { Issue.record("pong"); return }
+        guard case let .openFile(ws, path, chatId) = f.server[9] else { Issue.record("openFile"); return }
+        #expect(ws == "w1" && path == "docs/spec.pdf" && chatId == "c1")
     }
 
     @Test func decodesEveryEventKindAndKeepsUnknownOnes() throws {

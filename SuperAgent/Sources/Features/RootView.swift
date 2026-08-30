@@ -18,7 +18,8 @@ struct RootView: View {
                     let c = app.connection(for: machine)
                     SidebarView(connection: c, path: $path)
                         .navigationDestination(for: WireChat.self) { chat in
-                            ChatView(connection: c, chat: chat, workspace: workspace(c, for: chat))
+                            ChatView(push: { path.append($0) },
+                                     connection: c, chat: chat, workspace: workspace(c, for: chat))
                         }
                         .navigationDestination(for: WorkspacePanel.self) { panel in
                             switch panel.kind {
@@ -89,6 +90,20 @@ struct WelcomeView: View {
     var onPair: () -> Void
 
     var body: some View {
+        // Centred by the spacers while it fits, scrolling once it doesn't —
+        // otherwise the larger text sizes squeeze the copy until the headline
+        // truncates rather than wrapping.
+        GeometryReader { geo in
+            ScrollView {
+                content.frame(maxWidth: .infinity, minHeight: geo.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .background(Theme.panel)
+        .navigationTitle("Superagent")
+    }
+
+    private var content: some View {
         VStack(spacing: 18) {
             Spacer()
             ZStack {
@@ -97,7 +112,7 @@ struct WelcomeView: View {
             }
             .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
             Text("Your Mac, in your pocket")
-                .font(.system(size: 24, weight: .bold)).foregroundStyle(Theme.textPrimary)
+                .superFont(24, weight: .bold).foregroundStyle(Theme.textPrimary)
             Text("Follow the agent, send it work, approve what it asks — from anywhere. Pair once; no accounts, no setup.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.textSecondary)
@@ -105,7 +120,7 @@ struct WelcomeView: View {
             Spacer()
             Button(action: onPair) {
                 Text("Pair a Mac")
-                    .font(.system(size: 16, weight: .semibold))
+                    .superFont(16, weight: .semibold)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .background(Theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -118,8 +133,5 @@ struct WelcomeView: View {
                 .foregroundStyle(Theme.textTertiary)
                 .padding(.bottom, 24)
         }
-        .frame(maxWidth: .infinity)
-        .background(Theme.panel)
-        .navigationTitle("Superagent")
     }
 }

@@ -73,7 +73,7 @@ struct PairView: View {
             if let secret = payload.secret {
                 let code = pairingCode(secret: secret, machineId: payload.m)
                 Text("\(code.prefix(3)) \(code.suffix(3))")
-                    .font(.system(size: 40, weight: .semibold, design: .monospaced))
+                    .superFont(40, weight: .semibold, design: .monospaced)
                     .padding(.top, 8)
             }
             Spacer()
