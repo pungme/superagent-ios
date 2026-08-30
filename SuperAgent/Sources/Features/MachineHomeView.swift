@@ -78,13 +78,22 @@ struct ConnectionPill: View {
     static func label(for state: Connection.State) -> String {
         switch state { case .connected: "Live"; case .connecting: "Connecting"; case .machineOffline: "Mac asleep"; default: "Offline" }
     }
+    /// A toolbar draws its own capsule behind an item on iOS 26, so a pill with
+    /// a capsule of its own sat inside a second one and read as a white halo.
+    /// In the toolbar the system's capsule IS the pill's background; anywhere
+    /// else it brings its own, since there is nothing behind it there.
+    var inToolbar = false
+
     var body: some View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(label).superFont(12, weight: .medium).foregroundStyle(Theme.textSecondary)
         }
-        .padding(.horizontal, 9).padding(.vertical, 4)
-        .background(Theme.accentSoft, in: Capsule())
+        .padding(.horizontal, inToolbar ? 2 : 9)
+        .padding(.vertical, inToolbar ? 0 : 4)
+        .background {
+            if !inToolbar { Capsule().fill(Theme.accentSoft) }
+        }
     }
     private var color: Color {
         switch state { case .connected: Theme.working; case .connecting: Theme.needsYou; default: Theme.textTertiary }

@@ -82,7 +82,7 @@ struct SidebarView: View {
             // draws its own capsule, so the system's shows through behind it
             // until this can come back.
             ToolbarItem(placement: .topBarLeading) {
-                ConnectionPill(state: connection.state).fixedSize()
+                ConnectionPill(state: connection.state, inToolbar: true).fixedSize()
             }
         }
     }
