@@ -639,6 +639,47 @@ extension Connection {
         return try? JSONDecoder().decode([WireEvent].self, from: data)
     }
 
+    /// The sidebar with a Mac's worth of rows behind it, for looking at the two
+    /// modes without pairing anything. Launch with `-sidebarHarness`.
+    @MainActor
+    static func sidebarHarness() -> Connection {
+        let machine = PairedMachine(id: "harness", name: "Worathiti's MacBook Pro", relay: "wss://example.invalid",
+                                    deviceId: "harness-device", secret: Data(repeating: 7, count: 32),
+                                    token: "harness", pairedAt: .now)
+        let c = Connection(machine: machine)
+        let ws: [(String, String, String)] = [
+            ("w-superagent", "superagent", "app"),
+            ("w-ios", "ios", "app"),
+            ("w-wepush", "wepush", "app"),
+            ("w-tab", "Stripe", "browser")
+        ]
+        c.tree = [
+            WireGroup(id: "computer", name: "Computer", color: "#fff", workspaces: [
+                WireWorkspace(id: "computer", name: "Computer", path: "/", kind: "desktop",
+                              status: .idle, branch: nil, browserUrl: nil, subrepos: [])
+            ]),
+            WireGroup(id: "g1", name: "Superagent", color: "#fff", workspaces: ws.map { id, name, kind in
+                WireWorkspace(id: id, name: name, path: "/Users/you/" + name, kind: kind,
+                              status: .idle, branch: kind == "browser" ? nil : "main",
+                              browserUrl: kind == "browser" ? "https://stripe.com" : nil, subrepos: [])
+            })
+        ]
+        let now = Date().timeIntervalSince1970 * 1000
+        let rows: [(String, String, String, String, Double, Bool)] = [
+            ("c1", "w-ios", "Unread on the phone", "Six tests cover the rules, including the one that matters most.", now - 60_000, true),
+            ("c2", "w-superagent", "Release 1.7.16", "Published and marked latest — the update feed is serving it.", now - 900_000, false),
+            ("c3", "w-wepush", "the cost is so high in august (AWS)", "NAT gateway egress, mostly. Here is the breakdown by hour.", now - 5_400_000, false),
+            ("c4", "w-tab", "Stripe pricing page", "Opened the page and read the tiers back to you.", now - 26_000_000, false),
+            ("c5", "computer", "Yamaha PA-130B adapter", "12V, 1A, centre-positive — the barrel is 5.5/2.1mm.", now - 90_000_000, false)
+        ]
+        c.chats = rows.map { id, wsId, title, preview, at, live in
+            WireChat(id: id, workspaceId: wsId, title: title, updatedAt: at, live: live, preview: preview)
+        }
+        // Two of them have moved since this phone last looked.
+        c.unread.note(c.chats.map { var x = $0; if x.id == "c1" || x.id == "c3" { x.updatedAt -= 600_000 }; return x })
+        return c
+    }
+
     @MainActor
     static func scrollHarness(chatId: String = "harness", turns: Int = 60) -> Connection {
         let machine = PairedMachine(id: "harness", name: "Harness", relay: "wss://example.invalid",

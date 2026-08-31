@@ -13,6 +13,8 @@ struct SuperAgentApp: App {
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("-scrollHarness") {
                     NavigationStack { ChatHarness() }
+                } else if ProcessInfo.processInfo.arguments.contains("-sidebarHarness") {
+                    SidebarHarness()
                 } else {
                     RootView()
                 }

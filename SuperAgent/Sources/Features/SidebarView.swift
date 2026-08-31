@@ -32,6 +32,9 @@ struct SidebarView: View {
     @State private var error: String?
     @State private var query = ""
     @State private var hits: [WireSearchHit] = []
+    /// Which way the sidebar is reading right now, remembered between launches.
+    @AppStorage("sidebar.mode") private var modeRaw = SidebarMode.projects.rawValue
+    private var mode: SidebarMode { SidebarMode(rawValue: modeRaw) ?? .projects }
 
     private static let tabsGroup = "__tabs"
     private var computer: WireWorkspace? { connection.tree.first { $0.id == "computer" }?.workspaces.first }
@@ -57,10 +60,15 @@ struct SidebarView: View {
             if !query.trimmingCharacters(in: .whitespaces).isEmpty {
                 searchSection
             } else {
-                machineSection
-                browseSection
-                ForEach(groups) { group in groupSection(group) }
-                newGroupSection
+                modePicker
+                if mode == .activity {
+                    activitySection
+                } else {
+                    machineSection
+                    browseSection
+                    ForEach(groups) { group in groupSection(group) }
+                    newGroupSection
+                }
             }
         }
         .listStyle(.plain)
@@ -366,6 +374,83 @@ struct SidebarView: View {
         .id(wt.path)
     }
 
+    /// Two ways of reading the same Mac. Projects is the desktop's sidebar,
+    /// where a conversation is found by knowing where it lives. Activity is the
+    /// one a phone actually wants: everything on this Mac in one flat list,
+    /// most recent first, the way every messaging app you own is arranged.
+    @ViewBuilder
+    private var modePicker: some View {
+        Picker("View", selection: Binding(get: { mode }, set: { modeRaw = $0.rawValue })) {
+            ForEach(SidebarMode.allCases) { m in Text(m.label).tag(m) }
+        }
+        .pickerStyle(.segmented)
+        .listRowBackground(Theme.panel)
+        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+        .listRowSeparator(.hidden)
+    }
+
+    /// Every conversation on this Mac, newest first — no groups, no projects,
+    /// no branches. Where it lives is a subtitle here, not the structure.
+    @ViewBuilder
+    private var activitySection: some View {
+        let names = projectNames
+        let recent = connection.chats.sorted { $0.updatedAt > $1.updatedAt }
+        Section {
+            if recent.isEmpty {
+                Text("Nothing here yet.").superFont(13).foregroundStyle(Theme.textTertiary)
+                    .listRowBackground(Theme.card)
+            }
+            ForEach(recent) { chat in activityRow(chat, project: names[chat.workspaceId]) }
+        }
+    }
+
+    private var projectNames: [String: String] {
+        var out: [String: String] = [:]
+        for ws in connection.tree.flatMap(\.workspaces) {
+            out[ws.id] = ws.isBrowser ? (ws.host ?? ws.name) : ws.name
+        }
+        return out
+    }
+
+    /// One conversation, the way a message thread reads: who it is with (the
+    /// project), what was last said, when, and whether you have read it.
+    @ViewBuilder
+    private func activityRow(_ chat: WireChat, project: String?) -> some View {
+        Button { path.append(chat) } label: {
+            HStack(alignment: .top, spacing: 8) {
+                UnreadDot(on: connection.unread.isUnread(chat)).padding(.top, 5)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(chat.title ?? "New chat")
+                            .superFont(14.5, weight: .medium)
+                            .foregroundStyle(Theme.textPrimary).lineLimit(1)
+                        if chat.live { ProgressView().controlSize(.mini) }
+                        Spacer(minLength: 4)
+                        Text(Date(timeIntervalSince1970: chat.updatedAt / 1000), format: .relative(presentation: .named))
+                            .superFont(11).foregroundStyle(Theme.textTertiary).lineLimit(1)
+                    }
+                    if let p = project, !p.isEmpty {
+                        Text(p).superFont(11.5).foregroundStyle(Theme.textTertiary).lineLimit(1)
+                    }
+                    if let preview = chat.preview, !preview.isEmpty {
+                        Text(preview).superFont(12.5).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                    }
+                }
+            }
+            .frame(minHeight: 40)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Theme.card)
+        .contextMenu {
+            Button(role: .destructive) {
+                Task { await run { try await connection.deleteChat(chatId: chat.id) } }
+            } label: {
+                Label("Delete conversation", systemImage: "trash")
+            }
+        }
+    }
+
     @ViewBuilder
     private func chatTreeRow(_ chat: WireChat) -> some View {
         TreeRow {
@@ -651,6 +736,28 @@ struct SidebarView: View {
 }
 
 /// Files / Todo / Routines behind a project, pushed from its bar.
+#if DEBUG
+/// The sidebar with a Mac's worth of rows behind it and no Mac. Launch the app
+/// with `-sidebarHarness` to look at both modes.
+struct SidebarHarness: View {
+    @State private var connection: Connection?
+    @State private var path = NavigationPath()
+    var body: some View {
+        NavigationStack(path: $path) {
+            if let c = connection { SidebarView(connection: c, path: $path) }
+        }
+        .task { if connection == nil { connection = Connection.sidebarHarness() } }
+    }
+}
+#endif
+
+/// Which way the sidebar is reading the Mac.
+enum SidebarMode: String, CaseIterable, Identifiable {
+    case activity, projects
+    var id: String { rawValue }
+    var label: String { self == .activity ? "Activity" : "Projects" }
+}
+
 /// Something happened here that you have not read. The Mac draws the same dot,
 /// in the same place, for the same reason.
 struct UnreadDot: View {
