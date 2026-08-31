@@ -561,14 +561,28 @@ struct SidebarView: View {
     /// it that way, so tapping it opens that chat rather than whichever was
     /// touched last. The branches are the rows underneath.
     private func openProject(_ ws: WireWorkspace) async throws {
-        if let rootId = worktrees[ws.id]?.first(where: { $0.main })?.chatId,
-           let root = connection.chats.first(where: { $0.id == rootId }) {
-            path.append(root)
+        // Ask now rather than reading the cached list: that one is only kept
+        // for projects with more than one copy, so a project with no branches
+        // yet had nothing to look in and fell through to whichever chat was
+        // touched last.
+        let rows = ws.isBrowser || ws.isComputer
+            ? []
+            : ((try? await connection.worktrees(workspaceId: ws.id)) ?? [])
+        if let main = rows.first(where: { $0.main }) {
+            if let id = main.chatId, let root = connection.chats.first(where: { $0.id == id }) {
+                path.append(root)
+                return
+            }
+            // A git project whose folder has no conversation: make it, the way
+            // the Mac does when you click the project row. `root` keeps it in
+            // the folder — this is not a chat that cuts itself a branch.
+            let id = try await connection.createChat(workspaceId: ws.id, root: true)
+            if let c = connection.chats.first(where: { $0.id == id }) { path.append(c) }
             return
         }
         let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
         if let c = chats.first { path.append(c); return }
-        let id = try await connection.createChat(workspaceId: ws.id)
+        let id = try await connection.createChat(workspaceId: ws.id, root: true)
         if let c = connection.chats.first(where: { $0.id == id }) { path.append(c) }
     }
 

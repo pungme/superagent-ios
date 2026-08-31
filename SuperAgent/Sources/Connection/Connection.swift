@@ -424,9 +424,17 @@ final class Connection {
         OfflineCache.removeTranscript(machine.id, chatId: chatId)
     }
 
-    func createChat(workspaceId: String) async throws -> String {
+    /// A new conversation in this project. `root` is the one that lives in the
+    /// project folder — the chat the project row opens. Every other chat gets
+    /// its own copy of the project on its first message, and the Mac needs to
+    /// be told which kind this is: both look identical to it otherwise, and it
+    /// used to branch the folder's chat too, which moved the conversation out
+    /// from under the project row and left an empty one in its place.
+    func createChat(workspaceId: String, root: Bool = false) async throws -> String {
         struct R: Decodable { var chatId: String }
-        let id = try await rpc("chat.create", .object(["workspaceId": .string(workspaceId)]), as: R.self).chatId
+        var params: [String: JSONValue] = ["workspaceId": .string(workspaceId)]
+        if root { params["root"] = .bool(true) }
+        let id = try await rpc("chat.create", .object(params), as: R.self).chatId
         // Show it at once; the Mac's `chats` frame will confirm shortly.
         if !chats.contains(where: { $0.id == id }) {
             chats.append(WireChat(id: id, workspaceId: workspaceId, title: nil, updatedAt: Date().timeIntervalSince1970 * 1000, live: false))
