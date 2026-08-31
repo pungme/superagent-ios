@@ -560,6 +560,12 @@ struct SidebarView: View {
     /// The project row is the conversation in the folder itself — the Mac draws
     /// it that way, so tapping it opens that chat rather than whichever was
     /// touched last. The branches are the rows underneath.
+    ///
+    /// It opens; it does not create. Tapping a project to look at it used to
+    /// leave a new empty conversation behind whenever the phone could not find
+    /// one to open, which is every tap on a project whose chats had not arrived
+    /// yet. A conversation appears when you tap "+ New chat" and at no other
+    /// time.
     private func openProject(_ ws: WireWorkspace) async throws {
         // Ask now rather than reading the cached list: that one is only kept
         // for projects with more than one copy, so a project with no branches
@@ -568,22 +574,19 @@ struct SidebarView: View {
         let rows = ws.isBrowser || ws.isComputer
             ? []
             : ((try? await connection.worktrees(workspaceId: ws.id)) ?? [])
-        if let main = rows.first(where: { $0.main }) {
-            if let id = main.chatId, let root = connection.chats.first(where: { $0.id == id }) {
-                path.append(root)
-                return
-            }
-            // A git project whose folder has no conversation: make it, the way
-            // the Mac does when you click the project row. `root` keeps it in
-            // the folder — this is not a chat that cuts itself a branch.
-            let id = try await connection.createChat(workspaceId: ws.id, root: true)
-            if let c = connection.chats.first(where: { $0.id == id }) { path.append(c) }
+        if let id = rows.first(where: { $0.main })?.chatId,
+           let root = connection.chats.first(where: { $0.id == id }) {
+            path.append(root)
             return
         }
+        // No worktrees to ask (a plain folder, a browser tab), or an older Mac
+        // that cannot say which chat is the folder's: the most recent one here.
         let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
         if let c = chats.first { path.append(c); return }
-        let id = try await connection.createChat(workspaceId: ws.id, root: true)
-        if let c = connection.chats.first(where: { $0.id == id }) { path.append(c) }
+        // Nothing to open. Show the list, which is where "+ New chat" is.
+        // Opening a project must never make a conversation by itself — a chat
+        // appears when you ask for one, and nowhere else.
+        path.append(WorkspacePanel(kind: .chats, workspace: ws))
     }
 
     /// newTab(): a browser project in the tabs group, opened at once.
@@ -591,7 +594,16 @@ struct SidebarView: View {
         Task {
             await run {
                 let id = try await connection.createBrowserTab()
-                if let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == id }) { try await openProject(ws) }
+                guard let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == id }) else { return }
+                // A new tab is asking for a conversation — it is the whole point
+                // of the button — so this one makes it. Opening an existing
+                // project never does.
+                if let c = connection.chats.first(where: { $0.workspaceId == ws.id }) {
+                    path.append(c)
+                    return
+                }
+                let chatId = try await connection.createChat(workspaceId: ws.id, root: true)
+                if let c = connection.chats.first(where: { $0.id == chatId }) { path.append(c) }
             }
         }
     }
