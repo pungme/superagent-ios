@@ -10,38 +10,19 @@ struct RootView: View {
     /// A pairing link opened from outside (AirDrop, Messages, a tapped QR) skips the scanner.
     @State private var incomingPair: PairPayload?
     @State private var path = NavigationPath()
+    /// An iPad, or an iPhone in landscape that is wide enough to hold two
+    /// columns. The Mac's window is a sidebar and the thing you are working on;
+    /// with the room to do the same, do the same.
+    @Environment(\.horizontalSizeClass) private var width
+    @State private var columns = NavigationSplitViewVisibility.all
 
     var body: some View {
-        NavigationStack(path: $path) {
-            Group {
-                if let machine = app.selected {
-                    let c = app.connection(for: machine)
-                    SidebarView(connection: c, path: $path)
-                        .navigationDestination(for: WireChat.self) { chat in
-                            ChatView(push: { path.append($0) },
-                                     connection: c, chat: chat, workspace: workspace(c, for: chat))
-                        }
-                        .navigationDestination(for: WorkspacePanel.self) { panel in
-                            switch panel.kind {
-                            case .files: FilesView(connection: c, workspace: panel.workspace)
-                            case .board: BoardView(connection: c, workspace: panel.workspace)
-                            case .routines: RoutinesView(connection: c, workspace: panel.workspace)
-                            case .chats: ChatsListView(connection: c, workspace: panel.workspace) { chat in path.append(chat) }
-                            }
-                        }
-                        .navigationDestination(for: FileRef.self) { ref in FileView(connection: c, ref: ref) }
-                        .navigationDestination(for: FolderRef.self) { ref in
-                            FilesView(connection: c, workspace: workspace(c, id: ref.workspaceId), folder: ref)
-                        }
-                } else {
-                    WelcomeView(onPair: { showPair = true })
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                        .accessibilityLabel("Settings")
-                }
+        Group {
+            if let machine = app.selected {
+                let c = app.connection(for: machine)
+                if width == .regular { split(c) } else { stack(c) }
+            } else {
+                NavigationStack { WelcomeView(onPair: { showPair = true }).toolbar { settingsButton } }
             }
         }
         .sheet(isPresented: $showPair) { PairView() }
@@ -62,6 +43,77 @@ struct RootView: View {
 }
 
 extension RootView {
+    /// One column: the sidebar, and everything else pushed on top of it. The
+    /// phone, and an iPad squeezed into a narrow Split View slot.
+    @ViewBuilder
+    private func stack(_ c: Connection) -> some View {
+        NavigationStack(path: $path) {
+            destinations(SidebarView(connection: c, path: $path), c)
+                .toolbar { settingsButton }
+        }
+    }
+
+    /// Two columns, as on the Mac: the sidebar stays put on the left, and what
+    /// you open fills the right. The same `path` drives it — the sidebar
+    /// appends, and the detail column is the stack that answers.
+    @ViewBuilder
+    private func split(_ c: Connection) -> some View {
+        NavigationSplitView(columnVisibility: $columns) {
+            SidebarView(connection: c, path: $path)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
+                .toolbar { settingsButton }
+        } detail: {
+            NavigationStack(path: $path) {
+                destinations(nothingOpen, c)
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    /// The right-hand column with nothing in it yet. The Mac shows an empty
+    /// pane here too rather than picking a conversation for you.
+    private var nothingOpen: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .superFont(30).foregroundStyle(Theme.textTertiary)
+            Text("Pick a conversation").superFont(15, weight: .medium).foregroundStyle(Theme.textSecondary)
+            Text("Or start one with + New chat.").superFont(13).foregroundStyle(Theme.textTertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.panel)
+    }
+
+    /// Where a pushed value turns into a screen. Written once and applied to
+    /// whichever view is the root of the stack, because that is the only thing
+    /// that differs between the two shapes.
+    @ViewBuilder
+    private func destinations(_ view: some View, _ c: Connection) -> some View {
+        view
+            .navigationDestination(for: WireChat.self) { chat in
+                ChatView(push: { path.append($0) },
+                         connection: c, chat: chat, workspace: workspace(c, for: chat))
+            }
+            .navigationDestination(for: WorkspacePanel.self) { panel in
+                switch panel.kind {
+                case .files: FilesView(connection: c, workspace: panel.workspace)
+                case .board: BoardView(connection: c, workspace: panel.workspace)
+                case .routines: RoutinesView(connection: c, workspace: panel.workspace)
+                case .chats: ChatsListView(connection: c, workspace: panel.workspace) { chat in path.append(chat) }
+                }
+            }
+            .navigationDestination(for: FileRef.self) { ref in FileView(connection: c, ref: ref) }
+            .navigationDestination(for: FolderRef.self) { ref in
+                FilesView(connection: c, workspace: workspace(c, id: ref.workspaceId), folder: ref)
+            }
+    }
+
+    private var settingsButton: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                .accessibilityLabel("Settings")
+        }
+    }
+
     /// A project by id, with a stand-in if the tree hasn't named it yet.
     private func workspace(_ c: Connection, id: String) -> WireWorkspace {
         c.tree.flatMap(\.workspaces).first { $0.id == id }

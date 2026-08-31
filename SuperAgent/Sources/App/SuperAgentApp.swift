@@ -14,7 +14,9 @@ struct SuperAgentApp: App {
                 if ProcessInfo.processInfo.arguments.contains("-scrollHarness") {
                     NavigationStack { ChatHarness() }
                 } else if ProcessInfo.processInfo.arguments.contains("-sidebarHarness") {
-                    SidebarHarness()
+                    // The real RootView, with a made-up Mac behind it: the point
+                    // is to look at the actual layout, not a copy of it.
+                    RootView().onAppear { app.useHarness() }
                 } else {
                     RootView()
                 }

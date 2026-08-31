@@ -30,6 +30,7 @@ struct SidebarView: View {
     @State private var removing: WireWorkspace?
     @State private var busy = false
     @State private var error: String?
+    @Environment(\.horizontalSizeClass) private var width
     @State private var query = ""
     @State private var hits: [WireSearchHit] = []
     /// Which way the sidebar is reading right now, remembered between launches.
@@ -76,7 +77,9 @@ struct SidebarView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.panel)
         .navigationTitle(connection.machine.name)
-        .navigationBarTitleDisplayMode(.large)
+        // A large title needs a phone's width to breathe; in an iPad's sidebar
+        // column it truncates the Mac's name to make room for itself.
+        .navigationBarTitleDisplayMode(width == .regular ? .inline : .large)
         .toolbar {
             // iOS 26 gives every toolbar item its own glass capsule and squeezes
             // it to a minimum width, which turned this pill into a white circle
@@ -736,21 +739,6 @@ struct SidebarView: View {
 }
 
 /// Files / Todo / Routines behind a project, pushed from its bar.
-#if DEBUG
-/// The sidebar with a Mac's worth of rows behind it and no Mac. Launch the app
-/// with `-sidebarHarness` to look at both modes.
-struct SidebarHarness: View {
-    @State private var connection: Connection?
-    @State private var path = NavigationPath()
-    var body: some View {
-        NavigationStack(path: $path) {
-            if let c = connection { SidebarView(connection: c, path: $path) }
-        }
-        .task { if connection == nil { connection = Connection.sidebarHarness() } }
-    }
-}
-#endif
-
 /// Which way the sidebar is reading the Mac.
 enum SidebarMode: String, CaseIterable, Identifiable {
     case activity, projects

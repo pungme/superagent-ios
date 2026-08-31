@@ -677,6 +677,30 @@ extension Connection {
         }
         // Two of them have moved since this phone last looked.
         c.unread.note(c.chats.map { var x = $0; if x.id == "c1" || x.id == "c3" { x.updatedAt -= 600_000 }; return x })
+        // Enough of a conversation in the first one to see the chat itself.
+        var t = Transcript()
+        let lines: [(Bool, String)] = [
+            (true, "Can you make the phone show me what I have not read yet?"),
+            (false, "Done. A dot on the conversation and on the project — a project you have not expanded is exactly where an unread reply would otherwise sit unseen.\n\nIt is the phone's own state, not the Mac's: what the Mac has read says nothing about what you have."),
+            (true, "And it survives a restart?"),
+            (false, "Yes — it is written through to UserDefaults per Mac, and there is a test for exactly that. Anything the phone has never seen is recorded as read on sight, so pairing a Mac with two hundred old conversations does not light up every row.")
+        ]
+        var seq = 0
+        let at = Date().timeIntervalSince1970 * 1000
+        for (mine, text) in lines {
+            seq += 1
+            t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at,
+                                      data: mine ? .user(id: "u\(seq)", text: text, images: [], from: .ios)
+                                                 : .assistant(id: "a\(seq)", text: text)))
+        }
+        t.lastSeq = seq
+        c.transcripts["c1"] = t
+        // `-withPage` puts a page on that conversation, to see the mirror
+        // beside it rather than only reasoning about the layout.
+        if ProcessInfo.processInfo.arguments.contains("-withPage") {
+            c.browsers["c1"] = WireBrowser(chatId: "c1", open: true, url: "https://stripe.com/en-us",
+                                           title: "Stripe", canGoBack: false, canGoForward: false, loading: false)
+        }
         return c
     }
 

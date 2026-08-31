@@ -61,6 +61,8 @@ struct ChatView: View {
     @State private var pageFraction: CGFloat = 0.42
     @State private var dragStart: CGFloat?
     @State private var containerHeight: CGFloat = 600
+    @State private var containerWidth: CGFloat = 0
+    @Environment(\.horizontalSizeClass) private var width
     @State private var showBranches = false
     @State private var creating = false
     @FocusState private var composerFocused: Bool
@@ -93,111 +95,26 @@ struct ChatView: View {
             ProjectBar(connection: connection, workspace: workspace, pageOpen: pageShown,
                        pageAttached: pageAttached,
                        onBrowser: togglePage, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating)
-            // What the Mac has open sits above the conversation, as it sits
-            // beside it on the desktop. The keyboard takes the room instead.
-            // Attached but not on screen: say so, and offer it back. Without
-            // this the page simply vanishes when you hide it or start typing,
-            // and nothing says the conversation still has one.
-            if simAttached, !simShown, !pageShown {
-                Button {
-                    setSimHidden(false)
-                    composerFocused = false
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "iphone").superFont(12)
-                        Text(simLabel).superFont(13).lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text("Show").superFont(13, weight: .medium)
-                        Image(systemName: "chevron.down").superFont(11, weight: .semibold)
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .contentShape(Rectangle())
+            // With the room, the page goes BESIDE the conversation, which is
+            // what the Mac does. On a phone there is no room, so it docks above
+            // and the keyboard takes it back.
+            if wide, simShown || pageShown {
+                HStack(spacing: 0) {
+                    conversation
+                    sideDivider
+                    mirror.frame(width: paneWidth)
                 }
-                .tint(Theme.textSecondary)
-                .background(Theme.panel)
-                .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-            if pageAttached, !pageShown {
-                Button {
-                    setPageHidden(false)
-                    composerFocused = false
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "globe").superFont(12)
-                        Text(pageLabel).superFont(13).lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text("Show").superFont(13, weight: .medium)
-                        Image(systemName: "chevron.down").superFont(11, weight: .semibold)
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .contentShape(Rectangle())
+            } else {
+                if simShown {
+                    mirrorSim.frame(height: pageHeight)
+                    dockDivider
                 }
-                .tint(Theme.textSecondary)
-                .background(Theme.panel)
-                .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
-                .transition(.move(edge: .top).combined(with: .opacity))
+                if pageShown {
+                    mirrorPage.frame(height: pageHeight)
+                    dockDivider
+                }
+                conversation
             }
-            if simShown {
-                SimulatorMirror(connection: connection, chat: chat,
-                                onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
-                                onHide: { withAnimation(.easeOut(duration: 0.2)) { setSimHidden(true) } },
-                                paused: composerFocused)
-                    .frame(height: pageHeight)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                Rectangle().fill(Theme.border).frame(height: 1)
-                    .overlay { Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 36, height: 4) }
-                    .frame(height: 18).contentShape(Rectangle())
-                    .background(Theme.panel)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { v in
-                                let start = dragStart ?? pageFraction
-                                dragStart = start
-                                pageResized = true
-                                pageFraction = min(0.72, max(0.2, start + v.translation.height / max(1, containerHeight)))
-                            }
-                            .onEnded { _ in dragStart = nil }
-                    )
-            }
-            if pageShown {
-                BrowserMirror(connection: connection, chat: chat, compact: true,
-                              onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
-                              onHide: { withAnimation(.easeOut(duration: 0.2)) { setPageHidden(true) } },
-                              onExpand: { showBrowserSheet = true },
-                              paused: composerFocused)
-                    .frame(height: pageHeight)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                // Drag the divider to give the page more or less room.
-                Rectangle().fill(Theme.border).frame(height: 1)
-                    .overlay {
-                        Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 36, height: 4)
-                    }
-                    .frame(height: 18).contentShape(Rectangle())
-                    .background(Theme.panel)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { v in
-                                let start = dragStart ?? pageFraction
-                                dragStart = start
-                                pageResized = true
-                                pageFraction = min(0.72, max(0.2, start + v.translation.height / max(1, containerHeight)))
-                            }
-                            .onEnded { _ in dragStart = nil }
-                    )
-            }
-            // Pinned, not scrolled away: you need to know the Mac is gone while
-            // you're reading the latest reply, which is where you usually are.
-            if connection.state != .connected {
-                ConnectionBanner(connection: connection)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(Theme.card)
-                    .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-            transcript(proxyless: true)
-            Divider().overlay(Theme.border)
-            composer
         }
             .background(Theme.content)
             // The docked page is a fraction of the screen; reading that height in the
@@ -206,8 +123,9 @@ struct ChatView: View {
             .background {
                 GeometryReader { geo in
                     Color.clear
-                        .onAppear { containerHeight = geo.size.height }
+                        .onAppear { containerHeight = geo.size.height; containerWidth = geo.size.width }
                         .onChange(of: geo.size.height) { _, h in containerHeight = h }
+                        .onChange(of: geo.size.width) { _, w in containerWidth = w }
                 }
             }
             .navigationTitle(chat.title ?? "Conversation")
@@ -463,6 +381,124 @@ struct ChatView: View {
         if following { scrollToEnd(animated: false) }
     }
 
+    /// The conversation itself: what is attached but put away, the connection
+    /// banner, the transcript and the composer. The same column in both
+    /// shapes — only what sits next to it changes.
+    @ViewBuilder
+    private var conversation: some View {
+        VStack(spacing: 0) {
+            // Attached but not on screen: say so, and offer it back. Without
+            // this the page simply vanishes when you hide it or start typing,
+            // and nothing says the conversation still has one.
+            if simAttached, !simShown, !pageShown {
+                showBar(icon: "iphone", label: simLabel) { setSimHidden(false); composerFocused = false }
+            }
+            if pageAttached, !pageShown {
+                showBar(icon: "globe", label: pageLabel) { setPageHidden(false); composerFocused = false }
+            }
+            // Pinned, not scrolled away: you need to know the Mac is gone while
+            // you're reading the latest reply, which is where you usually are.
+            // Not twice, though: with the sidebar on screen it is already
+            // saying so, a few inches to the left.
+            if connection.state != .connected, !wide {
+                ConnectionBanner(connection: connection)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(Theme.card)
+                    .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            transcript(proxyless: true)
+            Divider().overlay(Theme.border)
+            composer
+        }
+    }
+
+    /// Whichever mirror this conversation has. The page wins the slot: two
+    /// mirrors over one conversation leaves room for neither.
+    @ViewBuilder
+    private var mirror: some View {
+        if pageShown { mirrorPage } else if simShown { mirrorSim }
+    }
+
+    @ViewBuilder
+    private var mirrorPage: some View {
+        // Compact chrome in both shapes: the side column is no wider than the
+        // docked strip, and the roomy version's "Send to agent" button is sized
+        // for the full-screen sheet — in a column it takes the row to itself.
+        BrowserMirror(connection: connection, chat: chat, compact: true,
+                      onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
+                      onHide: { withAnimation(.easeOut(duration: 0.2)) { setPageHidden(true) } },
+                      onExpand: { showBrowserSheet = true },
+                      paused: composerFocused && !wide)
+            .transition(.move(edge: wide ? .trailing : .top).combined(with: .opacity))
+    }
+
+    @ViewBuilder
+    private var mirrorSim: some View {
+        SimulatorMirror(connection: connection, chat: chat,
+                        onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
+                        onHide: { withAnimation(.easeOut(duration: 0.2)) { setSimHidden(true) } },
+                        paused: composerFocused && !wide)
+            .transition(.move(edge: wide ? .trailing : .top).combined(with: .opacity))
+    }
+
+    /// One bar per thing this conversation has open and you have put away.
+    @ViewBuilder
+    private func showBar(icon: String, label: String, show: @escaping () -> Void) -> some View {
+        Button(action: show) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).superFont(12)
+                Text(label).superFont(13).lineLimit(1)
+                Spacer(minLength: 8)
+                Text("Show").superFont(13, weight: .medium)
+                Image(systemName: "chevron.down").superFont(11, weight: .semibold)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            .contentShape(Rectangle())
+        }
+        .tint(Theme.textSecondary)
+        .background(Theme.panel)
+        .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// Drag it to give the mirror more or less of the screen — down the middle
+    /// when it is beside the conversation, across when it is above it.
+    private var sideDivider: some View {
+        Rectangle().fill(Theme.border).frame(width: 1)
+            .overlay { Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 4, height: 36) }
+            .frame(width: 18).contentShape(Rectangle())
+            .background(Theme.panel)
+            .gesture(
+                DragGesture()
+                    .onChanged { v in
+                        let start = dragStart ?? pageFraction
+                        dragStart = start
+                        pageResized = true
+                        // Dragging left gives the mirror more, so the sign flips.
+                        pageFraction = min(0.72, max(0.2, start - v.translation.width / max(1, containerWidth)))
+                    }
+                    .onEnded { _ in dragStart = nil }
+            )
+    }
+
+    private var dockDivider: some View {
+        Rectangle().fill(Theme.border).frame(height: 1)
+            .overlay { Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 36, height: 4) }
+            .frame(height: 18).contentShape(Rectangle())
+            .background(Theme.panel)
+            .gesture(
+                DragGesture()
+                    .onChanged { v in
+                        let start = dragStart ?? pageFraction
+                        dragStart = start
+                        pageResized = true
+                        pageFraction = min(0.72, max(0.2, start + v.translation.height / max(1, containerHeight)))
+                    }
+                    .onEnded { _ in dragStart = nil }
+            )
+    }
+
     /// Read up to whatever has landed. The chat this view was handed is a
     /// snapshot from the list; the live row carries the newer timestamp.
     private func markRead() {
@@ -500,7 +536,7 @@ struct ChatView: View {
     private var simAttached: Bool { connection.simulators[chat.id]?.open == true }
     /// The simulator gets the docked slot only when there is no page in it: two
     /// mirrors over one conversation on a phone leaves room for neither.
-    private var simShown: Bool { simAttached && !pageShown && !simHidden && !composerFocused }
+    private var simShown: Bool { simAttached && !pageShown && !simHidden && (!composerFocused || wide) }
     private var simLabel: String { connection.simulators[chat.id]?.device ?? "Simulator" }
 
     /// The page's host, or its title when there is no useful host.
@@ -510,6 +546,18 @@ struct ChatView: View {
             return host
         }
         return b.title.isEmpty ? "Page" : b.title
+    }
+
+    /// There is room for two columns. The mirror goes beside the conversation
+    /// rather than on top of it, and it stays put while you type — the reason
+    /// it gets out of the way on a phone is the keyboard, and here there is
+    /// room for both.
+    private var wide: Bool { width == .regular }
+
+    /// The mirror's share of the width, held between a fifth and two thirds so
+    /// neither column becomes a stripe.
+    private var paneWidth: CGFloat {
+        max(280, min(containerWidth * pageFraction, containerWidth - 380))
     }
 
     private var pageHeight: CGFloat {
@@ -542,7 +590,7 @@ struct ChatView: View {
     }
 
     private var pageShown: Bool {
-        connection.browsers[chat.id]?.open == true && !pageHidden && !composerFocused
+        connection.browsers[chat.id]?.open == true && !pageHidden && (!composerFocused || wide)
     }
 
     /// The compass shows or hides the page; with nothing open it opens the

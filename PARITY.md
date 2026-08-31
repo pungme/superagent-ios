@@ -119,7 +119,7 @@ asked what exists rather than the app trusting what it recorded).
 | Push notifications (done, needs-you, approvals with actions) | ✅ |
 | Offline cache (sidebar, chats, recent transcripts) | ✅ |
 | Dynamic Type — every size scales, Larger Text moves the whole app | ✅ |
-| iPad split layout | ❌ |
+| iPad split layout | ✅ | sidebar and detail side by side, and the page or simulator beside the conversation rather than above it |
 | Live Activity, widgets, share extension, Watch | ❌ (each needs a new target / capability) |
 
 ## Next, in order

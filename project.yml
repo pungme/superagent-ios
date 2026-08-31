@@ -25,7 +25,15 @@ targets:
         CFBundleDisplayName: Superagent
         UILaunchScreen:
           UIColorName: LaunchBackground
+        # The phone stays portrait: a landscape chat is a keyboard and two lines
+        # of transcript. The iPad is the opposite — it is held either way, and
+        # the split layout only makes sense with the room.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: Superagent uses the camera only to scan the pairing code shown on your Mac.
         NSMicrophoneUsageDescription: Superagent listens only while you hold the microphone button, to dictate a message.
@@ -43,7 +51,7 @@ targets:
         PRODUCT_MODULE_NAME: SuperAgent
         CODE_SIGN_ENTITLEMENTS: SuperAgent/SuperAgent.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         ENABLE_PREVIEWS: YES
         SWIFT_STRICT_CONCURRENCY: complete

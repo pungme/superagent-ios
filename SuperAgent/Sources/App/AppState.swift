@@ -27,6 +27,23 @@ final class AppState {
         selectedMachineId = machines.first?.id
     }
 
+    #if DEBUG
+    /// Put a made-up Mac in front of the real RootView, so the layout can be
+    /// looked at — on a phone or an iPad — without pairing anything.
+    func useHarness() {
+        guard machines.isEmpty || machines.first?.id == "harness" else { return }
+        let c = Connection.sidebarHarness()
+        machines = [c.machine]
+        connections[c.machine.id] = c
+        selectedMachineId = c.machine.id
+        // `-openChat <id>` lands straight in a conversation. Touch injection is
+        // not always available on a simulator, and a layout you cannot reach is
+        // a layout you cannot check.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-openChat"), i + 1 < args.count { openChatId = args[i + 1] }
+    }
+    #endif
+
     func connection(for machine: PairedMachine) -> Connection {
         if let c = connections[machine.id] { return c }
         let c = Connection(machine: machine)
@@ -39,7 +56,11 @@ final class AppState {
 
     func becameActive() {
         // Notifications only make sense once a Mac is paired — ask then, not on first launch.
-        if !machines.isEmpty { Task { await PushDelegate.requestAuthorization() } }
+        // Not for the harness: it is a made-up Mac, and the prompt lands over
+        // whatever is being looked at.
+        if !machines.isEmpty, machines.first?.id != "harness" {
+            Task { await PushDelegate.requestAuthorization() }
+        }
         for m in machines {
             let c = connection(for: m)
             c.connect()
