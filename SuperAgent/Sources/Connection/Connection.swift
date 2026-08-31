@@ -71,6 +71,11 @@ final class Connection {
     private(set) var browsers: [String: WireBrowser] = [:]
     /// What each conversation has open in the Mac's simulator pane.
     private(set) var simulators: [String: WireSimulator] = [:]
+
+    /// What the relay says today has cost, so it can be seen climbing rather
+    /// than discovered as an outage when the budget runs out. Sent by the room
+    /// once per megabyte and when this phone joins.
+    private(set) var relayUsage: RelayUsage?
     /// The agent asked (via `open_file`) that a file be shown. Whoever is on
     /// screen for that chat picks it up and pushes the viewer, then clears it.
     var openFileRequest: OpenFileRequest?
@@ -153,6 +158,7 @@ final class Connection {
             if text.hasPrefix("{") {
                 // Relay's own frames arrive in the clear.
                 if text.contains("\"offline\"") { state = .machineOffline }
+                if text.contains("\"usage\"") { readUsage(text) }
                 return
             }
             guard let plain = opener.open(text) else { return }
@@ -560,6 +566,17 @@ extension Connection {
     func browserOpen(chatId: String, url: String) async throws -> String {
         struct R: Decodable { var url: String }
         return try await rpc("browser.open", .object(["chatId": .string(chatId), "url": .string(url)]), as: R.self).url
+    }
+
+    private func readUsage(_ text: String) {
+        struct Frame: Decodable {
+            var day: String
+            var bytes: Int
+            var limit: Int
+        }
+        guard let data = text.data(using: .utf8),
+              let f = try? JSONDecoder().decode(Frame.self, from: data) else { return }
+        relayUsage = RelayUsage(day: f.day, bytes: f.bytes, limit: f.limit)
     }
 
     func simShot(chatId: String) async throws -> WireSimulatorShot {

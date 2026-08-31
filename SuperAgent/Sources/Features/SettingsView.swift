@@ -28,6 +28,27 @@ struct SettingsView: View {
                     }
                     Button { onPair() } label: { Label("Pair another Mac", systemImage: "plus") }
                 }
+                // What today has cost on the relay. It has a daily ceiling per Mac,
+                // and when it runs out everything simply stops reaching the Mac —
+                // worth being able to watch rather than meet as an outage.
+                if let usage = app.connections[app.selectedMachineId ?? ""]?.relayUsage {
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Data used")
+                                Spacer()
+                                Text(usage.summary).foregroundStyle(.secondary)
+                            }
+                            ProgressView(value: usage.fraction)
+                                .tint(usage.fraction > 0.8 ? Theme.danger : Theme.accent)
+                        }
+                        .padding(.vertical, 2)
+                    } header: {
+                        Text("Relay")
+                    } footer: {
+                        Text("Resets at midnight UTC. Mirroring a page or the simulator is what spends it; everything else is tiny.")
+                    }
+                }
                 Section {
                     LabeledContent("Version", value: Bundle.main.shortVersion)
                     LabeledContent("Device id", value: String(DeviceIdentity.id.prefix(8)))

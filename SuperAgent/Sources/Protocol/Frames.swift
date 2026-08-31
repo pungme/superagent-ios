@@ -447,6 +447,23 @@ struct WireBrowser: Codable, Hashable, Sendable {
     var loading: Bool
 }
 
+/// What today has cost on the relay, as the relay itself reports it.
+struct RelayUsage: Sendable, Equatable {
+    var day: String
+    var bytes: Int
+    var limit: Int
+
+    var fraction: Double { limit > 0 ? min(1, Double(bytes) / Double(limit)) : 0 }
+
+    /// "12 MB of 500 MB today" — megabytes, because that is the unit of the
+    /// budget and of the thing that spends it.
+    var summary: String {
+        let used = bytes / 1_000_000
+        let cap = limit / 1_000_000
+        return "\(used) MB of \(cap) MB today"
+    }
+}
+
 /// The iOS Simulator a conversation has open on the Mac.
 /// One checkout of a project: the folder you opened, or a branch cut from it.
 /// The Mac's sidebar is a row per one of these, so this one is too.
