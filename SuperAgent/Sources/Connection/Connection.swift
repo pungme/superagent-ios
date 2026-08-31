@@ -63,6 +63,9 @@ final class Connection {
     private(set) var info: WireMachine?
     private(set) var tree: [WireGroup] = []
     private(set) var chats: [WireChat] = []
+    /// Which conversations have moved since you last had them open, on this
+    /// phone. Local by nature — see Unread.
+    let unread: Unread
     private(set) var transcripts: [String: Transcript] = [:]
     private(set) var lastError: String?
     /// Slash commands the agent reported for a chat's session (for the "/" menu).
@@ -92,6 +95,7 @@ final class Connection {
 
     init(machine: PairedMachine) {
         self.machine = machine
+        unread = Unread(machineId: machine.id)
         let keys = DeviceKeys(secret: machine.secret, machineId: machine.id)
         sealer = Sealer(key: keys.p2m, aad: aad(machineId: machine.id, direction: .p2m))
         opener = Opener(key: keys.m2p, aad: aad(machineId: machine.id, direction: .m2p))
@@ -100,6 +104,7 @@ final class Connection {
         info = OfflineCache.load(machine.id, "machine", as: WireMachine.self)
         tree = OfflineCache.load(machine.id, "tree", as: [WireGroup].self) ?? []
         chats = OfflineCache.load(machine.id, "chats", as: [WireChat].self)?.map { var c = $0; c.live = false; return c } ?? []
+        unread.note(chats)
     }
 
     private var transcriptSaves: [String: Task<Void, Never>] = [:]
@@ -194,6 +199,7 @@ final class Connection {
             info = machineInfo
             self.tree = tree
             self.chats = chats
+            unread.note(chats)
             OfflineCache.save(machine.id, "machine", machineInfo)
             OfflineCache.save(machine.id, "tree", tree)
             OfflineCache.save(machine.id, "chats", chats)
@@ -244,6 +250,7 @@ final class Connection {
             openFileRequest = OpenFileRequest(workspaceId: workspaceId, path: path, chatId: chatId)
         case .chats(let list):
             chats = list
+            unread.note(list)
             OfflineCache.save(machine.id, "chats", list)
             onChatsChanged?()
         case let .res(id, result):

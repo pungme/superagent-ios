@@ -374,6 +374,7 @@ struct SidebarView: View {
                     if chat.live { ProgressView().controlSize(.mini) }
                     Text(chat.title ?? "New chat").lineLimit(1)
                     Spacer()
+                    UnreadDot(on: connection.unread.isUnread(chat))
                 }
                 .contentShape(Rectangle())
             }
@@ -427,6 +428,9 @@ struct SidebarView: View {
                         .padding(.horizontal, 7).padding(.vertical, 1)
                         .background(Theme.hover, in: Capsule()).lineLimit(1)
                 }
+                // Shown on the project too: a project you have not expanded is
+                // exactly where an unread reply would otherwise sit unseen.
+                UnreadDot(on: connection.unread.any(in: chats))
             }
             .frame(minHeight: 40)
             .contentShape(Rectangle())
@@ -647,6 +651,19 @@ struct SidebarView: View {
 }
 
 /// Files / Todo / Routines behind a project, pushed from its bar.
+/// Something happened here that you have not read. The Mac draws the same dot,
+/// in the same place, for the same reason.
+struct UnreadDot: View {
+    let on: Bool
+    var body: some View {
+        Circle()
+            .fill(Theme.accent)
+            .frame(width: 7, height: 7)
+            .opacity(on ? 1 : 0)
+            .accessibilityLabel(on ? "Unread" : "")
+    }
+}
+
 struct WorkspacePanel: Hashable {
     enum Kind: Hashable { case files, board, routines, chats }
     let kind: Kind

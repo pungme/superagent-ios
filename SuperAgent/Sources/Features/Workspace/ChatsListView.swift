@@ -32,6 +32,7 @@ struct ChatsListView: View {
                         .foregroundStyle(Theme.textPrimary)
                         .lineLimit(1)
                     if chat.live { ProgressView().controlSize(.mini) }
+                    UnreadDot(on: connection.unread.isUnread(chat))
                     Spacer()
                     Text(Date(timeIntervalSince1970: chat.updatedAt / 1000), format: .relative(presentation: .named))
                         .superFont(11)

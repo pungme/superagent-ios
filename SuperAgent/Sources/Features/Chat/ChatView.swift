@@ -223,7 +223,10 @@ struct ChatView: View {
 
     private func events(_ view: some View) -> some View {
         view
-            .onAppear { connection.subscribe(chatId: chat.id); rebuild(); loadPageHidden() }
+            .onAppear { connection.subscribe(chatId: chat.id); rebuild(); loadPageHidden(); markRead() }
+            // Being in a conversation is reading it, so the mark keeps pace
+            // with what arrives rather than stopping where you came in.
+            .onChange(of: connection.chats.first(where: { $0.id == chat.id })?.updatedAt) { _, _ in markRead() }
             .onChange(of: transcript.lastSeq) { _, _ in rebuild() }
             .onChange(of: transcript.events.count) { _, _ in rebuild() }
             .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
@@ -449,6 +452,12 @@ struct ChatView: View {
         // how opening a conversation drops you into the middle of it. Say where
         // to go on every batch instead of hoping the anchor knows.
         if following { scrollToEnd(animated: false) }
+    }
+
+    /// Read up to whatever has landed. The chat this view was handed is a
+    /// snapshot from the list; the live row carries the newer timestamp.
+    private func markRead() {
+        if let c = connection.chats.first(where: { $0.id == chat.id }) { connection.unread.markSeen(c) }
     }
 
     private func send(text: String) {
