@@ -235,6 +235,16 @@ struct WireChat: Codable, Hashable, Sendable, Identifiable {
     var updatedAt: Double
     var live: Bool
     var preview: String?
+    /// Which copy of the project this chat is in: "" for the project folder
+    /// itself, otherwise the worktree's path. nil from a Mac too old to say,
+    /// which is the only reason opening a project has a guess in it at all.
+    var cwd: String?
+    /// Waiting for its first message to cut its branch. It has no cwd yet,
+    /// exactly like the folder's own chat, so this is what tells them apart.
+    var pending: Bool?
+    /// The conversation in the project folder — what the project row opens.
+    /// The same test the Mac's sidebar makes: in the folder, and staying there.
+    var isFolderChat: Bool { cwd == "" && pending != true }
 }
 
 struct WireMachine: Codable, Hashable, Sendable {

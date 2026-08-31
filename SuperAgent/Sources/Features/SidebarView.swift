@@ -567,21 +567,26 @@ struct SidebarView: View {
     /// yet. A conversation appears when you tap "+ New chat" and at no other
     /// time.
     private func openProject(_ ws: WireWorkspace) async throws {
-        // Ask now rather than reading the cached list: that one is only kept
-        // for projects with more than one copy, so a project with no branches
-        // yet had nothing to look in and fell through to whichever chat was
-        // touched last.
+        let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
+        // The Mac says which copy of the project each chat is in, so this is
+        // the same test the desktop makes on the project row: the chat whose
+        // copy IS the folder. A chat on a branch has its own row underneath.
+        if chats.contains(where: { $0.cwd != nil }) {
+            if let root = chats.first(where: { $0.isFolderChat }) { path.append(root); return }
+            path.append(WorkspacePanel(kind: .chats, workspace: ws))
+            return
+        }
+        // A Mac too old to say. Ask which chat sits on the main worktree, and
+        // failing that open the most recent one here — a guess, but never a
+        // new conversation.
         let rows = ws.isBrowser || ws.isComputer
             ? []
             : ((try? await connection.worktrees(workspaceId: ws.id)) ?? [])
         if let id = rows.first(where: { $0.main })?.chatId,
-           let root = connection.chats.first(where: { $0.id == id }) {
+           let root = chats.first(where: { $0.id == id }) {
             path.append(root)
             return
         }
-        // No worktrees to ask (a plain folder, a browser tab), or an older Mac
-        // that cannot say which chat is the folder's: the most recent one here.
-        let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
         if let c = chats.first { path.append(c); return }
         // Nothing to open. Show the list, which is where "+ New chat" is.
         // Opening a project must never make a conversation by itself — a chat
