@@ -23,6 +23,11 @@ struct ChatView: View {
     @State private var attachments: [Attachment] = []
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var dictation = Dictation()
+    /// The dictated text that has already been dealt with. Speech results are
+    /// asynchronous, and the last one — often the final, tidied-up version —
+    /// lands AFTER you have tapped send. That put the message you just sent
+    /// straight back into the composer, under its own bubble.
+    @State private var dictationEcho = ""
     /// Whether the transcript is showing its end, read from the scroll
     /// geometry rather than from a sentinel view appearing and disappearing.
     @State private var atBottom = true
@@ -95,7 +100,7 @@ struct ChatView: View {
             // and nothing says the conversation still has one.
             if simAttached, !simShown, !pageShown {
                 Button {
-                    simHidden = false
+                    setSimHidden(false)
                     composerFocused = false
                 } label: {
                     HStack(spacing: 8) {
@@ -136,7 +141,7 @@ struct ChatView: View {
             if simShown {
                 SimulatorMirror(connection: connection, chat: chat,
                                 onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
-                                onHide: { withAnimation(.easeOut(duration: 0.2)) { simHidden = true } },
+                                onHide: { withAnimation(.easeOut(duration: 0.2)) { setSimHidden(true) } },
                                 paused: composerFocused)
                     .frame(height: pageHeight)
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -223,7 +228,7 @@ struct ChatView: View {
 
     private func events(_ view: some View) -> some View {
         view
-            .onAppear { connection.subscribe(chatId: chat.id); rebuild(); loadPageHidden(); markRead() }
+            .onAppear { connection.subscribe(chatId: chat.id); rebuild(); loadHidden(); markRead() }
             // Being in a conversation is reading it, so the mark keeps pace
             // with what arrives rather than stopping where you came in.
             .onChange(of: connection.chats.first(where: { $0.id == chat.id })?.updatedAt) { _, _ in markRead() }
@@ -232,7 +237,11 @@ struct ChatView: View {
             .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
             .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
             .onChange(of: pickerItems) { _, items in loadPicked(items) }
-            .onChange(of: dictation.transcript) { _, t in if !t.isEmpty { draft = t } }
+            .onChange(of: dictation.transcript) { _, t in
+                if !t.isEmpty, t != dictationEcho { draft = t }
+            }
+            // A new dictation is not an echo of the last one, even word for word.
+            .onChange(of: dictation.listening) { _, on in if on { dictationEcho = "" } }
             // The agent called `open_file`. Show it, as the Mac just did — but
             // only while this chat is the one on screen, so a file asked for by
             // a conversation you have left does not open over the one you moved
@@ -465,6 +474,11 @@ struct ChatView: View {
         guard !text.isEmpty || !attachments.isEmpty else { return }
         let perImage = Attachment.messageBudget / max(1, attachments.count)
         let images = attachments.map { (mediaType: "image/jpeg", data: $0.jpeg(maxBytes: perImage)) }
+        // Sending ends the dictation that wrote it. Left running, the recogniser
+        // goes on delivering results — including the final one, after the send —
+        // and each of those was written straight back into the composer.
+        if dictation.listening { dictation.stop() }
+        dictationEcho = dictation.transcript
         withAnimation(.easeOut(duration: 0.2)) {
             draft = ""
             attachments = []
@@ -505,10 +519,21 @@ struct ChatView: View {
         return max(160, min(wanted, allowed))
     }
 
+    /// Putting a mirror away is a decision about this conversation, not about
+    /// this visit to it — and an expensive one to forget: a mirror you did not
+    /// want back is a picture a second crossing the relay. Both kinds are kept
+    /// per chat, so leaving and coming back finds them where you left them.
     private static func hiddenKey(_ chatId: String) -> String { "pageHidden:" + chatId }
+    private static func simHiddenKey(_ chatId: String) -> String { "simHidden:" + chatId }
 
-    private func loadPageHidden() {
+    private func loadHidden() {
         pageHidden = UserDefaults.standard.bool(forKey: Self.hiddenKey(chat.id))
+        simHidden = UserDefaults.standard.bool(forKey: Self.simHiddenKey(chat.id))
+    }
+
+    private func setSimHidden(_ hidden: Bool) {
+        simHidden = hidden
+        UserDefaults.standard.set(hidden, forKey: Self.simHiddenKey(chat.id))
     }
 
     private func setPageHidden(_ hidden: Bool) {
