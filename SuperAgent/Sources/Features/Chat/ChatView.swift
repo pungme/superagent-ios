@@ -60,6 +60,15 @@ struct ChatView: View {
     @State private var simHidden = false
     @State private var pageFraction: CGFloat = 0.46
     @State private var dragStart: CGFloat?
+    /// How far the divider has been dragged, while it is being dragged.
+    ///
+    /// The split itself is only written on release. Writing it on every frame
+    /// re-laid out the transcript each time — and the transcript is a non-lazy
+    /// stack of every message in the conversation, because that is what stopped
+    /// it blanking. Re-measuring and re-wrapping all of it sixty times a second
+    /// is the jank. The divider follows your finger; the panes settle when you
+    /// let go.
+    @State private var dragBy: CGFloat = 0
     @State private var containerHeight: CGFloat = 600
     @State private var containerWidth: CGFloat = 0
     @Environment(\.horizontalSizeClass) private var width
@@ -99,10 +108,13 @@ struct ChatView: View {
             // what the Mac does. On a phone there is no room, so it docks above
             // and the keyboard takes it back.
             if wide, simShown || pageShown {
+                // The thing being built sits between the sidebar and the
+                // conversation, as it does on the Mac: what you are looking at
+                // in the middle, what you say about it down the right.
                 HStack(spacing: 0) {
-                    conversation
-                    sideDivider
                     mirror.frame(width: paneWidth)
+                    sideDivider
+                    conversation
                 }
             } else {
                 if simShown {
@@ -469,16 +481,22 @@ struct ChatView: View {
             .overlay { Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 4, height: 36) }
             .frame(width: 18).contentShape(Rectangle())
             .background(Theme.panel)
+            .offset(x: dragBy)
             .gesture(
                 DragGesture()
                     .onChanged { v in
-                        let start = dragStart ?? pageFraction
-                        dragStart = start
-                        pageResized = true
-                        // Dragging left gives the mirror more, so the sign flips.
-                        pageFraction = min(0.72, max(0.2, start - v.translation.width / max(1, containerWidth)))
+                        if dragStart == nil { dragStart = pageFraction }
+                        dragBy = v.translation.width
                     }
-                    .onEnded { _ in dragStart = nil }
+                    .onEnded { v in
+                        let start = dragStart ?? pageFraction
+                        pageResized = true
+                        // The mirror is on the left, so dragging right makes it
+                        // bigger.
+                        pageFraction = min(0.72, max(0.2, start + v.translation.width / max(1, containerWidth)))
+                        dragStart = nil
+                        dragBy = 0
+                    }
             )
     }
 
@@ -487,15 +505,20 @@ struct ChatView: View {
             .overlay { Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 36, height: 4) }
             .frame(height: 18).contentShape(Rectangle())
             .background(Theme.panel)
+            .offset(y: dragBy)
             .gesture(
                 DragGesture()
                     .onChanged { v in
+                        if dragStart == nil { dragStart = pageFraction }
+                        dragBy = v.translation.height
+                    }
+                    .onEnded { v in
                         let start = dragStart ?? pageFraction
-                        dragStart = start
                         pageResized = true
                         pageFraction = min(0.72, max(0.2, start + v.translation.height / max(1, containerHeight)))
+                        dragStart = nil
+                        dragBy = 0
                     }
-                    .onEnded { _ in dragStart = nil }
             )
     }
 
@@ -557,7 +580,9 @@ struct ChatView: View {
     /// The mirror's share of the width, held between a fifth and two thirds so
     /// neither column becomes a stripe.
     private var paneWidth: CGFloat {
-        max(280, min(containerWidth * pageFraction, containerWidth - 380))
+        // Never so wide that the conversation becomes a column of one-word
+        // lines, and never so narrow that the page is a strip.
+        max(320, min(containerWidth * pageFraction, containerWidth - 380))
     }
 
     private var pageHeight: CGFloat {

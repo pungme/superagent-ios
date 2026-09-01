@@ -11,6 +11,13 @@ struct SidebarView: View {
 
     let connection: Connection
     @Binding var path: NavigationPath
+    /// How a conversation is shown. One column pushes it; two columns put it in
+    /// the other column and leave this one alone — which is the difference
+    /// between a sidebar and a stack, and why this is the caller's business.
+    var open: (WireChat) -> Void
+    /// The conversation on screen, so the row for it can say so. nil in one
+    /// column, where the sidebar is not visible next to what it opened.
+    var openId: String?
     @Environment(AppState.self) private var app
 
     @State private var routines: [WireRoutine] = []
@@ -341,7 +348,7 @@ struct SidebarView: View {
         let chat = wt.chatId.flatMap { id in connection.chats.first { $0.id == id } }
         TreeRow {
             Button {
-                if let chat { path.append(chat) }
+                if let chat { open(chat) }
             } label: {
                 HStack(spacing: 7) {
                     if chat?.live == true { ProgressView().controlSize(.mini) }
@@ -419,7 +426,7 @@ struct SidebarView: View {
     /// project), what was last said, when, and whether you have read it.
     @ViewBuilder
     private func activityRow(_ chat: WireChat, project: String?) -> some View {
-        Button { path.append(chat) } label: {
+        Button { open(chat) } label: {
             HStack(alignment: .top, spacing: 8) {
                 UnreadDot(on: connection.unread.isUnread(chat)).padding(.top, 5)
                 VStack(alignment: .leading, spacing: 3) {
@@ -444,7 +451,9 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowBackground(Theme.card)
+        // The row for the conversation on screen says so — with the sidebar
+        // beside it, "which one am I in" is otherwise unanswerable.
+        .listRowBackground(chat.id == openId ? Theme.hover : Theme.card)
         .contextMenu {
             Button(role: .destructive) {
                 Task { await run { try await connection.deleteChat(chatId: chat.id) } }
@@ -457,10 +466,12 @@ struct SidebarView: View {
     @ViewBuilder
     private func chatTreeRow(_ chat: WireChat) -> some View {
         TreeRow {
-            Button { path.append(chat) } label: {
+            Button { open(chat) } label: {
                 HStack(spacing: 7) {
                     if chat.live { ProgressView().controlSize(.mini) }
-                    Text(chat.title ?? "New chat").lineLimit(1)
+                    Text(chat.title ?? "New chat")
+                        .fontWeight(chat.id == openId ? .semibold : .regular)
+                        .lineLimit(1)
                     Spacer()
                     UnreadDot(on: connection.unread.isUnread(chat))
                 }
@@ -524,7 +535,7 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowBackground(Theme.card)
+        .listRowBackground(chats.contains { $0.id == openId } ? Theme.hover : Theme.card)
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 12))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { removing = ws } label: { Label("Remove", systemImage: "xmark") }
@@ -670,7 +681,7 @@ struct SidebarView: View {
         // the same test the desktop makes on the project row: the chat whose
         // copy IS the folder. A chat on a branch has its own row underneath.
         if chats.contains(where: { $0.cwd != nil }) {
-            if let root = chats.first(where: { $0.isFolderChat }) { path.append(root); return }
+            if let root = chats.first(where: { $0.isFolderChat }) { open(root); return }
             path.append(WorkspacePanel(kind: .chats, workspace: ws))
             return
         }
@@ -680,10 +691,10 @@ struct SidebarView: View {
         // new one, and never a wait.
         if let id = worktrees[ws.id]?.first(where: { $0.main })?.chatId,
            let root = chats.first(where: { $0.id == id }) {
-            path.append(root)
+            open(root)
             return
         }
-        if let c = chats.first { path.append(c); return }
+        if let c = chats.first { open(c); return }
         // Nothing to open. Show the list, which is where "+ New chat" is.
         // Opening a project must never make a conversation by itself — a chat
         // appears when you ask for one, and nowhere else.
@@ -700,11 +711,11 @@ struct SidebarView: View {
                 // of the button — so this one makes it. Opening an existing
                 // project never does.
                 if let c = connection.chats.first(where: { $0.workspaceId == ws.id }) {
-                    path.append(c)
+                    open(c)
                     return
                 }
                 let chatId = try await connection.createChat(workspaceId: ws.id, root: true)
-                if let c = connection.chats.first(where: { $0.id == chatId }) { path.append(c) }
+                if let c = connection.chats.first(where: { $0.id == chatId }) { open(c) }
             }
         }
     }

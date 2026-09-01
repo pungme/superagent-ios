@@ -15,6 +15,14 @@ struct RootView: View {
     /// with the room to do the same, do the same.
     @Environment(\.horizontalSizeClass) private var width
     @State private var columns = NavigationSplitViewVisibility.all
+    /// The conversation the second column is showing.
+    ///
+    /// Two columns select; they do not push. Appending to the detail stack put
+    /// a second copy of the conversation on top of the first every time you
+    /// tapped its project, gave it a Back button that went to an empty pane,
+    /// and left the sidebar unable to say which one you were in — a sidebar you
+    /// can see is a selection, not a history.
+    @State private var shown: WireChat?
 
     var body: some View {
         Group {
@@ -48,8 +56,11 @@ extension RootView {
     @ViewBuilder
     private func stack(_ c: Connection) -> some View {
         NavigationStack(path: $path) {
-            destinations(SidebarView(connection: c, path: $path), c)
-                .toolbar { settingsButton }
+            destinations(
+                SidebarView(connection: c, path: $path, open: { path.append($0) }, openId: nil),
+                c
+            )
+            .toolbar { settingsButton }
         }
     }
 
@@ -59,15 +70,42 @@ extension RootView {
     @ViewBuilder
     private func split(_ c: Connection) -> some View {
         NavigationSplitView(columnVisibility: $columns) {
-            SidebarView(connection: c, path: $path)
-                .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
-                .toolbar { settingsButton }
+            SidebarView(
+                connection: c,
+                path: $path,
+                // Selecting, not pushing: the conversation becomes the second
+                // column's root, and anything already stacked on it goes.
+                open: { chat in
+                    path = NavigationPath()
+                    shown = chat
+                },
+                openId: shown?.id
+            )
+            .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
+            .toolbar { settingsButton }
         } detail: {
             NavigationStack(path: $path) {
-                destinations(nothingOpen, c)
+                destinations(detail(c), c)
             }
         }
         .navigationSplitViewStyle(.balanced)
+    }
+
+    /// The second column: the conversation you picked, at the root of its own
+    /// stack — so Files, the board and a file open on top of it with a Back
+    /// that returns to the conversation, and the conversation itself has no
+    /// Back at all, because there is nothing behind it.
+    @ViewBuilder
+    private func detail(_ c: Connection) -> some View {
+        if let chat = shown {
+            ChatView(push: { path.append($0) },
+                     connection: c, chat: chat, workspace: workspace(c, for: chat))
+                // A different conversation is a different screen, not the same
+                // one with new contents.
+                .id(chat.id)
+        } else {
+            nothingOpen
+        }
     }
 
     /// The right-hand column with nothing in it yet. The Mac shows an empty
@@ -133,7 +171,7 @@ extension RootView {
         let c = app.connection(for: machine)
         guard let chat = c.chats.first(where: { $0.id == chatId }) else { return }
         path = NavigationPath()
-        path.append(chat)
+        if width == .regular { shown = chat } else { path.append(chat) }
         app.openChatId = nil
     }
 }

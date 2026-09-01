@@ -76,14 +76,29 @@ targets:
         BUNDLE_LOADER: "$(TEST_HOST)"
     dependencies:
       - target: SuperAgent
+  # Taps. The unit tests cover rules; this covers the app answering a finger —
+  # which is the only way to check the split layout, since a simulator's touch
+  # injection is not reliably available from outside the process.
+  SuperAgentUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - SuperAgentUITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: SuperAgent
+    dependencies:
+      - target: SuperAgent
 schemes:
   SuperAgent:
     build:
       targets:
         SuperAgent: all
         SuperAgentTests: [test]
+        SuperAgentUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
-      targets: [SuperAgentTests]
+      targets: [SuperAgentTests, SuperAgentUITests]
