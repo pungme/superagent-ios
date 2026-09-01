@@ -148,7 +148,12 @@ struct SidebarView: View {
         }
         .sheet(item: $addingTo) { group in
             FolderPickerView(connection: connection) { dir in
-                Task { await run { _ = try await connection.addWorkspace(groupId: group.id, name: dir.name, path: dir.path) } }
+                Task {
+                    await run {
+                        let id = try await connection.addWorkspace(groupId: group.id, name: dir.name, path: dir.path)
+                        try await startFirstChat(in: id)
+                    }
+                }
             }
         }
         .alert("Rename group", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
@@ -701,6 +706,24 @@ struct SidebarView: View {
         path.append(WorkspacePanel(kind: .chats, workspace: ws))
     }
 
+    /// The conversation a project you just added opens with.
+    ///
+    /// Opening a project you already have never makes one — looking at
+    /// something should not leave a chat behind. But ADDING one is not looking,
+    /// it is asking to work on it, and landing on an empty list with a
+    /// "+ New chat" to press is a step nobody wanted.
+    private func startFirstChat(in workspaceId: String) async throws {
+        guard let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == workspaceId })
+        else { return }
+        if let existing = connection.chats.first(where: { $0.workspaceId == workspaceId }) {
+            open(existing)
+            return
+        }
+        let chatId = try await connection.createChat(workspaceId: workspaceId, root: true)
+        if let c = connection.chats.first(where: { $0.id == chatId }) { open(c) }
+        else { openProject(ws) }
+    }
+
     /// newTab(): a browser project in the tabs group, opened at once.
     private func newTab() {
         Task {
@@ -728,7 +751,7 @@ struct SidebarView: View {
         Task {
             await run {
                 let id = try await connection.addWorkspace(groupId: groupId, name: repo.name, path: repo.path)
-                if let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == id }) { openProject(ws) }
+                try await startFirstChat(in: id)
             }
         }
     }
