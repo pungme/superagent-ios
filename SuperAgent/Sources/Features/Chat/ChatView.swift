@@ -30,6 +30,8 @@ struct ChatView: View {
     /// True once a send has consumed what dictation produced. Cleared when a
     /// new dictation starts; see the transcript observer.
     @State private var dictationSpent = false
+    /// The message the next send answers, WhatsApp-style. Nil for a plain send.
+    @State private var replyTarget: ReplyQuote?
     /// Whether the transcript is showing its end, read from the scroll
     /// geometry rather than from a sentinel view appearing and disappearing.
     @State private var atBottom = true
@@ -229,7 +231,8 @@ struct ChatView: View {
                 }
                 ForEach(turns) { turn in
                     TurnView(connection: connection, turn: turn, pendingApprovals: pendingApprovals,
-                             answer: answer, choose: { send(text: $0, fromComposer: false) })
+                             answer: answer, choose: { send(text: $0, fromComposer: false) },
+                             reply: beginReply)
                 }
                 ForEach(transcript.outbox) { msg in
                     OutgoingRow(message: msg,
@@ -350,6 +353,18 @@ struct ChatView: View {
     }
 
     private var composer: some View {
+        VStack(spacing: 0) {
+            if let replyTarget {
+                ReplyBar(quote: replyTarget) {
+                    withAnimation(.easeOut(duration: 0.18)) { self.replyTarget = nil }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            composerBar
+        }
+    }
+
+    private var composerBar: some View {
         Composer(
             draft: $draft, attachments: $attachments, pickerItems: $pickerItems,
             dictation: dictation, connected: connection.state == .connected,
@@ -561,6 +576,14 @@ struct ChatView: View {
     /// on its way out — so a half-written message was thrown away by answering a
     /// question. A choice takes nothing with it: not your draft, not the
     /// pictures you had attached.
+    /// Hold a message, tap Reply: the quote sits above the composer until the
+    /// next message goes, or until you dismiss it.
+    private func beginReply(_ quote: ReplyQuote) {
+        withAnimation(.easeOut(duration: 0.18)) { replyTarget = quote }
+        composerFocused = true
+        Haptics.tap()
+    }
+
     private func send(text: String, fromComposer: Bool = true) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || (fromComposer && !attachments.isEmpty) else { return }
@@ -580,13 +603,17 @@ struct ChatView: View {
                 attachments = []
                 saveDraft()
             }
+            // The quote belongs to the message it went with, not to the next one.
+            let quote = fromComposer ? replyTarget : nil
+            if fromComposer { replyTarget = nil }
             // The pickers here are Claude Code's. A conversation on Codex takes
             // neither, and sending them stops it starting at all — so it goes
             // with the Mac's own settings instead.
             let onCodex = connection.chats.first(where: { $0.id == chat.id })?.isCodex ?? false
             connection.sendMessage(chatId: chat.id, text: text, images: images,
                                    model: onCodex || app.preferredModel.isEmpty ? nil : app.preferredModel,
-                                   mode: onCodex ? nil : app.preferredMode)
+                                   mode: onCodex ? nil : app.preferredMode,
+                                   replyTo: quote)
         }
         Haptics.tap()
     }

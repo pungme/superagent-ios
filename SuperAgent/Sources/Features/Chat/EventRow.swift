@@ -10,13 +10,15 @@ struct TurnView: View {
     let pendingApprovals: Set<String>
     let answer: (String, Bool) -> Void
     let choose: (String) -> Void
+    /// Hold a message to answer that one specifically.
+    let reply: (ReplyQuote) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(turn.items) { item in
                 switch item {
                 case .event(let e):
-                    EventRow(connection: connection, event: e, pending: pendingApprovals.contains(approvalId(e) ?? ""), answer: answer, choose: choose)
+                    EventRow(connection: connection, event: e, pending: pendingApprovals.contains(approvalId(e) ?? ""), answer: answer, choose: choose, reply: reply)
                 case .steps(let g):
                     StepGroupRow(group: g)
                 }
@@ -200,13 +202,17 @@ struct EventRow: View {
     let pending: Bool
     let answer: (String, Bool) -> Void
     let choose: (String) -> Void
+    let reply: (ReplyQuote) -> Void
 
     var body: some View {
         switch event.data {
-        case let .user(_, text, images, from):
+        case let .user(_, text, images, from, replyTo):
             HStack {
                 Spacer(minLength: 48)
                 VStack(alignment: .trailing, spacing: 6) {
+                    // The quote sits above the message that answers it, the way
+                    // every messaging app puts it.
+                    if let replyTo { ReplyQuoteChip(quote: replyTo) }
                     // What you sent, above what you said about it — the order
                     // they were picked in, and the order the agent got them.
                     SentImagesRow(connection: connection, messageId: event.id, count: images.count)
@@ -217,6 +223,11 @@ struct EventRow: View {
                             .padding(.horizontal, 14).padding(.vertical, 9)
                             .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
                             .textSelection(.enabled)
+                            .contextMenu {
+                                Button { reply(ReplyQuote(role: .user, text: text)) } label: {
+                                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                                }
+                            }
                     }
                     if from == .ios {
                         Text("from this phone")
@@ -227,7 +238,14 @@ struct EventRow: View {
         case let .assistant(_, text):
             let (body, choices) = MarkdownParser.extractChoices(text)
             VStack(alignment: .leading, spacing: 8) {
-                if !body.isEmpty { AssistantBubble(text: body, streaming: false) }
+                if !body.isEmpty {
+                    AssistantBubble(text: body, streaming: false)
+                        .contextMenu {
+                            Button { reply(ReplyQuote(role: .assistant, text: body)) } label: {
+                                Label("Reply", systemImage: "arrowshape.turn.up.left")
+                            }
+                        }
+                }
                 if let choices { ChoicesView(choices: choices, choose: choose) }
             }
         case let .file(_, path, name, workspaceId, size, mediaType):
@@ -376,6 +394,9 @@ struct OutgoingRow: View {
         HStack {
             Spacer(minLength: 48)
             VStack(alignment: .trailing, spacing: 6) {
+                // The quote too, so a reply looks the same in flight as it will
+                // once the Mac echoes it back.
+                if let replyTo = message.replyTo { ReplyQuoteChip(quote: replyTo) }
                 // In flight, the pictures are still in hand — no need to go to
                 // disk for them, and no wait before they appear.
                 if !message.images.isEmpty {
@@ -439,6 +460,77 @@ struct OutgoingRow: View {
 /// place you are always looking. A status belongs where you can see it and not
 /// where you are reading — so it sits above the composer, over the last
 /// message, small enough to ignore and close enough to act on.
+/// What you are about to answer, above the composer.
+///
+/// The same quote the sent message will carry, shown before it goes so you can
+/// see what you picked and change your mind. Dismissing it here is the only way
+/// out other than sending.
+struct ReplyBar: View {
+    let quote: ReplyQuote
+    let cancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .superFont(12).foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(quote.role == .user ? "Replying to you" : "Replying to the agent")
+                    .superFont(11, weight: .semibold)
+                    .foregroundStyle(Theme.accent)
+                Text(quote.text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines))
+                    .superFont(12.5)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button(action: cancel) {
+                Image(systemName: "xmark")
+                    .superFont(12, weight: .semibold)
+                    .foregroundStyle(Theme.textTertiary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Cancel reply")
+        }
+        .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 6)
+        .background(Theme.panel)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.border).frame(height: 0.5) }
+    }
+}
+
+/// The message a reply answers, drawn above it.
+///
+/// One line, clipped: it is a pointer back to something already on screen, not
+/// a second copy of it. The bar down the leading edge is what makes it read as
+/// a quote rather than as another message.
+struct ReplyQuoteChip: View {
+    let quote: ReplyQuote
+
+    var body: some View {
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                .fill(Theme.accent)
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(quote.role == .user ? "You" : "Agent")
+                    .superFont(11, weight: .semibold)
+                    .foregroundStyle(Theme.accent)
+                Text(quote.text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines))
+                    .superFont(12.5)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 8).padding(.trailing, 10).padding(.vertical, 6)
+        .frame(maxWidth: 280, alignment: .leading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
 struct ConnectionFloat: View {
     let connection: Connection
 

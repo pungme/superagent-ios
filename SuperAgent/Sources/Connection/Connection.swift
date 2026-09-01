@@ -20,7 +20,7 @@ struct Transcript: Sendable {
         lastSeq = e.seq
         switch e.data {
         case .assistant, .turnEnd, .notice: streaming = ""
-        case .user(let id, _, _, _): outbox.removeAll { $0.id == id }
+        case .user(let id, _, _, _, _): outbox.removeAll { $0.id == id }
         default: break
         }
         return true
@@ -40,6 +40,10 @@ struct Outgoing: Identifiable, Hashable, Sendable {
     let ts: Double
     let model: String?
     let mode: String?
+    /// The message this one answers. Kept on the outgoing copy so the bubble
+    /// shows the quote while it is still in the outbox, before the Mac echoes
+    /// it back with the same quote on the event.
+    let replyTo: ReplyQuote?
     var status: Status = .queued
 }
 
@@ -340,10 +344,11 @@ final class Connection {
     /// Queue a message for the Mac. Returns at once; the bubble appears in the
     /// transcript's outbox and is delivered now or as soon as the link is back.
     func sendMessage(chatId: String, text: String, images: [(mediaType: String, data: Data)] = [],
-                     model: String? = nil, mode: String? = nil) {
+                     model: String? = nil, mode: String? = nil, replyTo: ReplyQuote? = nil) {
         let msg = Outgoing(id: "L-" + UUID().uuidString.prefix(8), chatId: chatId, text: text,
                            images: images.map { Outgoing.Image(mediaType: $0.mediaType, data: $0.data) },
-                           ts: Date().timeIntervalSince1970 * 1000, model: model, mode: mode)
+                           ts: Date().timeIntervalSince1970 * 1000, model: model, mode: mode,
+                           replyTo: replyTo)
         // The bytes go to the agent and not into the log. Keep a thumbnail here
         // so the message can show what you sent, now and after the round trip.
         SentImages.keep(messageId: msg.id, images: images.map(\.data))
@@ -379,6 +384,11 @@ final class Connection {
         ]
         if let m = msg.model { params["model"] = .string(m) }
         if let m = msg.mode { params["permissionMode"] = .string(m) }
+        // The Mac builds the blockquote the agent reads from this; what we send
+        // as `text` stays exactly what was typed.
+        if let r = msg.replyTo {
+            params["replyTo"] = .object(["role": .string(r.role.rawValue), "text": .string(r.text)])
+        }
         if !msg.images.isEmpty {
             params["images"] = .array(msg.images.map { .object(["mediaType": .string($0.mediaType), "data": .string($0.data.base64EncodedString())]) })
         }
@@ -730,7 +740,7 @@ extension Connection {
         for (mine, text) in lines {
             seq += 1
             t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at,
-                                      data: mine ? .user(id: "u\(seq)", text: text, images: [], from: .ios)
+                                      data: mine ? .user(id: "u\(seq)", text: text, images: [], from: .ios, replyTo: nil)
                                                  : .assistant(id: "a\(seq)", text: text)))
         }
         t.lastSeq = seq
@@ -760,7 +770,7 @@ extension Connection {
             seq += 1
             t.events.append(WireEvent(chatId: chatId, seq: seq, ts: now,
                                       data: .user(id: "u\(i)", text: "Question \(i + 1). Does the transcript stay at the end?",
-                                                  images: [], from: .ios)))
+                                                  images: [], from: .ios, replyTo: nil)))
             seq += 1
             // Deliberately uneven heights: a LazyVStack estimating uniform rows
             // is exactly what made the old scrollTo land on blank space.

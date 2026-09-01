@@ -20,8 +20,20 @@ struct ImageMeta: Codable, Hashable, Sendable {
 enum ApprovalOutcome: String, Codable, Sendable { case approved, denied, expired }
 enum Origin: String, Codable, Sendable { case desktop, ios }
 
+/// The message a reply answers, WhatsApp-style.
+///
+/// It travels beside the text, not inside it: the Mac turns it into a blockquote
+/// for the agent to read, but a device drawing the conversation wants the quote
+/// as its own thing so it can show a chip, and wants the text to be only what
+/// the person typed.
+struct ReplyQuote: Codable, Hashable, Sendable {
+    enum Role: String, Codable, Sendable { case user, assistant }
+    var role: Role
+    var text: String
+}
+
 enum WireEventData: Hashable, Sendable {
-    case user(id: String, text: String, images: [ImageMeta], from: Origin)
+    case user(id: String, text: String, images: [ImageMeta], from: Origin, replyTo: ReplyQuote?)
     case assistant(id: String, text: String)
     case thinking(id: String, text: String)
     case tool(id: String, name: String, detail: String, task: TaskInfo?)
@@ -58,7 +70,7 @@ enum WireEventData: Hashable, Sendable {
 
 extension WireEventData: Codable {
     private enum K: String, CodingKey {
-        case kind, id, text, images, from, name, detail, toolId, ok, summary, file, hunks, path, size, mediaType, workspaceId
+        case kind, id, text, images, from, name, detail, toolId, ok, summary, file, hunks, path, size, mediaType, workspaceId, replyTo
         case subtype, costUsd, tokens, claudeSessionId, model, commands, toolName, preview, approvalKind, expiresAt, outcome, by, task
     }
 
@@ -71,7 +83,8 @@ extension WireEventData: Codable {
                 id: try c.decode(String.self, forKey: .id),
                 text: try c.decodeIfPresent(String.self, forKey: .text) ?? "",
                 images: try c.decodeIfPresent([ImageMeta].self, forKey: .images) ?? [],
-                from: try c.decodeIfPresent(Origin.self, forKey: .from) ?? .desktop)
+                from: try c.decodeIfPresent(Origin.self, forKey: .from) ?? .desktop,
+                replyTo: try c.decodeIfPresent(ReplyQuote.self, forKey: .replyTo))
         case "assistant":
             self = .assistant(id: try c.decode(String.self, forKey: .id), text: try c.decode(String.self, forKey: .text))
         case "thinking":
@@ -136,10 +149,11 @@ extension WireEventData: Codable {
         var c = encoder.container(keyedBy: K.self)
         try c.encode(kind, forKey: .kind)
         switch self {
-        case let .user(id, text, images, from):
+        case let .user(id, text, images, from, replyTo):
             try c.encode(id, forKey: .id); try c.encode(text, forKey: .text)
             if !images.isEmpty { try c.encode(images, forKey: .images) }
             try c.encode(from, forKey: .from)
+            try c.encodeIfPresent(replyTo, forKey: .replyTo)
         case let .assistant(id, text), let .thinking(id, text):
             try c.encode(id, forKey: .id); try c.encode(text, forKey: .text)
         case let .tool(id, name, detail, task):
