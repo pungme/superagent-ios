@@ -230,7 +230,7 @@ struct SidebarView: View {
     private var machineSection: some View {
         Section {
             dashRow("Computer", icon: "desktopcomputer", status: computer?.status) {
-                if let c = computer { Task { await run { try await openProject(c) } } }
+                if let c = computer { openProject(c) }
             }
             dashRow("Chats", icon: "bubble.left", status: nil) {
                 if let c = computer { path.append(WorkspacePanel(kind: .chats, workspace: c)) }
@@ -504,7 +504,7 @@ struct SidebarView: View {
         let hasTree = !repos.isEmpty || extras > 0 || !mine.isEmpty
 
         // .sidebar-item: status dot, kind icon, 13.5/500 name, branch chip; 7/8 padding, radius 8.
-        Button { Task { await run { try await openProject(ws) } } } label: {
+        Button { openProject(ws) } label: {
             HStack(spacing: 8) {
                 StatusIndicator(status: ws.status).frame(width: 10)
                 ProjectGlyph(workspace: ws)
@@ -530,7 +530,7 @@ struct SidebarView: View {
             Button(role: .destructive) { removing = ws } label: { Label("Remove", systemImage: "xmark") }
         }
         .contextMenu {
-            Button { Task { await run { try await openProject(ws) } } } label: { Label("Open", systemImage: "arrow.right") }
+            Button { openProject(ws) } label: { Label("Open", systemImage: "arrow.right") }
             Button(role: .destructive) { removing = ws } label: { Label("Remove project", systemImage: "xmark") }
         }
 
@@ -658,7 +658,13 @@ struct SidebarView: View {
     /// one to open, which is every tap on a project whose chats had not arrived
     /// yet. A conversation appears when you tap "+ New chat" and at no other
     /// time.
-    private func openProject(_ ws: WireWorkspace) async throws {
+    /// Nothing in here waits on the Mac. Opening a project used to ask it which
+    /// copies of the project exist, inside `run`, which holds a lock for the
+    /// whole sidebar — so on a phone whose socket was down, one tap on a folder
+    /// swallowed every other tap for the thirty seconds it took that request to
+    /// time out. It looked exactly like the app had frozen, and on an iPad,
+    /// where the sidebar never goes away, it looked like it had frozen for good.
+    private func openProject(_ ws: WireWorkspace) {
         let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
         // The Mac says which copy of the project each chat is in, so this is
         // the same test the desktop makes on the project row: the chat whose
@@ -668,13 +674,11 @@ struct SidebarView: View {
             path.append(WorkspacePanel(kind: .chats, workspace: ws))
             return
         }
-        // A Mac too old to say. Ask which chat sits on the main worktree, and
-        // failing that open the most recent one here — a guess, but never a
-        // new conversation.
-        let rows = ws.isBrowser || ws.isComputer
-            ? []
-            : ((try? await connection.worktrees(workspaceId: ws.id)) ?? [])
-        if let id = rows.first(where: { $0.main })?.chatId,
+        // A Mac too old to say. Use the worktree list the sidebar already loaded
+        // in the background — asking for a fresh one here is what froze it — and
+        // failing that open the most recent conversation. A guess, but never a
+        // new one, and never a wait.
+        if let id = worktrees[ws.id]?.first(where: { $0.main })?.chatId,
            let root = chats.first(where: { $0.id == id }) {
             path.append(root)
             return
@@ -713,7 +717,7 @@ struct SidebarView: View {
         Task {
             await run {
                 let id = try await connection.addWorkspace(groupId: groupId, name: repo.name, path: repo.path)
-                if let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == id }) { try await openProject(ws) }
+                if let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == id }) { openProject(ws) }
             }
         }
     }
