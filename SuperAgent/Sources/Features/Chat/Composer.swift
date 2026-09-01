@@ -22,6 +22,11 @@ struct Composer: View {
     let commands: [String]
     @Binding var model: String
     @Binding var mode: String
+    /// Which agent this conversation runs on, and how to move it. Model and Mode
+    /// are Claude Code's own settings — Codex takes neither — so on a Codex
+    /// conversation they are not shown rather than shown and ignored.
+    let provider: String
+    let onProvider: (String) -> Void
     let onSend: () -> Void
     let onStop: () -> Void
 
@@ -153,6 +158,23 @@ struct Composer: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                 Menu {
+                    Button { onProvider("claude") } label: {
+                        Label { Text("Claude Code") } icon: { if provider != "codex" { Image(systemName: "checkmark") } }
+                    }
+                    Button { onProvider("codex") } label: {
+                        Label { Text("Codex") } icon: { if provider == "codex" { Image(systemName: "checkmark") } }
+                    }
+                } label: {
+                    ControlPill {
+                        HStack(spacing: 4) {
+                            Text("Agent").foregroundStyle(Theme.textTertiary)
+                            Text(provider == "codex" ? "Codex" : "Claude Code")
+                            Image(systemName: "chevron.down").superFont(9, weight: .bold)
+                        }
+                    }
+                }
+                if provider != "codex" {
+                Menu {
                     ForEach(Composer.models, id: \.id) { m in
                         Button { model = m.id } label: {
                             Label { Text(m.label); Text(m.hint) } icon: { if model == m.id { Image(systemName: "checkmark") } }
@@ -169,6 +191,7 @@ struct Composer: View {
                     }
                 } label: {
                     ControlPill { HStack(spacing: 4) { Text("Mode").foregroundStyle(Theme.textTertiary); Text(Composer.modes.first { $0.id == mode }?.label ?? "Full"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                }
                 }
                     }
                 }

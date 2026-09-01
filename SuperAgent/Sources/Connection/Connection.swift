@@ -422,6 +422,15 @@ final class Connection {
         send(.req(id: UUID().uuidString, method: "device.presence", params: .object(params)))
     }
 
+    /// Move a conversation to the other agent. The Mac drops the session id with
+    /// it — it belongs to the one being left — and hands the incoming agent a
+    /// recap, so the conversation continues rather than starting blank.
+    func setAgent(chatId: String, provider: String) async throws {
+        _ = try await rpc("chat.setAgent", .object([
+            "chatId": .string(chatId), "provider": .string(provider)
+        ]))
+    }
+
     func renameChat(chatId: String, title: String) async throws {
         _ = try await rpc("chat.rename", .object(["chatId": .string(chatId), "title": .string(title)]))
         chats = chats.map { var c = $0; if c.id == chatId { c.title = title }; return c }

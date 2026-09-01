@@ -346,6 +346,13 @@ struct ChatView: View {
             dictation: dictation, connected: connection.state == .connected,
             working: isWorking, commands: connection.commands[chat.id] ?? [],
             model: modelBinding, mode: modeBinding,
+            provider: connection.chats.first(where: { $0.id == chat.id })?.provider ?? "claude",
+            onProvider: { p in
+                Task {
+                    do { try await connection.setAgent(chatId: chat.id, provider: p); Haptics.tap() }
+                    catch { self.error = error.localizedDescription }
+                }
+            },
             onSend: { send(text: draft) },
             onStop: { Task { try? await connection.interrupt(chatId: chat.id) } },
             focused: $composerFocused)
@@ -562,9 +569,13 @@ struct ChatView: View {
                 attachments = []
                 saveDraft()
             }
+            // The pickers here are Claude Code's. A conversation on Codex takes
+            // neither, and sending them stops it starting at all — so it goes
+            // with the Mac's own settings instead.
+            let onCodex = connection.chats.first(where: { $0.id == chat.id })?.isCodex ?? false
             connection.sendMessage(chatId: chat.id, text: text, images: images,
-                                   model: app.preferredModel.isEmpty ? nil : app.preferredModel,
-                                   mode: app.preferredMode)
+                                   model: onCodex || app.preferredModel.isEmpty ? nil : app.preferredModel,
+                                   mode: onCodex ? nil : app.preferredMode)
         }
         Haptics.tap()
     }
