@@ -615,6 +615,26 @@ struct ChatView: View {
                                    mode: onCodex ? nil : app.preferredMode,
                                    replyTo: quote)
         }
+        // Clear it once more, a turn later.
+        //
+        // `draft = ""` above is the whole clear, and for a plain field it works.
+        // A field with an uncommitted autocorrect suggestion is not a plain
+        // field: UIKit still owns marked text at that moment and puts its own
+        // buffer back over the assignment, so the message goes and the words
+        // stay — which is what it does after typing a word the keyboard is still
+        // offering corrections for. By the next turn of the run loop UIKit has
+        // finished with the field and the assignment sticks.
+        //
+        // Guarded on non-empty so it can never eat something typed in between,
+        // and it costs nothing when the first clear already worked.
+        if fromComposer {
+            Task { @MainActor in
+                if !draft.isEmpty {
+                    draft = ""
+                    saveDraft()
+                }
+            }
+        }
         Haptics.tap()
     }
 
