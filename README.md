@@ -11,6 +11,9 @@ Routines, Browser, branch, New chat), the same chat (streaming Markdown, collaps
 diffs, ask-block choices, per-turn cost). What's still missing is tracked in
 [PARITY.md](PARITY.md).
 
+Three repositories: [desktop](https://github.com/pungme/superagent-desktop) ·
+**iOS** (this one) · [relay](https://github.com/pungme/superagent-relay).
+
 ## How it connects
 
 - The Mac keeps one outbound WebSocket to a relay; the phone connects to the same room by the
