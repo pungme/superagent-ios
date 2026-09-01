@@ -158,7 +158,15 @@ struct ChatView: View {
 
     private func events(_ view: some View) -> some View {
         view
-            .onAppear { connection.subscribe(chatId: chat.id); rebuild(); loadHidden(); markRead() }
+            .onAppear {
+                connection.subscribe(chatId: chat.id)
+                rebuild()
+                loadHidden()
+                loadDraft()
+                markRead()
+            }
+            .onDisappear { saveDraft() }
+            .onChange(of: draft) { _, _ in saveDraft() }
             // Being in a conversation is reading it, so the mark keeps pace
             // with what arrives rather than stopping where you came in.
             .onChange(of: connection.chats.first(where: { $0.id == chat.id })?.updatedAt) { _, _ in markRead() }
@@ -212,7 +220,7 @@ struct ChatView: View {
                 }
                 ForEach(turns) { turn in
                     TurnView(turn: turn, pendingApprovals: pendingApprovals,
-                             answer: answer, choose: { send(text: $0) })
+                             answer: answer, choose: { send(text: $0, fromComposer: false) })
                 }
                 ForEach(transcript.outbox) { msg in
                     OutgoingRow(message: msg,
@@ -408,18 +416,20 @@ struct ChatView: View {
             if pageAttached, !pageShown {
                 showBar(icon: "globe", label: pageLabel) { setPageHidden(false); composerFocused = false }
             }
-            // Pinned, not scrolled away: you need to know the Mac is gone while
-            // you're reading the latest reply, which is where you usually are.
-            // Not twice, though: with the sidebar on screen it is already
-            // saying so, a few inches to the left.
-            if connection.state != .connected, !wide {
-                ConnectionBanner(connection: connection)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(Theme.card)
-                    .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
+            // The connection lives at the BOTTOM now, floating over the last
+            // message rather than taking a band across the top of the
+            // conversation. It is a status, not an obstruction: you need to know
+            // the Mac is gone, and you need it least where you are reading. With
+            // the sidebar on screen it already says so a few inches to the left,
+            // so it is not repeated there.
             transcript(proxyless: true)
+                .overlay(alignment: .bottom) {
+                    if connection.state != .connected, !wide {
+                        ConnectionFloat(connection: connection)
+                            .padding(.bottom, 10)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
             Divider().overlay(Theme.border)
             composer
         }
@@ -528,19 +538,30 @@ struct ChatView: View {
         if let c = connection.chats.first(where: { $0.id == chat.id }) { connection.unread.markSeen(c) }
     }
 
-    private func send(text: String) {
+    /// Send something.
+    ///
+    /// `fromComposer` is what separates your message from a button: tapping one
+    /// of the agent's choices sends that choice, and used to empty the composer
+    /// on its way out — so a half-written message was thrown away by answering a
+    /// question. A choice takes nothing with it: not your draft, not the
+    /// pictures you had attached.
+    private func send(text: String, fromComposer: Bool = true) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !attachments.isEmpty else { return }
-        let perImage = Attachment.messageBudget / max(1, attachments.count)
-        let images = attachments.map { (mediaType: "image/jpeg", data: $0.jpeg(maxBytes: perImage)) }
+        guard !text.isEmpty || (fromComposer && !attachments.isEmpty) else { return }
+        let sending = fromComposer ? attachments : []
+        let perImage = Attachment.messageBudget / max(1, sending.count)
+        let images = sending.map { (mediaType: "image/jpeg", data: $0.jpeg(maxBytes: perImage)) }
         // Sending ends the dictation that wrote it. Left running, the recogniser
         // goes on delivering results — including the final one, after the send —
         // and each of those was written straight back into the composer.
-        if dictation.listening { dictation.stop() }
-        dictationEcho = dictation.transcript
+        if fromComposer, dictation.listening { dictation.stop() }
+        if fromComposer { dictationEcho = dictation.transcript }
         withAnimation(.easeOut(duration: 0.2)) {
-            draft = ""
-            attachments = []
+            if fromComposer {
+                draft = ""
+                attachments = []
+                saveDraft()
+            }
             connection.sendMessage(chatId: chat.id, text: text, images: images,
                                    model: app.preferredModel.isEmpty ? nil : app.preferredModel,
                                    mode: app.preferredMode)
@@ -601,6 +622,27 @@ struct ChatView: View {
     /// this visit to it — and an expensive one to forget: a mirror you did not
     /// want back is a picture a second crossing the relay. Both kinds are kept
     /// per chat, so leaving and coming back finds them where you left them.
+    /// What you had typed and not sent.
+    ///
+    /// A composer is not a scratchpad you expect to survive nothing. Leaving a
+    /// conversation to look something up threw away whatever was in it, which is
+    /// the kind of small loss that stops people typing anything long on a phone.
+    private static func draftKey(_ chatId: String) -> String { "draft:" + chatId }
+
+    private func loadDraft() {
+        guard draft.isEmpty else { return }
+        draft = UserDefaults.standard.string(forKey: Self.draftKey(chat.id)) ?? ""
+    }
+
+    private func saveDraft() {
+        let key = Self.draftKey(chat.id)
+        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            UserDefaults.standard.set(draft, forKey: key)
+        }
+    }
+
     private static func hiddenKey(_ chatId: String) -> String { "pageHidden:" + chatId }
     private static func simHiddenKey(_ chatId: String) -> String { "simHidden:" + chatId }
 

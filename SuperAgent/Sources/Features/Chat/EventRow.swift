@@ -429,6 +429,39 @@ struct OutgoingRow: View {
 /// an optional pattern and a `where` clause, which builds here and does not on
 /// Xcode Cloud's older toolchain — where it failed as two invented errors on
 /// unrelated lines further up this file. Nothing here needs to be clever.
+/// The connection, floating over the end of the conversation.
+///
+/// It used to be a band across the top of the chat: the same words, in the one
+/// place you are always looking. A status belongs where you can see it and not
+/// where you are reading — so it sits above the composer, over the last
+/// message, small enough to ignore and close enough to act on.
+struct ConnectionFloat: View {
+    let connection: Connection
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if connection.state == .connecting {
+                ProgressView().controlSize(.mini)
+            } else {
+                Circle().fill(Theme.needsYou).frame(width: 7, height: 7)
+            }
+            Text(ConnectionPill.label(for: connection.state))
+                .superFont(12.5, weight: .medium)
+                .foregroundStyle(Theme.textSecondary)
+            if connection.state != .connecting {
+                Button("Retry") { connection.connect() }
+                    .superFont(12.5, weight: .semibold)
+                    .tint(Theme.textPrimary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.thinMaterial, in: Capsule())
+        .overlay { Capsule().stroke(Theme.border, lineWidth: 1) }
+        .shadow(color: .black.opacity(0.10), radius: 10, y: 3)
+    }
+}
+
 /// The pictures a message was sent with.
 ///
 /// The thumbnails are this phone's own (see SentImages) — the transcript event

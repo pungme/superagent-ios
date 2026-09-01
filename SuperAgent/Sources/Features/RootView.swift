@@ -130,6 +130,13 @@ extension RootView {
             .navigationDestination(for: WireChat.self) { chat in
                 ChatView(push: { path.append($0) },
                          connection: c, chat: chat, workspace: workspace(c, for: chat))
+                    // A different conversation is a different screen. Replacing
+                    // the top of the stack with another chat — which is what
+                    // "New chat" does from inside one — reused the same view
+                    // otherwise: onAppear never ran again, so it never
+                    // subscribed to the new conversation or rebuilt its
+                    // transcript, and the button looked like it did nothing.
+                    .id(chat.id)
             }
             .navigationDestination(for: WorkspacePanel.self) { panel in
                 switch panel.kind {
