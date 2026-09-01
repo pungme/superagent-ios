@@ -2,7 +2,11 @@ name: SuperAgent
 options:
   bundleIdPrefix: dev.superagent
   deploymentTarget:
-    iOS: "18.0"
+    # 26.0 deliberately. The app is a companion to a Mac app that ships to
+    # people who update, and the whole UI is built on APIs that landed in 26 —
+    # holding a lower floor meant availability guards around things the design
+    # depends on rather than a wider audience.
+    iOS: "26.0"
   xcodeVersion: "26.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
