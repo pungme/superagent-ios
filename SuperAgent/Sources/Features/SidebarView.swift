@@ -555,6 +555,10 @@ struct SidebarView: View {
         }
         .contextMenu {
             Button { openProject(ws) } label: { Label("Open", systemImage: "arrow.right") }
+            // Starting a conversation was reachable only by opening the project
+            // and finding "+ New chat" inside it, so the menu you get by holding
+            // a project offered no way to do the main thing you hold it for.
+            Button { newChat(in: ws) } label: { Label("New chat", systemImage: "square.and.pencil") }
             Button(role: .destructive) { removing = ws } label: { Label("Remove project", systemImage: "xmark") }
         }
 
@@ -746,6 +750,20 @@ struct SidebarView: View {
                     return
                 }
                 let chatId = try await connection.createChat(workspaceId: ws.id, root: true)
+                if let c = connection.chats.first(where: { $0.id == chatId }) { open(c) }
+            }
+        }
+    }
+
+    /// A conversation on this project, opened right away.
+    ///
+    /// Not `root: true`: the project row already opens the folder's own chat, so
+    /// the thing this menu is for is a *second* conversation — which on the Mac
+    /// is one that takes its own copy of the project.
+    private func newChat(in ws: WireWorkspace) {
+        Task {
+            await run {
+                let chatId = try await connection.createChat(workspaceId: ws.id)
                 if let c = connection.chats.first(where: { $0.id == chatId }) { open(c) }
             }
         }

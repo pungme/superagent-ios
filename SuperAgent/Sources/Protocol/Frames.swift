@@ -529,6 +529,14 @@ struct WireBrowserShot: Codable, Sendable {
     var unchanged: Bool?
 }
 
+/// `chat.image`: the Mac's thumbnail for one picture on one message.
+struct WireImage: Decodable, Sendable {
+    var messageId: String
+    var index: Int
+    var mediaType: String
+    var data: String
+}
+
 /// `files.chunk`: one slice of a file's bytes, base64, indexed from 0.
 struct WireFileChunk: Decodable, Sendable {
     var path: String

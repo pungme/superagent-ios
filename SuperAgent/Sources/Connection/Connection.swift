@@ -486,6 +486,15 @@ extension Connection {
         return try await rpc("files.read", p, as: WireFileContent.self)
     }
 
+    /// The Mac's thumbnail for one picture on a message this phone did not send.
+    /// The bytes of an attachment never enter the event log, so a message from
+    /// the Mac (or one whose local cache was reclaimed) has to ask for them.
+    func chatImage(messageId: String, index: Int) async throws -> WireImage {
+        try await rpc("chat.image",
+                      .object(["messageId": .string(messageId), "index": .number(Double(index))]),
+                      as: WireImage.self)
+    }
+
     /// One slice of a file's bytes. `files.read` says how many there are.
     func readFileChunk(workspaceId: String, path: String, index: Int, chatId: String? = nil) async throws -> WireFileChunk {
         let p = fileParams(workspaceId, chatId,

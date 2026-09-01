@@ -27,7 +27,9 @@ struct ChatView: View {
     /// asynchronous, and the last one — often the final, tidied-up version —
     /// lands AFTER you have tapped send. That put the message you just sent
     /// straight back into the composer, under its own bubble.
-    @State private var dictationEcho = ""
+    /// True once a send has consumed what dictation produced. Cleared when a
+    /// new dictation starts; see the transcript observer.
+    @State private var dictationSpent = false
     /// Whether the transcript is showing its end, read from the scroll
     /// geometry rather than from a sentinel view appearing and disappearing.
     @State private var atBottom = true
@@ -176,10 +178,17 @@ struct ChatView: View {
             .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
             .onChange(of: pickerItems) { _, items in loadPicked(items) }
             .onChange(of: dictation.transcript) { _, t in
-                if !t.isEmpty, t != dictationEcho { draft = t }
+                // Not "is this the same words we just sent" — a recogniser
+                // revises its final result after you stop it (punctuation,
+                // capitalisation), so comparing text let the revision through
+                // and it typed your sent message straight back into the empty
+                // composer. Nothing dictated before a send belongs in the
+                // composer after it, whatever it says.
+                guard !dictationSpent else { return }
+                if !t.isEmpty { draft = t }
             }
             // A new dictation is not an echo of the last one, even word for word.
-            .onChange(of: dictation.listening) { _, on in if on { dictationEcho = "" } }
+            .onChange(of: dictation.listening) { _, on in if on { dictationSpent = false } }
             // The agent called `open_file`. Show it, as the Mac just did — but
             // only while this chat is the one on screen, so a file asked for by
             // a conversation you have left does not open over the one you moved
@@ -219,7 +228,7 @@ struct ChatView: View {
                     emptyState
                 }
                 ForEach(turns) { turn in
-                    TurnView(turn: turn, pendingApprovals: pendingApprovals,
+                    TurnView(connection: connection, turn: turn, pendingApprovals: pendingApprovals,
                              answer: answer, choose: { send(text: $0, fromComposer: false) })
                 }
                 ForEach(transcript.outbox) { msg in
@@ -562,7 +571,9 @@ struct ChatView: View {
         // goes on delivering results — including the final one, after the send —
         // and each of those was written straight back into the composer.
         if fromComposer, dictation.listening { dictation.stop() }
-        if fromComposer { dictationEcho = dictation.transcript }
+        // Whatever the recogniser says from here belongs to the message that
+        // just left, not to the empty composer it would land in.
+        if fromComposer { dictationSpent = true }
         withAnimation(.easeOut(duration: 0.2)) {
             if fromComposer {
                 draft = ""

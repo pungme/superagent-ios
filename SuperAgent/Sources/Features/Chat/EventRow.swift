@@ -3,6 +3,9 @@ import SwiftUI
 
 /// One turn: the user's message, the collapsed steps, the reply, a quiet footer.
 struct TurnView: View {
+    /// Only so a picture on a message this phone did not send can be fetched
+    /// from the Mac; nothing else down here talks to it.
+    let connection: Connection
     let turn: Turn
     let pendingApprovals: Set<String>
     let answer: (String, Bool) -> Void
@@ -13,7 +16,7 @@ struct TurnView: View {
             ForEach(turn.items) { item in
                 switch item {
                 case .event(let e):
-                    EventRow(event: e, pending: pendingApprovals.contains(approvalId(e) ?? ""), answer: answer, choose: choose)
+                    EventRow(connection: connection, event: e, pending: pendingApprovals.contains(approvalId(e) ?? ""), answer: answer, choose: choose)
                 case .steps(let g):
                     StepGroupRow(group: g)
                 }
@@ -192,6 +195,7 @@ struct DiffLine: View {
 
 /// A message, notice or approval — the rows that are not steps.
 struct EventRow: View {
+    let connection: Connection
     let event: WireEvent
     let pending: Bool
     let answer: (String, Bool) -> Void
@@ -205,7 +209,7 @@ struct EventRow: View {
                 VStack(alignment: .trailing, spacing: 6) {
                     // What you sent, above what you said about it — the order
                     // they were picked in, and the order the agent got them.
-                    SentImagesRow(messageId: event.id, count: images.count)
+                    SentImagesRow(connection: connection, messageId: event.id, count: images.count)
                     if !text.isEmpty {
                         Text(text)
                             .superFont(15.5)
@@ -470,6 +474,7 @@ struct ConnectionFloat: View {
 /// the Mac, or one whose cache the system has reclaimed — it says how many
 /// there were, which is what the whole row used to be.
 struct SentImagesRow: View {
+    let connection: Connection
     let messageId: String
     let count: Int
     @State private var shots: [UIImage] = []
@@ -500,7 +505,18 @@ struct SentImagesRow: View {
         .task(id: messageId) {
             guard count > 0, shots.isEmpty else { return }
             let found = SentImages.load(messageId: messageId, count: count)
-            if !found.isEmpty { shots = found }
+            if !found.isEmpty { shots = found; return }
+            // Nothing local: this message came from the Mac, or the cache was
+            // reclaimed. The Mac keeps a thumbnail beside the log for exactly
+            // this — ask for it rather than showing "1 image" as grey text.
+            var fetched: [UIImage] = []
+            for i in 0..<count {
+                guard let wire = try? await connection.chatImage(messageId: messageId, index: i),
+                      let data = Data(base64Encoded: wire.data),
+                      let image = UIImage(data: data) else { continue }
+                fetched.append(image)
+            }
+            if !fetched.isEmpty { shots = fetched }
         }
     }
 }
