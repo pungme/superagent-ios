@@ -58,7 +58,7 @@ struct ChatView: View {
     @State private var pageHidden = false
     /// Hidden by hand for this conversation, like the page above it.
     @State private var simHidden = false
-    @State private var pageFraction: CGFloat = 0.42
+    @State private var pageFraction: CGFloat = 0.46
     @State private var dragStart: CGFloat?
     @State private var containerHeight: CGFloat = 600
     @State private var containerWidth: CGFloat = 0
@@ -562,7 +562,12 @@ struct ChatView: View {
 
     private var pageHeight: CGFloat {
         let wanted = containerHeight * pageFraction
-        let floor: CGFloat = pageResized ? 140 : 300
+        // How much conversation to keep visible under the page. It was a flat
+        // 300pt, which on a tall phone left the page a 130pt letterbox — the
+        // whole point of a mirror is to see the thing. A share of the screen
+        // instead: about a third, never less than 200pt, so a small phone still
+        // has a conversation and a big one has a page worth looking at.
+        let floor: CGFloat = pageResized ? 140 : max(200, containerHeight * 0.32)
         let allowed = max(160, containerHeight - chromeHeight - floor)
         return max(160, min(wanted, allowed))
     }
