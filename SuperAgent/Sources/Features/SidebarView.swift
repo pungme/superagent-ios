@@ -59,12 +59,6 @@ struct SidebarView: View {
     /// where this one does not, which is exactly what Xcode Cloud kept doing.
     private var listView: some View {
         List {
-            if connection.state != .connected {
-                Section {
-                    ConnectionBanner(connection: connection)
-                        .listRowBackground(Theme.card)
-                }
-            }
             if !query.trimmingCharacters(in: .whitespaces).isEmpty {
                 searchSection
             } else {
@@ -83,6 +77,20 @@ struct SidebarView: View {
         .listRowSeparatorTint(Theme.border)
         .scrollContentBackground(.hidden)
         .background(Theme.panel)
+        // Same treatment as the conversation: a status, not an obstruction. A
+        // band across the top pushed every project down and drew the eye to the
+        // one thing you cannot act on; floating it at the bottom keeps it
+        // visible without taking the space the list is for. The chat hides its
+        // own copy when the sidebar is on screen, so this one is not
+        // conditional — on an iPad it is the only one left.
+        .overlay(alignment: .bottom) {
+            if connection.state != .connected {
+                ConnectionFloat(connection: connection)
+                    .padding(.bottom, 10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
         .navigationTitle(connection.machine.name)
         // A large title needs a phone's width to breathe; in an iPad's sidebar
         // column it truncates the Mac's name to make room for itself.
