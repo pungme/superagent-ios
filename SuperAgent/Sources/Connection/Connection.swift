@@ -344,6 +344,9 @@ final class Connection {
         let msg = Outgoing(id: "L-" + UUID().uuidString.prefix(8), chatId: chatId, text: text,
                            images: images.map { Outgoing.Image(mediaType: $0.mediaType, data: $0.data) },
                            ts: Date().timeIntervalSince1970 * 1000, model: model, mode: mode)
+        // The bytes go to the agent and not into the log. Keep a thumbnail here
+        // so the message can show what you sent, now and after the round trip.
+        SentImages.keep(messageId: msg.id, images: images.map(\.data))
         var t = transcripts[chatId] ?? Transcript()
         t.outbox.append(msg)
         transcripts[chatId] = t
@@ -605,8 +608,27 @@ extension Connection {
     }
 
     func browserShot(chatId: String) async throws -> WireBrowserShot {
-        try await rpc("browser.screenshot", .object(["chatId": .string(chatId), "maxWidth": .number(900)]), as: WireBrowserShot.self)
+        #if DEBUG
+        // The harness has no Mac to ask. A real page dropped into the app's
+        // Documents as `harness-page.jpg` goes through the mirror exactly as a
+        // frame from the Mac would — same decode, same layout, same chrome —
+        // which is what makes a screenshot of it worth taking.
+        if machine.id == "harness", let shot = Self.harnessShot() { return shot }
+        #endif
+        return try await rpc("browser.screenshot", .object(["chatId": .string(chatId), "maxWidth": .number(900)]), as: WireBrowserShot.self)
     }
+
+    #if DEBUG
+    private static func harnessShot() -> WireBrowserShot? {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+              let data = try? Data(contentsOf: dir.appendingPathComponent("harness-page.jpg")),
+              let image = UIImage(data: data) else { return nil }
+        return WireBrowserShot(url: "https://stripe.com/en-us", title: "Stripe | Financial Infrastructure",
+                               canGoBack: false, canGoForward: false,
+                               width: Int(image.size.width), height: Int(image.size.height),
+                               jpeg: data.base64EncodedString(), unchanged: false)
+    }
+    #endif
 
     func browserNav(chatId: String, action: String) async throws {
         _ = try await rpc("browser.nav", .object(["chatId": .string(chatId), "action": .string(action)]))
@@ -643,14 +665,14 @@ extension Connection {
     /// modes without pairing anything. Launch with `-sidebarHarness`.
     @MainActor
     static func sidebarHarness() -> Connection {
-        let machine = PairedMachine(id: "harness", name: "Worathiti's MacBook Pro", relay: "wss://example.invalid",
+        let machine = PairedMachine(id: "harness", name: "MacBook Pro", relay: "wss://example.invalid",
                                     deviceId: "harness-device", secret: Data(repeating: 7, count: 32),
                                     token: "harness", pairedAt: .now)
         let c = Connection(machine: machine)
         let ws: [(String, String, String)] = [
-            ("w-superagent", "superagent", "app"),
-            ("w-ios", "ios", "app"),
-            ("w-wepush", "wepush", "app"),
+            ("w-site", "landing-page", "app"),
+            ("w-ios", "mobile-app", "app"),
+            ("w-api", "api", "app"),
             ("w-tab", "Stripe", "browser")
         ]
         c.tree = [
@@ -666,11 +688,11 @@ extension Connection {
         ]
         let now = Date().timeIntervalSince1970 * 1000
         let rows: [(String, String, String, String, Double, Bool)] = [
-            ("c1", "w-ios", "Unread on the phone", "Six tests cover the rules, including the one that matters most.", now - 60_000, true),
-            ("c2", "w-superagent", "Release 1.7.16", "Published and marked latest — the update feed is serving it.", now - 900_000, false),
-            ("c3", "w-wepush", "the cost is so high in august (AWS)", "NAT gateway egress, mostly. Here is the breakdown by hour.", now - 5_400_000, false),
-            ("c4", "w-tab", "Stripe pricing page", "Opened the page and read the tiers back to you.", now - 26_000_000, false),
-            ("c5", "computer", "Yamaha PA-130B adapter", "12V, 1A, centre-positive — the barrel is 5.5/2.1mm.", now - 90_000_000, false)
+            ("c1", "w-site", "Tighten the hero copy", "Two lines instead of three — the middle one was doing nothing.", now - 60_000, true),
+            ("c2", "w-ios", "Fix the flaky auth test", "It was the clock, not the code. Frozen now, and green ten times running.", now - 900_000, false),
+            ("c3", "w-api", "Why is the staging deploy slow?", "The image rebuilds from scratch every time. Here is the layer cache fix.", now - 5_400_000, false),
+            ("c4", "w-tab", "Read the pricing page back to me", "Three tiers, and the middle one is the only one with SSO.", now - 26_000_000, false),
+            ("c5", "computer", "Rename the screenshots on my desktop", "All 34, by the date they were taken.", now - 90_000_000, false)
         ]
         c.chats = rows.map { id, wsId, title, preview, at, live in
             WireChat(id: id, workspaceId: wsId, title: title, updatedAt: at, live: live, preview: preview)
@@ -680,10 +702,10 @@ extension Connection {
         // Enough of a conversation in the first one to see the chat itself.
         var t = Transcript()
         let lines: [(Bool, String)] = [
-            (true, "Can you make the phone show me what I have not read yet?"),
-            (false, "Done. A dot on the conversation and on the project — a project you have not expanded is exactly where an unread reply would otherwise sit unseen.\n\nIt is the phone's own state, not the Mac's: what the Mac has read says nothing about what you have."),
-            (true, "And it survives a restart?"),
-            (false, "Yes — it is written through to UserDefaults per Mac, and there is a test for exactly that. Anything the phone has never seen is recorded as read on sight, so pairing a Mac with two hundred old conversations does not light up every row.")
+            (true, "Make the headline shorter, keep the tone."),
+            (false, "Two lines instead of three. I cut \"for teams of any size\" — it was doing nothing, and the sentence lands harder without it.\n\nIt's live in the pane next door; have a look."),
+            (true, "Better. Now check it on a phone."),
+            (false, "Narrow, the headline holds at two lines down to 320pt and the buttons stack rather than shrink. The subhead was the only thing that needed a smaller step.")
         ]
         var seq = 0
         let at = Date().timeIntervalSince1970 * 1000
@@ -695,6 +717,9 @@ extension Connection {
         }
         t.lastSeq = seq
         c.transcripts["c1"] = t
+        // Connected, without a socket: the harness is for looking at the app as
+        // it is when everything is working.
+        c.state = .connected
         // `-withPage` puts a page on that conversation, to see the mirror
         // beside it rather than only reasoning about the layout.
         if ProcessInfo.processInfo.arguments.contains("-withPage") {

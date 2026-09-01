@@ -202,16 +202,20 @@ struct EventRow: View {
         case let .user(_, text, images, from):
             HStack {
                 Spacer(minLength: 48)
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(text)
-                        .superFont(15.5)
-                        .foregroundStyle(Theme.accentFg)
-                        .padding(.horizontal, 14).padding(.vertical, 9)
-                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
-                        .textSelection(.enabled)
-                    if !images.isEmpty || from == .ios {
-                        Text([images.isEmpty ? nil : "\(images.count) image\(images.count == 1 ? "" : "s")", from == .ios ? "from this phone" : nil]
-                            .compactMap { $0 }.joined(separator: " · "))
+                VStack(alignment: .trailing, spacing: 6) {
+                    // What you sent, above what you said about it — the order
+                    // they were picked in, and the order the agent got them.
+                    SentImagesRow(messageId: event.id, count: images.count)
+                    if !text.isEmpty {
+                        Text(text)
+                            .superFont(15.5)
+                            .foregroundStyle(Theme.accentFg)
+                            .padding(.horizontal, 14).padding(.vertical, 9)
+                            .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
+                            .textSelection(.enabled)
+                    }
+                    if from == .ios {
+                        Text("from this phone")
                             .superFont(11).foregroundStyle(Theme.textTertiary)
                     }
                 }
@@ -367,7 +371,26 @@ struct OutgoingRow: View {
     var body: some View {
         HStack {
             Spacer(minLength: 48)
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: 6) {
+                // In flight, the pictures are still in hand — no need to go to
+                // disk for them, and no wait before they appear.
+                if !message.images.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(Array(message.images.enumerated()), id: \.offset) { _, im in
+                            if let ui = UIImage(data: im.data) {
+                                Image(uiImage: ui)
+                                    .resizable().scaledToFill()
+                                    .frame(width: 132, height: 132)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .stroke(Theme.border, lineWidth: 1)
+                                    }
+                                    .opacity(failed ? 0.55 : 1)
+                            }
+                        }
+                    }
+                }
                 if !message.text.isEmpty {
                     Text(message.text)
                         .superFont(15.5)
@@ -377,9 +400,6 @@ struct OutgoingRow: View {
                         .opacity(failed ? 0.55 : 1)
                 }
                 HStack(spacing: 8) {
-                    if !message.images.isEmpty {
-                        Text("\(message.images.count) image\(message.images.count == 1 ? "" : "s")")
-                    }
                     switch message.status {
                     case .queued:
                         Label("Waiting for the Mac", systemImage: "clock")
@@ -409,6 +429,49 @@ struct OutgoingRow: View {
 /// an optional pattern and a `where` clause, which builds here and does not on
 /// Xcode Cloud's older toolchain — where it failed as two invented errors on
 /// unrelated lines further up this file. Nothing here needs to be clever.
+/// The pictures a message was sent with.
+///
+/// The thumbnails are this phone's own (see SentImages) — the transcript event
+/// carries only how many there were, because the bytes went to the agent rather
+/// than into the log. When there is no thumbnail to show — a message sent from
+/// the Mac, or one whose cache the system has reclaimed — it says how many
+/// there were, which is what the whole row used to be.
+struct SentImagesRow: View {
+    let messageId: String
+    let count: Int
+    @State private var shots: [UIImage] = []
+
+    var body: some View {
+        Group {
+            if count > 0 {
+                if shots.isEmpty {
+                    Text("\(count) image\(count == 1 ? "" : "s")")
+                        .superFont(11).foregroundStyle(Theme.textTertiary)
+                } else {
+                    HStack(spacing: 6) {
+                        ForEach(Array(shots.enumerated()), id: \.offset) { _, image in
+                            Image(uiImage: image)
+                                .resizable().scaledToFill()
+                                .frame(width: 132, height: 132)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(Theme.border, lineWidth: 1)
+                                }
+                        }
+                    }
+                    .accessibilityLabel("\(count) image\(count == 1 ? "" : "s") you sent")
+                }
+            }
+        }
+        .task(id: messageId) {
+            guard count > 0, shots.isEmpty else { return }
+            let found = SentImages.load(messageId: messageId, count: count)
+            if !found.isEmpty { shots = found }
+        }
+    }
+}
+
 struct FileHandoffCard: View {
     let path: String
     let name: String

@@ -31,7 +31,11 @@ final class AppState {
     /// Put a made-up Mac in front of the real RootView, so the layout can be
     /// looked at — on a phone or an iPad — without pairing anything.
     func useHarness() {
-        guard machines.isEmpty || machines.first?.id == "harness" else { return }
+        // An explicit flag wins even on a phone with a real Mac paired: the
+        // point is to look at the app with known contents. Nothing here is
+        // written to disk — MachineStore is only touched by add/remove — so the
+        // real pairing is still there next launch.
+        guard !machines.contains(where: { $0.id == "harness" }) else { return }
         let c = Connection.sidebarHarness()
         machines = [c.machine]
         connections[c.machine.id] = c
@@ -63,6 +67,9 @@ final class AppState {
         }
         for m in machines {
             let c = connection(for: m)
+            // The harness has no Mac to dial. Left to try, it spends the whole
+            // session behind a "could not be found" banner.
+            if m.id == "harness" { continue }
             c.connect()
             c.reportPresence(active: true, pushToken: pushToken)
         }
