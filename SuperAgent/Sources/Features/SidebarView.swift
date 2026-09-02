@@ -389,7 +389,7 @@ struct SidebarView: View {
                     Button(role: .destructive) {
                         Task { await run { try await connection.deleteChat(chatId: chat.id) } }
                     } label: {
-                        Label("Delete conversation", systemImage: "trash")
+                        Label(deleteLabel(chat), systemImage: "trash")
                     }
                 }
             }
@@ -471,7 +471,7 @@ struct SidebarView: View {
             Button(role: .destructive) {
                 Task { await run { try await connection.deleteChat(chatId: chat.id) } }
             } label: {
-                Label("Delete conversation", systemImage: "trash")
+                Label(deleteLabel(chat), systemImage: "trash")
             }
         }
     }
@@ -495,7 +495,7 @@ struct SidebarView: View {
                 Button(role: .destructive) {
                     Task { await run { try await connection.deleteChat(chatId: chat.id) } }
                 } label: {
-                    Label("Delete conversation", systemImage: "trash")
+                    Label(deleteLabel(chat), systemImage: "trash")
                 }
             }
         }
@@ -760,6 +760,18 @@ struct SidebarView: View {
     /// Not `root: true`: the project row already opens the folder's own chat, so
     /// the thing this menu is for is a *second* conversation — which on the Mac
     /// is one that takes its own copy of the project.
+    /// The conversation's name, in the menu that is covering its row.
+    ///
+    /// A context menu on iOS opens ON TOP of the thing it acts on, so the row
+    /// you are deleting is the one you can no longer read. With several
+    /// conversations under a project, "Delete conversation" could mean any of
+    /// them. Clipped, because a menu as wide as a long title is its own problem.
+    private func deleteLabel(_ chat: WireChat) -> String {
+        let title = (chat.title ?? "New chat").trimmingCharacters(in: .whitespacesAndNewlines)
+        let shown = title.count > 32 ? title.prefix(32) + "\u{2026}" : Substring(title)
+        return "Delete \u{201C}\(shown)\u{201D}"
+    }
+
     private func newChat(in ws: WireWorkspace) {
         Task {
             await run {
