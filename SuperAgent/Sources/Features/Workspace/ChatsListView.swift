@@ -95,7 +95,11 @@ struct ChatsListView: View {
                 renaming = nil
             }
         }
-        .confirmationDialog("Delete \"\(deleting?.title ?? "New chat")\"?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
+        // An alert, not a confirmationDialog: on iOS 26 the dialog renders as a
+        // floating card pinned to the row, which reads as something unfamiliar
+        // asking an important question. Deleting work warrants the standard
+        // centred alert everyone already knows, Cancel and all.
+        .alert("Delete \"\(deleting?.title ?? "New chat")\"?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("Delete", role: .destructive) {
                 if let chat = deleting { Task { do { try await connection.deleteChat(chatId: chat.id) } catch { self.error = error.localizedDescription } } }
                 deleting = nil

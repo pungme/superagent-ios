@@ -35,6 +35,8 @@ struct SidebarView: View {
     @State private var renaming: WireGroup?
     @State private var groupName = ""
     @State private var removing: WireWorkspace?
+    /// The conversation a context menu asked to delete, held until confirmed.
+    @State private var deletingChat: WireChat?
     @State private var busy = false
     @State private var error: String?
     @Environment(\.horizontalSizeClass) private var width
@@ -174,6 +176,13 @@ struct SidebarView: View {
                 renaming = nil
             }
         }
+        .alert("Delete \"\(deletingChat?.title ?? "New chat")\"?", isPresented: Binding(get: { deletingChat != nil }, set: { if !$0 { deletingChat = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let chat = deletingChat { Task { await run { try await connection.deleteChat(chatId: chat.id) } } }
+                deletingChat = nil
+            }
+            Button("Cancel", role: .cancel) { deletingChat = nil }
+        } message: { Text("A conversation is work; this can't be undone.") }
         .confirmationDialog("Remove \(removing?.name ?? "this project")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
             Button("Remove", role: .destructive) {
                 if let ws = removing { Task { await run { try await connection.removeWorkspace(id: ws.id) } } }
@@ -387,7 +396,7 @@ struct SidebarView: View {
             .contextMenu {
                 if let chat {
                     Button(role: .destructive) {
-                        Task { await run { try await connection.deleteChat(chatId: chat.id) } }
+                        deletingChat = chat
                     } label: {
                         Label(deleteLabel(chat), systemImage: "trash")
                     }
@@ -469,7 +478,7 @@ struct SidebarView: View {
         .listRowBackground(chat.id == openId ? Theme.hover : Theme.card)
         .contextMenu {
             Button(role: .destructive) {
-                Task { await run { try await connection.deleteChat(chatId: chat.id) } }
+                deletingChat = chat
             } label: {
                 Label(deleteLabel(chat), systemImage: "trash")
             }
@@ -493,7 +502,7 @@ struct SidebarView: View {
             .buttonStyle(.plain)
             .contextMenu {
                 Button(role: .destructive) {
-                    Task { await run { try await connection.deleteChat(chatId: chat.id) } }
+                    deletingChat = chat
                 } label: {
                     Label(deleteLabel(chat), systemImage: "trash")
                 }
