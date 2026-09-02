@@ -206,7 +206,7 @@ struct EventRow: View {
 
     var body: some View {
         switch event.data {
-        case let .user(_, text, images, from, replyTo):
+        case let .user(messageId, text, images, from, replyTo):
             HStack {
                 Spacer(minLength: 48)
                 VStack(alignment: .trailing, spacing: 6) {
@@ -215,7 +215,13 @@ struct EventRow: View {
                     if let replyTo { ReplyQuoteChip(quote: replyTo) }
                     // What you sent, above what you said about it — the order
                     // they were picked in, and the order the agent got them.
-                    SentImagesRow(connection: connection, messageId: event.id, count: images.count)
+                    // The message's own id, not event.id — that is
+                    // "chatId#seq", a synthetic identity for SwiftUI, and it
+                    // matches nothing. Thumbnails are kept under the id the
+                    // message was sent with and the Mac knows the same one, so
+                    // passing event.id missed both the local cache and the
+                    // Mac's copy, every time.
+                    SentImagesRow(connection: connection, messageId: messageId, count: images.count)
                     if !text.isEmpty {
                         Text(text)
                             .superFont(15.5)
