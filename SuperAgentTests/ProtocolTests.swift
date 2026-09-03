@@ -54,7 +54,8 @@ struct ProtocolTests {
         #expect(file == "app.ts" && hunks == [DiffHunk(removed: ["y"], added: ["z"])])
         guard case let .approvalEnd(_, outcome, by) = f.events[7].data else { Issue.record("approval_end"); return }
         #expect(outcome == .approved && by == .ios)
-        guard case let .turnEnd(ok, _, cost, tokens) = f.events[10].data else { Issue.record("turn_end"); return }
+        guard case let .turnEnd(ok, _, cost, tokens, contextTokens) = f.events[10].data else { Issue.record("turn_end"); return }
+        #expect(contextTokens == 51200)
         #expect(ok && cost == 0.12 && tokens == 15)
         guard case .unknown(let k) = f.events[11].data else { Issue.record("unknown"); return }
         #expect(k == "something_new")

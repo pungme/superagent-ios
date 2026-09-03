@@ -20,6 +20,8 @@ struct Composer: View {
     let connected: Bool
     let working: Bool
     let commands: [String]
+    /// Live context and the window it lives in, when a turn has reported one.
+    let context: (used: Int, window: Int)?
     @Binding var model: String
     @Binding var mode: String
     /// Which agent this conversation runs on, and how to move it. Model and Mode
@@ -208,6 +210,30 @@ struct Composer: View {
                     }
                 }
                 .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                if let context {
+                    let pct = min(100, Int((Double(context.used) / Double(max(1, context.window)) * 100).rounded()))
+                    // The desktop's Memory gauge, at pill size: how much of the
+                    // context window the conversation is carrying.
+                    HStack(spacing: 5) {
+                        Text("Memory").foregroundStyle(Theme.textTertiary)
+                        Capsule().fill(Theme.accentSoft)
+                            .frame(width: 36, height: 4)
+                            .overlay(alignment: .leading) {
+                                GeometryReader { geo in
+                                    Capsule()
+                                        .fill(pct >= 75 ? Theme.needsYou : Theme.textSecondary)
+                                        .frame(width: geo.size.width * Double(pct) / 100)
+                                }
+                            }
+                        Text("\(pct)%").foregroundStyle(Theme.textSecondary).monospacedDigit()
+                    }
+                    .superFont(12, weight: .medium)
+                    .padding(.horizontal, 9).padding(.vertical, 5)
+                    .background(Theme.panel, in: Capsule())
+                    .overlay(Capsule().stroke(Theme.border))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Memory \(pct) percent — \(context.used) of \(context.window) tokens")
+                }
                 if let e = dictation.error { Text(e).superFont(11).foregroundStyle(Theme.danger).lineLimit(1) }
             }
             .padding(.horizontal, 12)

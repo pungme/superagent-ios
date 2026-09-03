@@ -18,6 +18,11 @@ struct SidebarView: View {
     /// The conversation on screen, so the row for it can say so. nil in one
     /// column, where the sidebar is not visible next to what it opened.
     var openId: String?
+    /// A tab shows one way of reading the Mac and lets the tab bar do the
+    /// switching; nil (the iPad) keeps the segmented picker and the memory.
+    var fixedMode: SidebarMode? = nil
+    /// The tabs have a Search tab of their own; the drawer search is the iPad's.
+    var showsSearch = true
     @Environment(AppState.self) private var app
 
     @State private var routines: [WireRoutine] = []
@@ -44,7 +49,7 @@ struct SidebarView: View {
     @State private var hits: [WireSearchHit] = []
     /// Which way the sidebar is reading right now, remembered between launches.
     @AppStorage("sidebar.mode") private var modeRaw = SidebarMode.projects.rawValue
-    private var mode: SidebarMode { SidebarMode(rawValue: modeRaw) ?? .projects }
+    private var mode: SidebarMode { fixedMode ?? SidebarMode(rawValue: modeRaw) ?? .projects }
 
     private static let tabsGroup = "__tabs"
     private var computer: WireWorkspace? { connection.tree.first { $0.id == "computer" }?.workspaces.first }
@@ -64,7 +69,7 @@ struct SidebarView: View {
             if !query.trimmingCharacters(in: .whitespaces).isEmpty {
                 searchSection
             } else {
-                modePicker
+                if fixedMode == nil { modePicker }
                 if mode == .activity {
                     activitySection
                 } else {
@@ -135,9 +140,17 @@ struct SidebarView: View {
         }
     }
 
+    @ViewBuilder
+    private func searchableIfWanted(_ view: some View) -> some View {
+        if showsSearch {
+            view.searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search every conversation")
+        } else {
+            view
+        }
+    }
+
     private func sheetsAndAlerts(_ view: some View) -> some View {
-        view
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search every conversation")
+        searchableIfWanted(view)
         .task(id: query) {
             let q = query.trimmingCharacters(in: .whitespaces)
             guard !q.isEmpty else { hits = []; return }
@@ -366,9 +379,9 @@ struct SidebarView: View {
     /// reads first; the branch it runs in sits to the right. A row with no chat
     /// yet has nothing to put on the left, so the branch takes that place.
     @ViewBuilder
-    private func branchRow(_ wt: WireWorktree, in ws: WireWorkspace) -> some View {
+    private func branchRow(_ wt: WireWorktree, in ws: WireWorkspace, last: Bool = false) -> some View {
         let chat = wt.chatId.flatMap { id in connection.chats.first { $0.id == id } }
-        TreeRow {
+        return TreeRow(last: last) {
             Button {
                 if let chat { open(chat) }
             } label: {
@@ -401,9 +414,6 @@ struct SidebarView: View {
                         Label(deleteLabel(chat), systemImage: "trash")
                     }
                 }
-            } preview: {
-                TreeRowPreview(icon: "arrow.triangle.branch",
-                               title: chat?.title ?? "⎇ " + wt.label)
             }
         }
         .id(wt.path)
@@ -489,8 +499,8 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func chatTreeRow(_ chat: WireChat) -> some View {
-        TreeRow {
+    private func chatTreeRow(_ chat: WireChat, last: Bool = false) -> some View {
+        TreeRow(last: last) {
             Button { open(chat) } label: {
                 HStack(spacing: 7) {
                     if chat.live { ProgressView().controlSize(.mini) }
@@ -509,8 +519,6 @@ struct SidebarView: View {
                 } label: {
                     Label(deleteLabel(chat), systemImage: "trash")
                 }
-            } preview: {
-                TreeRowPreview(icon: "bubble.left", title: chat.title ?? "New chat")
             }
         }
     }
@@ -577,10 +585,18 @@ struct SidebarView: View {
         }
 
         // .routine-tree: one spine down the left, an elbow into every row.
+        // Each row is a real List row — see TreeRow for why.
         if hasTree {
-            VStack(alignment: .leading, spacing: 0) {
+            // Whose elbow the spine stops at.
+            let nonMain = (worktrees[ws.id] ?? []).filter { !$0.main }
+            let loose: [WireChat] = {
+                if let trees = worktrees[ws.id] { return chatsWithoutBranch(ws, trees: trees) }
+                return showChats ? chats : []
+            }()
+            let treeEndsInRepos = mine.isEmpty && loose.isEmpty && nonMain.isEmpty
+            Group {
                 if !repos.isEmpty {
-                    TreeRow {
+                    TreeRow(last: treeEndsInRepos && !reposOpen.contains(ws.id)) {
                         Button { toggle(ws.id) } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: reposOpen.contains(ws.id) ? "chevron.down" : "chevron.right")
@@ -594,7 +610,7 @@ struct SidebarView: View {
                     }
                     if reposOpen.contains(ws.id) {
                         ForEach(repos) { r in
-                            TreeRow(depth: 2) {
+                            TreeRow(depth: 2, last: treeEndsInRepos && r.path == repos.last?.path) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "chevron.left.forwardslash.chevron.right").superFont(10).foregroundStyle(Theme.textTertiary)
                                     Text(r.name).lineLimit(1)
@@ -621,17 +637,24 @@ struct SidebarView: View {
                 // One row per branch, main first, the way the Mac lists them.
                 // A branch is a copy of the project with a conversation in it;
                 // a chat with no branch yet is just a conversation, and says so.
-                if let trees = worktrees[ws.id] {
+                if worktrees[ws.id] != nil {
                     // Only the extras. The folder's own conversation is the
                     // project row above; listing it here too drew the root as
                     // one more branch underneath itself.
-                    ForEach(trees.filter { !$0.main }) { wt in branchRow(wt, in: ws) }
-                    ForEach(chatsWithoutBranch(ws, trees: trees)) { chat in chatTreeRow(chat) }
+                    ForEach(nonMain) { wt in
+                        branchRow(wt, in: ws,
+                                  last: mine.isEmpty && loose.isEmpty && wt.path == nonMain.last?.path)
+                    }
+                    ForEach(loose) { chat in
+                        chatTreeRow(chat, last: mine.isEmpty && chat.id == loose.last?.id)
+                    }
                 } else if showChats {
-                    ForEach(chats) { chat in chatTreeRow(chat) }
+                    ForEach(loose) { chat in
+                        chatTreeRow(chat, last: mine.isEmpty && chat.id == loose.last?.id)
+                    }
                 }
                 ForEach(mine) { r in
-                    TreeRow {
+                    TreeRow(last: r.id == mine.last?.id) {
                         NavigationLink(value: WorkspacePanel(kind: .routines, workspace: ws)) {
                             HStack(spacing: 6) {
                                 Circle().fill(r.lastRunStatus == "running" ? Theme.working : Theme.textTertiary).frame(width: 6, height: 6)
@@ -645,13 +668,6 @@ struct SidebarView: View {
                     }
                 }
             }
-            // margin: 1px 0 3px; padding-left 20 (past the dot and the icon), spine at 10.
-            .padding(.leading, 22).padding(.bottom, 4)
-            .background(alignment: .topLeading) {
-                Rectangle().fill(Theme.border).frame(width: 1).padding(.leading, 22 + 10).padding(.bottom, 21)
-            }
-            .listRowBackground(Theme.card)
-            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 8))
         }
     }
 
@@ -927,8 +943,16 @@ struct FolderPickerView: View {
 /// elbow (8 px, at mid-height) meets the spine the parent draws.
 private struct TreeRow<Content: View>: View {
     var depth: Int = 1
+    /// The tree ends here: the spine drops to this row's elbow and stops.
+    var last: Bool = false
     @ViewBuilder let content: () -> Content
 
+    /// Each of these is its own List row. The tree used to be one row holding
+    /// them all in a VStack, which read fine but meant the row's single
+    /// context-menu interaction was shared: holding any conversation lifted
+    /// the whole block, and the menu could belong to a different row than the
+    /// one under your finger. One row each gives every conversation its own
+    /// menu and its own lift; the spine is drawn per-row so it still connects.
     var body: some View {
         HStack(spacing: 0) {
             Spacer().frame(width: CGFloat(depth - 1) * 14)
@@ -938,33 +962,18 @@ private struct TreeRow<Content: View>: View {
                 .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 4)
         }
         .frame(minHeight: 34)
+        .background(alignment: .topLeading) {
+            Rectangle().fill(Theme.border)
+                .frame(width: 1)
+                .frame(maxHeight: last ? 17 : .infinity, alignment: .top)
+                .padding(.leading, 10)
+        }
+        .listRowBackground(Theme.card)
+        .listRowInsets(EdgeInsets(top: 0, leading: 38, bottom: 0, trailing: 8))
     }
 }
 
 /// The kind glyph on a project row: folder, globe/favicon, or the Mac.
-/// What holding a row inside the tree lifts. The whole tree under a project is
-/// one list row, so without an explicit preview iOS raises the entire block —
-/// repos, every conversation, the routines — and the only clue to which one the
-/// menu is about is the menu's own wording.
-private struct TreeRowPreview: View {
-    let icon: String
-    let title: String
-    var body: some View {
-        Label {
-            Text(title).superFont(14.5, weight: .medium).foregroundStyle(Theme.textPrimary)
-        } icon: {
-            Image(systemName: icon).superFont(13).foregroundStyle(Theme.textSecondary)
-        }
-        .lineLimit(1)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
-        .background(Theme.card)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier("tree-row-preview")
-    }
-}
-
 private struct ProjectGlyph: View {
     @ScaledMetric(relativeTo: .footnote) private var box: CGFloat = 16
 

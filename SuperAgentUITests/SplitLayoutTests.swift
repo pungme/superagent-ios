@@ -18,7 +18,9 @@ final class SplitLayoutTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["-sidebarHarness"]
+        // Every group open: the collapse state whoever ran the app last left
+        // behind must not steer a test. (UserDefaults survive between runs.)
+        app.launchArguments = ["-sidebarHarness", "-sidebar.collapsedGroups", ""]
         app.launch()
     }
 

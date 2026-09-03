@@ -119,10 +119,24 @@ struct ChatView: View {
                 // The thing being built sits between the sidebar and the
                 // conversation, as it does on the Mac: what you are looking at
                 // in the middle, what you say about it down the right.
-                HStack(spacing: 0) {
-                    mirror.frame(width: paneWidth)
-                    sideDivider
-                    conversation
+                //
+                // While the divider is being dragged, only the mirror follows
+                // the finger. Re-wrapping every line of a long transcript at a
+                // new width on every frame of a drag is what made this janky —
+                // so the conversation keeps its width until the finger lifts,
+                // and pays for one re-wrap instead of a hundred and twenty a
+                // second. Shrinking the mirror briefly bares a strip of panel
+                // where the conversation will land; it is gone on release.
+                let livePane = dragStart == nil
+                    ? paneWidth
+                    : max(320, min(paneWidth + dragBy, containerWidth - 380))
+                ZStack(alignment: .topLeading) {
+                    HStack(spacing: 0) {
+                        Color.clear.frame(width: paneWidth + 18)
+                        conversation
+                    }
+                    mirror.frame(width: livePane).frame(maxHeight: .infinity)
+                    sideDivider.frame(maxHeight: .infinity).offset(x: livePane)
                 }
             } else {
                 if simShown {
@@ -373,6 +387,7 @@ struct ChatView: View {
             draft: $draft, attachments: $attachments, pickerItems: $pickerItems,
             dictation: dictation, connected: connection.state == .connected,
             working: isWorking, commands: connection.commands[chat.id] ?? [],
+            context: contextReading,
             model: modelBinding, mode: modeBinding,
             provider: connection.chats.first(where: { $0.id == chat.id })?.provider ?? "claude",
             onProvider: { p in
@@ -528,7 +543,6 @@ struct ChatView: View {
             .overlay { Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 4, height: 36) }
             .frame(width: 18).contentShape(Rectangle())
             .background(Theme.panel)
-            .offset(x: dragBy)
             .gesture(
                 DragGesture()
                     .onChanged { v in
@@ -547,25 +561,30 @@ struct ChatView: View {
             )
     }
 
+    /// This one resizes live. Unlike the side-by-side drag, a height change
+    /// never re-wraps the transcript's text — a scroll view lays its content
+    /// out by width — so following the finger costs almost nothing, and the
+    /// mirror above is an image, which scales for free.
     private var dockDivider: some View {
         Rectangle().fill(Theme.border).frame(height: 1)
             .overlay { Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 36, height: 4) }
             .frame(height: 18).contentShape(Rectangle())
             .background(Theme.panel)
-            .offset(y: dragBy)
             .gesture(
                 DragGesture()
                     .onChanged { v in
-                        if dragStart == nil { dragStart = pageFraction }
-                        dragBy = v.translation.height
-                    }
-                    .onEnded { v in
+                        if dragStart == nil {
+                            dragStart = pageFraction
+                            pageResized = true
+                        }
                         let start = dragStart ?? pageFraction
-                        pageResized = true
-                        pageFraction = min(0.72, max(0.2, start + v.translation.height / max(1, containerHeight)))
-                        dragStart = nil
-                        dragBy = 0
+                        var tx = Transaction()
+                        tx.disablesAnimations = true
+                        withTransaction(tx) {
+                            pageFraction = min(0.72, max(0.2, start + v.translation.height / max(1, containerHeight)))
+                        }
                     }
+                    .onEnded { _ in dragStart = nil }
             )
     }
 
@@ -811,6 +830,17 @@ struct ChatView: View {
         }
     }
 
+    /// The desktop's rule, carried over: the window is what the session
+    /// reported it resolved to, else inferred from the model id — the 1M-class
+    /// models by name, the 200K baseline for everything else.
+    private var contextReading: (used: Int, window: Int)? {
+        guard let used = transcript.contextTokens else { return nil }
+        let model = (transcript.model ?? "").lowercased()
+        let window = (model.contains("[1m]") || model.contains("fable") || model.contains("opus"))
+            ? 1_000_000 : 200_000
+        return (used, window)
+    }
+
     private func scrollToEnd(animated: Bool = true) {
         if animated { withAnimation(.easeOut(duration: 0.2)) { position.scrollTo(edge: .bottom) } }
         else { position.scrollTo(edge: .bottom) }
@@ -916,7 +946,8 @@ struct ProjectBar: View {
                         } else {
                             NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
                         }
-                        NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
+                        // No Routines chip: the desktop's bar doesn't have
+                        // one either — routines are rows in the sidebar's tree.
                     }
                     if !pageAttached {
                         Button(action: onBrowser) { barButton(nil, pageOpen ? "safari.fill" : "safari", on: pageOpen) }

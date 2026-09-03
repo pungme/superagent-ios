@@ -3,6 +3,9 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
+    /// As a sheet (the iPad) there is a Done to close it; as a tab there is
+    /// nothing to close and the button dismissed nothing.
+    var showsDone = true
     @AppStorage("accent") private var accentChoice = ""
 
     var onPair: () -> Void
@@ -92,7 +95,7 @@ struct SettingsView: View {
             .background(Theme.panel)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar { if showsDone { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } } }
         }
     }
 }

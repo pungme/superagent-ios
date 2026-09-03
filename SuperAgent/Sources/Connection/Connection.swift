@@ -9,6 +9,10 @@ struct Transcript: Sendable {
     var lastSeq: Int = 0
     var streaming: String = ""
     var subscribed = false
+    /// The live context after the last finished turn, and the model the session
+    /// actually resolved to — what the meter under the composer draws.
+    var contextTokens: Int?
+    var model: String?
     /// Messages this phone has sent that the Mac hasn't echoed back yet. They
     /// render immediately; the echo (a `user` event with our id) retires them.
     var outbox: [Outgoing] = []
@@ -19,7 +23,12 @@ struct Transcript: Sendable {
         events.append(e)
         lastSeq = e.seq
         switch e.data {
-        case .assistant, .turnEnd, .notice: streaming = ""
+        case .assistant, .notice: streaming = ""
+        case let .turnEnd(_, _, _, _, ctx):
+            streaming = ""
+            if let ctx { contextTokens = ctx }
+        case let .session(_, model, _):
+            if let model { self.model = model }
         case .user(let id, _, _, _, _): outbox.removeAll { $0.id == id }
         default: break
         }
@@ -782,7 +791,7 @@ extension Connection {
                                       data: .assistant(id: "a\(i)", text: body)))
             seq += 1
             t.events.append(WireEvent(chatId: chatId, seq: seq, ts: now,
-                                      data: .turnEnd(ok: true, subtype: "success", costUsd: 0.0123, tokens: 900 + i)))
+                                      data: .turnEnd(ok: true, subtype: "success", costUsd: 0.0123, tokens: 900 + i, contextTokens: 40_000 + i * 800)))
         }
         if let real = realTranscript(), !real.isEmpty {
             t = Transcript()

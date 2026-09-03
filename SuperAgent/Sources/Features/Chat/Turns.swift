@@ -119,7 +119,7 @@ enum TurnBuilder {
             case .assistant, .approval, .approvalEnd, .notice, .file:
                 closeGroup()
                 current.items.append(.event(e))
-            case let .turnEnd(_, _, cost, tokens):
+            case let .turnEnd(_, _, cost, tokens, _):
                 closeGroup()
                 current.cost = cost
                 current.tokens = tokens

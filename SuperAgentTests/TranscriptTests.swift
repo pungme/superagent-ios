@@ -69,7 +69,7 @@ struct TurnTests {
             ev(6, .tool(id: "t2", name: "Read", detail: "a.ts", task: nil)),
             ev(7, .diff(id: "t3", file: "a.ts", hunks: [])),
             ev(8, .assistant(id: "a2", text: "Done.")),
-            ev(9, .turnEnd(ok: true, subtype: "success", costUsd: 0.1, tokens: 1234))
+            ev(9, .turnEnd(ok: true, subtype: "success", costUsd: 0.1, tokens: 1234, contextTokens: 41_000))
         ]
         let turns = TurnBuilder.build(events)
         #expect(turns.count == 1)

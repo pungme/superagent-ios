@@ -10,6 +10,23 @@ struct RootView: View {
     /// A pairing link opened from outside (AirDrop, Messages, a tapped QR) skips the scanner.
     @State private var incomingPair: PairPayload?
     @State private var path = NavigationPath()
+    /// The bottom bar, on a phone. Each tab keeps its own stack, the way every
+    /// tabbed app does: switching away and back should find things where you
+    /// left them, not where another tab went.
+    private enum AppTab: String { case projects, activity, chat, search, settings }
+    @State private var tab: AppTab = {
+        // `-tab chat` opens on that tab: a layout you cannot reach is a layout
+        // you cannot check, and the simulator's touch injection is not a way
+        // to reach one (see -openChat).
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-tab"), i + 1 < args.count,
+           let wanted = AppTab(rawValue: args[i + 1]) { return wanted }
+        return .projects
+    }()
+    @State private var projectsPath = NavigationPath()
+    @State private var activityPath = NavigationPath()
+    @State private var chatPath = NavigationPath()
+    @State private var searchPath = NavigationPath()
     /// An iPad, or an iPhone in landscape that is wide enough to hold two
     /// columns. The Mac's window is a sidebar and the thing you are working on;
     /// with the room to do the same, do the same.
@@ -28,7 +45,7 @@ struct RootView: View {
         Group {
             if let machine = app.selected {
                 let c = app.connection(for: machine)
-                if width == .regular { split(c) } else { stack(c) }
+                if width == .regular { split(c) } else { tabs(c) }
             } else {
                 NavigationStack { WelcomeView(onPair: { showPair = true }).toolbar { settingsButton } }
             }
@@ -51,16 +68,46 @@ struct RootView: View {
 }
 
 extension RootView {
-    /// One column: the sidebar, and everything else pushed on top of it. The
-    /// phone, and an iPad squeezed into a narrow Split View slot.
+    /// The phone: a bottom bar. Projects and Activity are the two ways of
+    /// reading the Mac that used to share a segmented picker; Chat is the
+    /// Computer's conversation; Search gets the trailing slot the system
+    /// reserves for it; Settings stops being a gear floating over the title.
     @ViewBuilder
-    private func stack(_ c: Connection) -> some View {
-        NavigationStack(path: $path) {
-            destinations(
-                SidebarView(connection: c, path: $path, open: { path.append($0) }, openId: nil),
-                c
-            )
-            .toolbar { settingsButton }
+    private func tabs(_ c: Connection) -> some View {
+        TabView(selection: $tab) {
+            Tab("Projects", systemImage: "folder", value: AppTab.projects) {
+                NavigationStack(path: $projectsPath) {
+                    destinations(
+                        SidebarView(connection: c, path: $projectsPath,
+                                    open: { projectsPath.append($0) }, openId: nil,
+                                    fixedMode: .projects, showsSearch: false),
+                        c, $projectsPath
+                    )
+                }
+            }
+            Tab("Activity", systemImage: "clock", value: AppTab.activity) {
+                NavigationStack(path: $activityPath) {
+                    destinations(
+                        SidebarView(connection: c, path: $activityPath,
+                                    open: { activityPath.append($0) }, openId: nil,
+                                    fixedMode: .activity, showsSearch: false),
+                        c, $activityPath
+                    )
+                }
+            }
+            Tab("Chat", systemImage: "bubble.left", value: AppTab.chat) {
+                NavigationStack(path: $chatPath) {
+                    destinations(ComputerChatTab(connection: c, path: $chatPath), c, $chatPath)
+                }
+            }
+            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
+                NavigationStack(path: $searchPath) {
+                    destinations(SearchTabView(connection: c, path: $searchPath), c, $searchPath)
+                }
+            }
+            Tab("Settings", systemImage: "gearshape", value: AppTab.settings) {
+                SettingsView(showsDone: false, onPair: { showPair = true })
+            }
         }
     }
 
@@ -85,7 +132,7 @@ extension RootView {
             .toolbar { settingsButton }
         } detail: {
             NavigationStack(path: $path) {
-                destinations(detail(c), c)
+                destinations(detail(c), c, $path)
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -125,10 +172,10 @@ extension RootView {
     /// whichever view is the root of the stack, because that is the only thing
     /// that differs between the two shapes.
     @ViewBuilder
-    private func destinations(_ view: some View, _ c: Connection) -> some View {
+    private func destinations(_ view: some View, _ c: Connection, _ path: Binding<NavigationPath>) -> some View {
         view
             .navigationDestination(for: WireChat.self) { chat in
-                ChatView(push: { path.append($0) },
+                ChatView(push: { path.wrappedValue.append($0) },
                          connection: c, chat: chat, workspace: workspace(c, for: chat))
                     // A different conversation is a different screen. Replacing
                     // the top of the stack with another chat — which is what
@@ -143,7 +190,7 @@ extension RootView {
                 case .files: FilesView(connection: c, workspace: panel.workspace)
                 case .board: BoardView(connection: c, workspace: panel.workspace)
                 case .routines: RoutinesView(connection: c, workspace: panel.workspace)
-                case .chats: ChatsListView(connection: c, workspace: panel.workspace) { chat in path.append(chat) }
+                case .chats: ChatsListView(connection: c, workspace: panel.workspace) { chat in path.wrappedValue.append(chat) }
                 }
             }
             .navigationDestination(for: FileRef.self) { ref in FileView(connection: c, ref: ref) }
@@ -177,8 +224,14 @@ extension RootView {
         guard let chatId = app.openChatId, let machine = app.selected else { return }
         let c = app.connection(for: machine)
         guard let chat = c.chats.first(where: { $0.id == chatId }) else { return }
-        path = NavigationPath()
-        if width == .regular { shown = chat } else { path.append(chat) }
+        if width == .regular {
+            path = NavigationPath()
+            shown = chat
+        } else {
+            tab = .activity
+            activityPath = NavigationPath()
+            activityPath.append(chat)
+        }
         app.openChatId = nil
     }
 }

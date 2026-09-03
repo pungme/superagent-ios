@@ -39,7 +39,10 @@ enum WireEventData: Hashable, Sendable {
     case tool(id: String, name: String, detail: String, task: TaskInfo?)
     case toolResult(toolId: String, ok: Bool, summary: String)
     case diff(id: String, file: String, hunks: [DiffHunk])
-    case turnEnd(ok: Bool, subtype: String, costUsd: Double?, tokens: Int?)
+    /// `contextTokens` is the live context when the turn ended — what the next
+    /// prompt will carry. `tokens` sums the whole turn, which can exceed the
+    /// window several times over; the meter wants the former.
+    case turnEnd(ok: Bool, subtype: String, costUsd: Double?, tokens: Int?, contextTokens: Int?)
     case session(claudeSessionId: String, model: String?, commands: [String])
     case notice(text: String)
     /// A file the agent handed over: a generated PDF, an export, a report.
@@ -71,7 +74,7 @@ enum WireEventData: Hashable, Sendable {
 extension WireEventData: Codable {
     private enum K: String, CodingKey {
         case kind, id, text, images, from, name, detail, toolId, ok, summary, file, hunks, path, size, mediaType, workspaceId, replyTo
-        case subtype, costUsd, tokens, claudeSessionId, model, commands, toolName, preview, approvalKind, expiresAt, outcome, by, task
+        case subtype, costUsd, tokens, contextTokens, claudeSessionId, model, commands, toolName, preview, approvalKind, expiresAt, outcome, by, task
     }
 
     init(from decoder: Decoder) throws {
@@ -110,7 +113,8 @@ extension WireEventData: Codable {
                 ok: try c.decodeIfPresent(Bool.self, forKey: .ok) ?? true,
                 subtype: try c.decodeIfPresent(String.self, forKey: .subtype) ?? "success",
                 costUsd: try c.decodeIfPresent(Double.self, forKey: .costUsd),
-                tokens: try c.decodeIfPresent(Int.self, forKey: .tokens))
+                tokens: try c.decodeIfPresent(Int.self, forKey: .tokens),
+                contextTokens: try c.decodeIfPresent(Int.self, forKey: .contextTokens))
         case "session":
             self = .session(
                 claudeSessionId: try c.decode(String.self, forKey: .claudeSessionId),
@@ -170,9 +174,9 @@ extension WireEventData: Codable {
             try c.encodeIfPresent(mediaType, forKey: .mediaType)
         case let .diff(id, file, hunks):
             try c.encode(id, forKey: .id); try c.encode(file, forKey: .file); try c.encode(hunks, forKey: .hunks)
-        case let .turnEnd(ok, subtype, costUsd, tokens):
+        case let .turnEnd(ok, subtype, costUsd, tokens, contextTokens):
             try c.encode(ok, forKey: .ok); try c.encode(subtype, forKey: .subtype)
-            try c.encodeIfPresent(costUsd, forKey: .costUsd); try c.encodeIfPresent(tokens, forKey: .tokens)
+            try c.encodeIfPresent(costUsd, forKey: .costUsd); try c.encodeIfPresent(tokens, forKey: .tokens); try c.encodeIfPresent(contextTokens, forKey: .contextTokens)
         case let .session(sid, model, commands):
             try c.encode(sid, forKey: .claudeSessionId); try c.encodeIfPresent(model, forKey: .model)
             if !commands.isEmpty { try c.encode(commands, forKey: .commands) }

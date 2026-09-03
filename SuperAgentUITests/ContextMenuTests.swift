@@ -2,11 +2,11 @@ import XCTest
 
 /// Holding a conversation in the projects tree.
 ///
-/// The whole tree under a project — repos, conversations, routines — is one
-/// list row, so the system's context-menu lift raised the entire block: you
-/// held "Darken the footer" and watched eleven rows float up, with the menu's
-/// own wording as the only clue to which one you were about to delete. The fix
-/// is an explicit preview of just the held row; this pins it.
+/// The whole tree under a project used to be one list row, which meant one
+/// shared context-menu interaction for every conversation in it: holding any
+/// row lifted the entire block, and the menu could name a different
+/// conversation than the one under your finger. The tree is one List row per
+/// conversation now; these pin that each row answers for itself.
 final class ContextMenuTests: XCTestCase {
     private var app: XCUIApplication!
 
@@ -23,25 +23,28 @@ final class ContextMenuTests: XCTestCase {
         app.launch()
     }
 
-    func testHoldingAConversationLiftsOnlyThatRow() {
-        let row = app.staticTexts["Darken the footer"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "the harness project should list its second conversation")
-        row.press(forDuration: 1.2)
+    private func dismissMenu() {
+        // A tap on the dimmed backdrop, well away from the lifted row.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
+    }
 
-        // The action names the conversation…
-        let delete = app.buttons["Delete \u{201C}Darken the footer\u{201D}"]
-        if !delete.waitForExistence(timeout: 5) {
-            print("=== BUTTONS ON SCREEN ===")
-            for i in 0..<min(app.buttons.count, 40) { print("btn:", app.buttons.element(boundBy: i).label) }
-            print("=== MENU ITEMS ===")
-            for i in 0..<min(app.menuItems.count, 20) { print("menu:", app.menuItems.element(boundBy: i).label) }
-            print("=== OTHER tree-row-preview exists:", app.descendants(matching: .any)["tree-row-preview"].exists)
-        }
-        XCTAssertTrue(delete.exists, "the menu should offer to delete the held conversation")
+    func testHoldingAConversationTargetsThatConversation() {
+        let second = app.staticTexts["Darken the footer"]
+        XCTAssertTrue(second.waitForExistence(timeout: 10), "the harness project should list its second conversation")
+        second.press(forDuration: 1.2)
+        XCTAssertTrue(
+            app.buttons["Delete \u{201C}Darken the footer\u{201D}"].waitForExistence(timeout: 5),
+            "the menu should belong to the row under your finger"
+        )
+        dismissMenu()
 
-        // …and the lifted preview is the one row, not the tree around it.
-        let preview = app.descendants(matching: .any)["tree-row-preview"]
-        XCTAssertTrue(preview.exists, "the lift should be the explicit row preview, not the whole list row")
-        XCTAssertEqual(preview.label, "Darken the footer")
+        // …and the sibling row answers for itself, not for its neighbour.
+        let first = app.staticTexts["Tighten the hero copy"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        first.press(forDuration: 1.2)
+        XCTAssertTrue(
+            app.buttons["Delete \u{201C}Tighten the hero copy\u{201D}"].waitForExistence(timeout: 5),
+            "each conversation should carry its own menu"
+        )
     }
 }
