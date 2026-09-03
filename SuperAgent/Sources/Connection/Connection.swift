@@ -717,6 +717,9 @@ extension Connection {
         let now = Date().timeIntervalSince1970 * 1000
         let rows: [(String, String, String, String, Double, Bool)] = [
             ("c1", "w-site", "Tighten the hero copy", "Two lines instead of three — the middle one was doing nothing.", now - 60_000, true),
+            // A second conversation on the same project, so the sidebar grows
+            // the nested tree — the rows a context menu must preview one of.
+            ("c6", "w-site", "Darken the footer", "Same ink as the header now; the grey read as disabled.", now - 300_000, false),
             ("c2", "w-ios", "Fix the flaky auth test", "It was the clock, not the code. Frozen now, and green ten times running.", now - 900_000, false),
             ("c3", "w-api", "Why is the staging deploy slow?", "The image rebuilds from scratch every time. Here is the layer cache fix.", now - 5_400_000, false),
             ("c4", "w-tab", "Read the pricing page back to me", "Three tiers, and the middle one is the only one with SSO.", now - 26_000_000, false),

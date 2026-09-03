@@ -401,6 +401,9 @@ struct SidebarView: View {
                         Label(deleteLabel(chat), systemImage: "trash")
                     }
                 }
+            } preview: {
+                TreeRowPreview(icon: "arrow.triangle.branch",
+                               title: chat?.title ?? "⎇ " + wt.label)
             }
         }
         .id(wt.path)
@@ -506,6 +509,8 @@ struct SidebarView: View {
                 } label: {
                     Label(deleteLabel(chat), systemImage: "trash")
                 }
+            } preview: {
+                TreeRowPreview(icon: "bubble.left", title: chat.title ?? "New chat")
             }
         }
     }
@@ -937,6 +942,29 @@ private struct TreeRow<Content: View>: View {
 }
 
 /// The kind glyph on a project row: folder, globe/favicon, or the Mac.
+/// What holding a row inside the tree lifts. The whole tree under a project is
+/// one list row, so without an explicit preview iOS raises the entire block —
+/// repos, every conversation, the routines — and the only clue to which one the
+/// menu is about is the menu's own wording.
+private struct TreeRowPreview: View {
+    let icon: String
+    let title: String
+    var body: some View {
+        Label {
+            Text(title).superFont(14.5, weight: .medium).foregroundStyle(Theme.textPrimary)
+        } icon: {
+            Image(systemName: icon).superFont(13).foregroundStyle(Theme.textSecondary)
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .background(Theme.card)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("tree-row-preview")
+    }
+}
+
 private struct ProjectGlyph: View {
     @ScaledMetric(relativeTo: .footnote) private var box: CGFloat = 16
 
