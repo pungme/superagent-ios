@@ -962,14 +962,24 @@ private struct TreeRow<Content: View>: View {
                 .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 4)
         }
         .frame(minHeight: 34)
-        .background(alignment: .topLeading) {
-            Rectangle().fill(Theme.border)
-                .frame(width: 1)
-                .frame(maxHeight: last ? 17 : .infinity, alignment: .top)
-                .padding(.leading, 10)
-        }
-        .listRowBackground(Theme.card)
         .listRowInsets(EdgeInsets(top: 0, leading: 38, bottom: 0, trailing: 8))
+        .listRowSeparator(.hidden)
+        // The background receives the List cell's full height; the content
+        // view above does not. Drawing the rail there left a gap around every
+        // separator. One rail per nesting level also keeps repo children
+        // connected to both their parent and their own elbow.
+        .listRowBackground(
+            ZStack(alignment: .topLeading) {
+                Theme.card
+                ForEach(0..<depth, id: \.self) { level in
+                    Rectangle().fill(Theme.border)
+                        .frame(width: 1)
+                        .frame(maxHeight: level == depth - 1 && last ? 17 : .infinity,
+                               alignment: .top)
+                        .padding(.leading, 48 + CGFloat(level) * 14)
+                }
+            }
+        )
     }
 }
 
