@@ -14,6 +14,39 @@ struct SuperAgentApp: App {
     @State private var shareInboxShown = false
 
 
+    /// Shares the sheet aimed but could not deliver (Mac unreachable at the
+    /// time): send them now, silently — the user already said where.
+    private func deliverQueuedShares() {
+        for item in ShareInbox.items() {
+            guard let machineId = item.machineId, let workspaceId = item.workspaceId,
+                  let machine = app.machines.first(where: { $0.id == machineId }) else { continue }
+            let conn = app.connection(for: machine)
+            conn.connect()
+            // Read the picture BEFORE removing — remove deletes the file too,
+            // and a failed send must be able to put the whole item back.
+            let imageData = ShareInbox.imageData(item)
+            ShareInbox.remove(item)
+            Task {
+                let images: [(mediaType: String, data: Data)] =
+                    imageData.map { [(mediaType: "image/jpeg", data: $0)] } ?? []
+                let note = item.note ?? ""
+                let text = note.isEmpty ? item.text : (item.text.isEmpty ? note : note + "\n\n" + item.text)
+                let target: String
+                if let chatId = item.chatId {
+                    target = chatId
+                } else {
+                    guard let created = try? await conn.createChat(workspaceId: workspaceId) else {
+                        // The Mac is still away; requeue whole for next launch.
+                        ShareInbox.save(text: item.text, imageData: imageData, destination: item)
+                        return
+                    }
+                    target = created
+                }
+                conn.sendMessage(chatId: target, text: text, images: images)
+            }
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -39,9 +72,12 @@ struct SuperAgentApp: App {
                     case .active:
                         PushDelegate.app = app
                         app.becameActive()
-                        // Only when there is somewhere to send it — with no Mac
-                        // paired yet, the items just wait in the inbox.
-                        if app.selected != nil && !ShareInbox.items().isEmpty { shareInboxShown = true }
+                        deliverQueuedShares()
+                        // Only undecided items ask; anything the share sheet
+                        // already aimed goes out above without a question.
+                        if app.selected != nil && ShareInbox.items().contains(where: { $0.workspaceId == nil }) {
+                            shareInboxShown = true
+                        }
                     case .background: app.wentToBackground()
                     default: break
                     }

@@ -37,13 +37,33 @@ enum MachineStore {
 
     // MARK: File fallback (complete-until-first-unlock protection)
 
+    /// In the app group, so the share extension can read the pairing too.
     private static var fileURL: URL {
+        if let group = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: ShareInbox.groupId) {
+            return group.appendingPathComponent("machines.json")
+        }
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("machines.json")
     }
 
-    private static func readFile() -> Data? { try? Data(contentsOf: fileURL) }
+    /// Where the fallback lived before the app group existed.
+    private static var legacyFileURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("machines.json")
+    }
+
+    private static func readFile() -> Data? {
+        if let data = try? Data(contentsOf: fileURL) { return data }
+        // Pre-group installs: migrate on first read.
+        if let data = try? Data(contentsOf: legacyFileURL) {
+            writeFile(data)
+            try? FileManager.default.removeItem(at: legacyFileURL)
+            return data
+        }
+        return nil
+    }
 
     private static func writeFile(_ data: Data) {
         do {
@@ -65,7 +85,19 @@ enum MachineStore {
 
     // MARK: Keychain
 
+    /// In the app-group keychain group, so the share extension can send with
+    /// the same pairing. An app group is a valid keychain access group on iOS
+    /// and needs no extra capability beyond the App Groups entitlement.
     private static var query: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: account,
+         kSecAttrAccessGroup as String: ShareInbox.groupId,
+         kSecUseDataProtectionKeychain as String: true]
+    }
+
+    /// The item as pre-group builds stored it (default, app-private group).
+    private static var legacyQuery: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
          kSecAttrAccount as String: account,
@@ -77,8 +109,17 @@ enum MachineStore {
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &out)
-        return status == errSecSuccess ? out as? Data : nil
+        if SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess { return out as? Data }
+        // Pre-group installs: the item sits in the app-private group. Migrate
+        // it so the extension can see it from now on.
+        var lq = legacyQuery
+        lq[kSecReturnData as String] = true
+        lq[kSecMatchLimit as String] = kSecMatchLimitOne
+        var legacy: CFTypeRef?
+        guard SecItemCopyMatching(lq as CFDictionary, &legacy) == errSecSuccess,
+              let data = legacy as? Data else { return nil }
+        if write(data) { SecItemDelete(legacyQuery as CFDictionary) }
+        return data
     }
 
     @discardableResult

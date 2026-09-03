@@ -21,6 +21,14 @@ enum ShareInbox {
         /// File name (inside the inbox directory) of the shared image, if any.
         var imageFile: String?
         var ts: Double
+        /// Where this should go, when the share sheet already decided: the
+        /// app delivers it silently on next launch instead of asking. nil
+        /// chatId means "a new chat in that workspace".
+        var machineId: String?
+        var workspaceId: String?
+        var chatId: String?
+        /// The user's words, typed in the share sheet, sent above the item.
+        var note: String?
     }
 
     static var dir: URL? {
@@ -29,11 +37,18 @@ enum ShareInbox {
             .appendingPathComponent("inbox", isDirectory: true)
     }
 
-    static func save(text: String, imageData: Data? = nil) {
-        guard let dir else { return }
+    @discardableResult
+    static func save(text: String, imageData: Data? = nil, destination: Item? = nil) -> Item? {
+        guard let dir else { return nil }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let id = UUID().uuidString
         var item = Item(id: id, text: text, imageFile: nil, ts: Date().timeIntervalSince1970)
+        if let destination {
+            item.machineId = destination.machineId
+            item.workspaceId = destination.workspaceId
+            item.chatId = destination.chatId
+            item.note = destination.note
+        }
         if let imageData {
             let name = id + ".img"
             do {
@@ -46,6 +61,13 @@ enum ShareInbox {
         if let data = try? JSONEncoder().encode(item) {
             try? data.write(to: dir.appendingPathComponent(id + ".json"))
         }
+        return item
+    }
+
+    /** Re-write an item (e.g. a destination decided in the share sheet). */
+    static func update(_ item: Item) {
+        guard let dir, let data = try? JSONEncoder().encode(item) else { return }
+        try? data.write(to: dir.appendingPathComponent(item.id + ".json"))
     }
 
     static func items() -> [Item] {

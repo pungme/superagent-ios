@@ -103,6 +103,7 @@ final class AppState {
         connections[machine.id] = nil
         MachineStore.remove(id: machine.id)
         OfflineCache.remove(machine.id)
+        ShareSnapshot.remove(machineId: machine.id)
         machines = MachineStore.load()
         if selectedMachineId == machine.id { selectedMachineId = machines.first?.id }
     }

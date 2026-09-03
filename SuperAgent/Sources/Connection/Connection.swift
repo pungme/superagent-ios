@@ -206,6 +206,21 @@ final class Connection {
         }
     }
 
+    /// Keep the share extension's picker current: it reads this file, never
+    /// the network, so the picker appears instantly inside other apps.
+    private func writeShareSnapshot() {
+        let workspaces = tree
+            .filter { $0.id != "computer" }
+            .flatMap(\.workspaces)
+            .map { ShareSnapshot.Workspace(id: $0.id, name: $0.name) }
+        let snapChats = chats.map {
+            ShareSnapshot.Chat(id: $0.id, workspaceId: $0.workspaceId, title: $0.title, updatedAt: $0.updatedAt)
+        }
+        ShareSnapshot.update(machine: .init(
+            id: machine.id, name: machine.name, workspaces: workspaces, chats: snapChats
+        ))
+    }
+
     private func apply(_ frame: ServerFrame) {
         switch frame {
         case let .welcome(machineInfo, tree, chats):
@@ -216,6 +231,7 @@ final class Connection {
             OfflineCache.save(machine.id, "machine", machineInfo)
             OfflineCache.save(machine.id, "tree", tree)
             OfflineCache.save(machine.id, "chats", chats)
+            writeShareSnapshot()
             onChatsChanged?()
             state = .connected
             lastError = nil
@@ -265,6 +281,7 @@ final class Connection {
             chats = list
             unread.note(list)
             OfflineCache.save(machine.id, "chats", list)
+            writeShareSnapshot()
             onChatsChanged?()
         case let .res(id, result):
             if let c = pending.removeValue(forKey: id) {

@@ -23,9 +23,8 @@ targets:
     sources:
       - SuperAgent/Sources
       - SuperAgent/Resources
-      # The inbox store is shared with the share extension — one file, no
-      # framework, because its only dependency is Foundation.
-      - path: SuperAgentShare/ShareInbox.swift
+      # Shared with the share extension — plain files, no framework.
+      - path: Shared
     info:
       path: SuperAgent/Info.plist
       properties:
@@ -70,13 +69,21 @@ targets:
     dependencies:
       - target: SuperAgentShare
         embed: true
-  # The share sheet's "Superagent" row. It writes to the app-group inbox and
-  # nothing else; the app does the deciding. See ShareInbox.swift.
+  # The share sheet's "Superagent" row: message field, session picker, and a
+  # live send over the relay. Falls back to the app-group inbox only when the
+  # Mac is unreachable; the app then delivers it silently. See ShareInbox.swift.
   SuperAgentShare:
     type: app-extension
     platform: iOS
     sources:
       - SuperAgentShare
+      - Shared
+      # The extension sends with the app's own client — same relay, same
+      # crypto, same outbox — so the share sheet never grows a second,
+      # subtly different protocol implementation.
+      - SuperAgent/Sources/Connection
+      - SuperAgent/Sources/Protocol
+      - SuperAgent/Sources/Store
     info:
       path: SuperAgentShare/Info.plist
       properties:
