@@ -10,6 +10,8 @@ struct SuperAgentApp: App {
     /// makes a change render NOW — the root re-identifies and everything below
     /// re-evaluates with the new colour.
     @AppStorage("accent") private var accent = ""
+    /// Something was shared into the inbox; ask where it should go.
+    @State private var shareInboxShown = false
 
 
     var body: some Scene {
@@ -37,8 +39,16 @@ struct SuperAgentApp: App {
                     case .active:
                         PushDelegate.app = app
                         app.becameActive()
+                        // Only when there is somewhere to send it — with no Mac
+                        // paired yet, the items just wait in the inbox.
+                        if app.selected != nil && !ShareInbox.items().isEmpty { shareInboxShown = true }
                     case .background: app.wentToBackground()
                     default: break
+                    }
+                }
+                .sheet(isPresented: $shareInboxShown) {
+                    if let machine = app.selected {
+                        ShareInboxSheet(connection: app.connection(for: machine))
                     }
                 }
         }

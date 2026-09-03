@@ -23,6 +23,9 @@ targets:
     sources:
       - SuperAgent/Sources
       - SuperAgent/Resources
+      # The inbox store is shared with the share extension — one file, no
+      # framework, because its only dependency is Foundation.
+      - path: SuperAgentShare/ShareInbox.swift
     info:
       path: SuperAgent/Info.plist
       properties:
@@ -64,6 +67,33 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         ENABLE_PREVIEWS: YES
         SWIFT_STRICT_CONCURRENCY: complete
+    dependencies:
+      - target: SuperAgentShare
+        embed: true
+  # The share sheet's "Superagent" row. It writes to the app-group inbox and
+  # nothing else; the app does the deciding. See ShareInbox.swift.
+  SuperAgentShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - SuperAgentShare
+    info:
+      path: SuperAgentShare/Info.plist
+      properties:
+        CFBundleDisplayName: Superagent
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsImageWithMaxCount: 4
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.pungme.superagent.ios.share
+        PRODUCT_NAME: SuperAgentShare
+        CODE_SIGN_ENTITLEMENTS: SuperAgentShare/SuperAgentShare.entitlements
   SuperAgentTests:
     type: bundle.unit-test
     platform: iOS
