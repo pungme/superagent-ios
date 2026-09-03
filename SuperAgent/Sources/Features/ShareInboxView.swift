@@ -77,6 +77,9 @@ private struct ShareDestinationSheet: View {
     let onDone: (Bool) -> Void
     @State private var sending = false
     @State private var error: String?
+    /// The user's own words, sent above the shared thing — "summarize this",
+    /// "build one like it". Optional; the share alone is a fine message.
+    @State private var note = ""
     @Environment(\.dismiss) private var dismiss
 
     private var workspaces: [WireWorkspace] {
@@ -86,6 +89,11 @@ private struct ShareDestinationSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    TextField("Add a message (optional)", text: $note, axis: .vertical)
+                        .lineLimit(1...4)
+                        .listRowBackground(Theme.card)
+                }
                 ForEach(workspaces) { ws in
                     Section(ws.name) {
                         Button { send(to: nil, in: ws) } label: {
@@ -138,7 +146,9 @@ private struct ShareDestinationSheet: View {
                 }
                 let images: [(mediaType: String, data: Data)] =
                     ShareInbox.imageData(item).map { [(mediaType: "image/jpeg", data: $0)] } ?? []
-                connection.sendMessage(chatId: target, text: item.text, images: images)
+                let words = note.trimmingCharacters(in: .whitespacesAndNewlines)
+                let text = words.isEmpty ? item.text : (item.text.isEmpty ? words : words + "\n\n" + item.text)
+                connection.sendMessage(chatId: target, text: text, images: images)
                 Haptics.tap()
                 dismiss()
                 onDone(true)
