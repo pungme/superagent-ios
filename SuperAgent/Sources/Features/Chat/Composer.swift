@@ -140,7 +140,7 @@ struct Composer: View {
                 .accessibilityLabel("Attach")
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .photosPicker(isPresented: $showPhotoPicker, selection: $pickerItems,
-                              maxSelectionCount: 4, matching: .images)
+                              maxSelectionCount: 10, matching: .images)
                 .fileImporter(isPresented: $showFilePicker,
                               allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                     guard case let .success(urls) = result else { return }
