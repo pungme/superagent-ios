@@ -55,6 +55,11 @@ targets:
         PRODUCT_MODULE_NAME: SuperAgent
         CODE_SIGN_ENTITLEMENTS: SuperAgent/SuperAgent.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # The colour variants of the icon, generated into Assets.xcassets and
+        # switched with setAlternateIconName. This HAS to live here: the
+        # .xcodeproj is regenerated from this file by ci_post_clone.sh, so a
+        # setting added only to the local pbxproj ships to nobody.
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: AppIconPink AppIconViolet AppIconBlue AppIconTeal AppIconGreen AppIconAmber
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         ENABLE_PREVIEWS: YES
