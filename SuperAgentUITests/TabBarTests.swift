@@ -37,15 +37,22 @@ final class TabBarTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Fix the flaky auth test"].waitForExistence(timeout: 5),
                       "Activity is the flat feed of every conversation")
 
-        // Chat is the Computer's conversation, the agent that drives the Mac.
+        // Chat is the Computer's conversation list; a session is chosen from
+        // here rather than the tab unexpectedly opening the newest one.
         select("Chat")
-        // The title lives in a principal toolbar item, which a tab-rooted
-        // navigation stack does not expose as a plain staticText — match on
-        // anything that carries the label instead.
-        let computerChat = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS %@", "Rename the screenshots")).firstMatch
-        XCTAssertTrue(computerChat.waitForExistence(timeout: 5),
-                      "Chat should open the most recent Computer conversation")
+        XCTAssertTrue(app.staticTexts["Chats"].firstMatch.waitForExistence(timeout: 5))
+        let chatRow = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Rename the screenshots")
+        ).firstMatch
+        XCTAssertTrue(chatRow.waitForExistence(timeout: 5),
+                      "Chat should show the Computer conversation list")
+
+        chatRow.tap()
+        XCTAssertFalse(app.tabBars.firstMatch.waitForExistence(timeout: 1),
+                       "a session should use the whole phone without the bottom bar")
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5),
+                      "Back to the chat list should restore the bottom bar")
 
         select("Settings")
         XCTAssertTrue(app.staticTexts["Paired Macs"].waitForExistence(timeout: 5))

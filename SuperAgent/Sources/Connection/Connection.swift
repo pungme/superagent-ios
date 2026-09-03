@@ -505,6 +505,37 @@ extension Connection {
         return try await rpc("files.read", p, as: WireFileContent.self)
     }
 
+    /// Send a file to the Mac for the agent, in relay-sized slices. Returns the
+    /// absolute path the Mac wrote — which travels to the agent as text, the
+    /// same way the desktop hands over its own attachments.
+    func uploadFile(name: String, data: Data) async throws -> String {
+        struct UploadResult: Decodable { var path: String? }
+        let chunkSize = 480_000
+        let chunks = max(1, (data.count + chunkSize - 1) / chunkSize)
+        guard chunks <= 64 else { throw RpcError(code: "bad-params", message: "That file is too big to send (25 MB is the ceiling).") }
+        let id = UUID().uuidString
+        var path: String?
+        for i in 0..<chunks {
+            let slice = data[(i * chunkSize)..<min(data.count, (i + 1) * chunkSize)]
+            let r = try await rpc("chat.upload",
+                                  .object(["uploadId": .string(id), "name": .string(name),
+                                           "index": .number(Double(i)), "chunks": .number(Double(chunks)),
+                                           "data": .string(Data(slice).base64EncodedString())]),
+                                  as: UploadResult.self)
+            if let p = r.path { path = p }
+        }
+        guard let path else { throw RpcError(code: "internal", message: "The Mac never finished assembling the file.") }
+        return path
+    }
+
+    func backgroundTasks(chatId: String) async throws -> [WireBackgroundTask] {
+        try await rpc("background.list", .object(["chatId": .string(chatId)]), as: [WireBackgroundTask].self)
+    }
+
+    func stopBackgroundTask(chatId: String, toolUseId: String) async throws {
+        _ = try await rpc("background.stop", .object(["chatId": .string(chatId), "toolUseId": .string(toolUseId)]))
+    }
+
     /// The Mac's thumbnail for one picture on a message this phone did not send.
     /// The bytes of an attachment never enter the event log, so a message from
     /// the Mac (or one whose local cache was reclaimed) has to ask for them.

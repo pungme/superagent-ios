@@ -97,7 +97,7 @@ extension RootView {
             }
             Tab("Chat", systemImage: "bubble.left", value: AppTab.chat) {
                 NavigationStack(path: $chatPath) {
-                    destinations(ComputerChatTab(connection: c, path: $chatPath), c, $chatPath)
+                    destinations(ComputerChatsTab(connection: c, path: $chatPath), c, $chatPath)
                 }
             }
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
@@ -177,6 +177,10 @@ extension RootView {
             .navigationDestination(for: WireChat.self) { chat in
                 ChatView(push: { path.wrappedValue.append($0) },
                          connection: c, chat: chat, workspace: workspace(c, for: chat))
+                    // The tabs choose a place to go; once a conversation is
+                    // open it owns the whole phone, just like the desktop's
+                    // session pane. Back returns to the list and its bar.
+                    .toolbar(.hidden, for: .tabBar)
                     // A different conversation is a different screen. Replacing
                     // the top of the stack with another chat — which is what
                     // "New chat" does from inside one — reused the same view

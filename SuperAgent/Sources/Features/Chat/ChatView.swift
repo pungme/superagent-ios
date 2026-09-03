@@ -17,11 +17,14 @@ struct ChatView: View {
     let chat: WireChat
     let workspace: WireWorkspace
     @Environment(AppState.self) private var app
+    @Environment(\.dismiss) private var dismiss
 
     @State private var draft = ""
     @State private var error: String?
     @State private var attachments: [Attachment] = []
     @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var files: [PickedFile] = []
+    @State private var backgroundTasks: [WireBackgroundTask] = []
     @State private var dictation = Dictation()
     /// The dictated text that has already been dealt with. Speech results are
     /// asynchronous, and the last one — often the final, tidied-up version —
@@ -164,6 +167,11 @@ struct ChatView: View {
             }
             .navigationTitle(chat.title ?? "Conversation")
             .navigationBarTitleDisplayMode(.inline)
+            // A session is a stable workspace, not a card to drag around.
+            // Replacing the system Back item disables NavigationStack's
+            // interactive full-view horizontal transition while preserving a
+            // clear way back to the chat list.
+            .navigationBarBackButtonHidden(!wide)
             .toolbar { chatToolbar }
     }
 
@@ -186,6 +194,14 @@ struct ChatView: View {
                 loadHidden()
                 loadDraft()
                 markRead()
+            }
+            .task(id: chat.id) {
+                while !Task.isCancelled {
+                    if connection.state == .connected {
+                        backgroundTasks = (try? await connection.backgroundTasks(chatId: chat.id)) ?? backgroundTasks
+                    }
+                    try? await Task.sleep(for: .seconds(2))
+                }
             }
             .onDisappear { saveDraft() }
             .onChange(of: draft) { _, _ in saveDraft() }
@@ -337,6 +353,12 @@ struct ChatView: View {
 
     @ToolbarContentBuilder
     private var chatToolbar: some ToolbarContent {
+            ToolbarItem(placement: .topBarLeading) {
+                if !wide {
+                    Button { dismiss() } label: { Image(systemName: "chevron.left") }
+                        .accessibilityLabel("Back")
+                }
+            }
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
                     Text(chat.title ?? "Conversation").superFont(15, weight: .semibold).lineLimit(1)
@@ -384,7 +406,7 @@ struct ChatView: View {
 
     private var composerBar: some View {
         Composer(
-            draft: $draft, attachments: $attachments, pickerItems: $pickerItems,
+            draft: $draft, attachments: $attachments, pickerItems: $pickerItems, files: $files,
             dictation: dictation, connected: connection.state == .connected,
             working: isWorking, commands: connection.commands[chat.id] ?? [],
             context: contextReading,
@@ -480,9 +502,40 @@ struct ChatView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
+            if !backgroundTasks.isEmpty { backgroundStrip }
             Divider().overlay(Theme.border)
             composer
         }
+    }
+
+    private var backgroundStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Label("Running", systemImage: "circle.fill")
+                    .superFont(11, weight: .semibold).foregroundStyle(Theme.textSecondary)
+                ForEach(backgroundTasks) { task in
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(task.description ?? task.command).superFont(11.5, weight: .medium).lineLimit(1)
+                            TimelineView(.periodic(from: .now, by: 10)) { context in
+                                Text(context.date.timeIntervalSince1970 * 1000 - task.startedAt < 60_000 ? "just started" : "\(Int((context.date.timeIntervalSince1970 * 1000 - task.startedAt) / 60_000))m")
+                                    .superFont(10).foregroundStyle(Theme.textTertiary)
+                            }
+                        }
+                        Button {
+                            backgroundTasks.removeAll { $0.id == task.id }
+                            Task { try? await connection.stopBackgroundTask(chatId: chat.id, toolUseId: task.toolUseId) }
+                        } label: { Image(systemName: "stop.fill").superFont(10) }
+                        .accessibilityLabel("Stop \(task.description ?? task.command)")
+                    }
+                    .padding(.horizontal, 9).padding(.vertical, 5)
+                    .background(Theme.panel, in: Capsule())
+                    .overlay(Capsule().stroke(Theme.border))
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+        }
+        .background(Theme.content)
     }
 
     /// Whichever mirror this conversation has. The page wins the slot: two
@@ -609,9 +662,33 @@ struct ChatView: View {
         Haptics.tap()
     }
 
-    private func send(text: String, fromComposer: Bool = true) {
+    private func send(text: String, fromComposer: Bool = true, filesHandled: Bool = false) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || (fromComposer && !attachments.isEmpty) else { return }
+        guard !text.isEmpty || (fromComposer && (!attachments.isEmpty || !files.isEmpty)) else { return }
+        // Files go to the Mac first, in slices, and the message carries their
+        // paths as text — the same way the desktop hands the agent its own
+        // attachments: the path travels as text, which nothing drops.
+        if fromComposer, !filesHandled, !files.isEmpty {
+            let picked = files
+            files = []
+            Task {
+                do {
+                    var lines: [String] = []
+                    for f in picked {
+                        lines.append("Attached file: " + (try await connection.uploadFile(name: f.name, data: f.data)))
+                    }
+                    let joined = (text.isEmpty ? "" : text + "\n\n") + lines.joined(separator: "\n")
+                    send(text: joined, fromComposer: fromComposer, filesHandled: true)
+                } catch let e as RpcError {
+                    files = picked
+                    error = e.message
+                } catch let e {
+                    files = picked
+                    error = e.localizedDescription
+                }
+            }
+            return
+        }
         let sending = fromComposer ? attachments : []
         let perImage = Attachment.messageBudget / max(1, sending.count)
         let images = sending.map { (mediaType: "image/jpeg", data: $0.jpeg(maxBytes: perImage)) }
@@ -631,13 +708,10 @@ struct ChatView: View {
             // The quote belongs to the message it went with, not to the next one.
             let quote = fromComposer ? replyTarget : nil
             if fromComposer { replyTarget = nil }
-            // The pickers here are Claude Code's. A conversation on Codex takes
-            // neither, and sending them stops it starting at all — so it goes
-            // with the Mac's own settings instead.
             let onCodex = connection.chats.first(where: { $0.id == chat.id })?.isCodex ?? false
             connection.sendMessage(chatId: chat.id, text: text, images: images,
                                    model: onCodex || app.preferredModel.isEmpty ? nil : app.preferredModel,
-                                   mode: onCodex ? nil : app.preferredMode,
+                                   mode: app.preferredMode,
                                    replyTo: quote)
         }
         // Clear it once more, a turn later.

@@ -16,6 +16,8 @@ struct Composer: View {
     @Binding var draft: String
     @Binding var attachments: [Attachment]
     @Binding var pickerItems: [PhotosPickerItem]
+    /// Files on their way to the agent — anything, not just pictures.
+    @Binding var files: [PickedFile]
     let dictation: Dictation
     let connected: Bool
     let working: Bool
@@ -24,9 +26,8 @@ struct Composer: View {
     let context: (used: Int, window: Int)?
     @Binding var model: String
     @Binding var mode: String
-    /// Which agent this conversation runs on, and how to move it. Model and Mode
-    /// are Claude Code's own settings — Codex takes neither — so on a Codex
-    /// conversation they are not shown rather than shown and ignored.
+    /// Which agent this conversation runs on, and how to move it. Codex exposes
+    /// its account default here; permission modes are shared by both agents.
     let provider: String
     let onProvider: (String) -> Void
     let onSend: () -> Void
@@ -51,8 +52,11 @@ struct Composer: View {
         ("plan", "Plan", "Read-only — plans without changing anything")
     ]
 
+    @State private var showPhotoPicker = false
+    @State private var showFilePicker = false
+
     private var canSend: Bool {
-        (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+        (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !files.isEmpty)
     }
     private var slashQuery: String? {
         guard draft.hasPrefix("/"), !draft.contains(" "), !commands.isEmpty else { return nil }
@@ -80,6 +84,31 @@ struct Composer: View {
                     .padding(.horizontal, 12)
                 }
             }
+            if !files.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(files) { f in
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc").superFont(12)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(f.name).superFont(12, weight: .medium).lineLimit(1)
+                                    Text(ByteCountFormatter.string(fromByteCount: Int64(f.data.count), countStyle: .file))
+                                        .superFont(10.5).foregroundStyle(Theme.textTertiary)
+                                }
+                                Button { files.removeAll { $0.id == f.id } } label: {
+                                    Image(systemName: "xmark.circle.fill").superFont(13)
+                                        .foregroundStyle(Theme.textTertiary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.border))
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                }
+            }
             if !attachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -99,14 +128,29 @@ struct Composer: View {
                 }
             }
             HStack(alignment: .bottom, spacing: 8) {
-                PhotosPicker(selection: $pickerItems, maxSelectionCount: 4, matching: .images) {
+                Menu {
+                    Button { showPhotoPicker = true } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
+                    Button { showFilePicker = true } label: { Label("Choose a File", systemImage: "doc") }
+                } label: {
                     Image(systemName: "plus").superFont(15, weight: .semibold)
                         .frame(width: well, height: well)
                         .background(Theme.accentSoft, in: Circle())
                 }
                 .buttonStyle(.plain).foregroundStyle(Theme.textSecondary)
-                .accessibilityLabel("Add a photo")
+                .accessibilityLabel("Attach")
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                .photosPicker(isPresented: $showPhotoPicker, selection: $pickerItems,
+                              maxSelectionCount: 4, matching: .images)
+                .fileImporter(isPresented: $showFilePicker,
+                              allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                    guard case let .success(urls) = result else { return }
+                    for url in urls.prefix(4) {
+                        let scoped = url.startAccessingSecurityScopedResource()
+                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                        guard let data = try? Data(contentsOf: url), data.count <= 25 * 1024 * 1024 else { continue }
+                        files.append(PickedFile(name: url.lastPathComponent, data: data))
+                    }
+                }
 
                 HStack(alignment: .bottom, spacing: 6) {
                     TextField(dictation.listening ? "Listening…" : "Message Claude…", text: $draft, axis: .vertical)
@@ -187,15 +231,14 @@ struct Composer: View {
                         }
                     }
                 }
-                if provider != "codex" {
                 Menu {
-                    ForEach(Composer.models, id: \.id) { m in
+                    ForEach(provider == "codex" ? Array(Composer.models.prefix(1)) : Composer.models, id: \.id) { m in
                         Button { model = m.id } label: {
                             Label { Text(m.label); Text(m.hint) } icon: { if model == m.id { Image(systemName: "checkmark") } }
                         }
                     }
                 } label: {
-                    ControlPill { HStack(spacing: 4) { Text("Model").foregroundStyle(Theme.textTertiary); Text(Composer.models.first { $0.id == model }?.label ?? "Default"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                    ControlPill { HStack(spacing: 4) { Text("Model").foregroundStyle(Theme.textTertiary); Text(provider == "codex" ? "Default" : (Composer.models.first { $0.id == model }?.label ?? "Default")); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
                 Menu {
                     ForEach(Composer.modes, id: \.id) { m in
@@ -205,7 +248,6 @@ struct Composer: View {
                     }
                 } label: {
                     ControlPill { HStack(spacing: 4) { Text("Mode").foregroundStyle(Theme.textTertiary); Text(Composer.modes.first { $0.id == mode }?.label ?? "Full"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
-                }
                 }
                     }
                 }
@@ -241,4 +283,12 @@ struct Composer: View {
         .padding(.top, 8).padding(.bottom, 8)
         .background(Theme.content)
     }
+}
+
+/// A file picked for the agent: kept whole until send, then uploaded to the
+/// Mac in slices and handed over as a path.
+struct PickedFile: Identifiable, Equatable {
+    let id = UUID()
+    let name: String
+    let data: Data
 }

@@ -1,40 +1,19 @@
 import SwiftUI
 
-/// The Chat tab: the Computer conversation — the agent that drives the Mac
-/// itself, no project needed. Opens on the most recent one and stays on it.
-struct ComputerChatTab: View {
+/// The Chat tab: the Computer's conversation list. A tab is a destination,
+/// not a particular session; tapping a row pushes that session and Back comes
+/// here again.
+struct ComputerChatsTab: View {
     let connection: Connection
     @Binding var path: NavigationPath
-
-    /// Pinned when the tab first has a conversation to show, so a reply
-    /// landing in some other Computer conversation does not swap the one you
-    /// are reading out from under you.
-    @State private var chatId: String?
 
     private var computer: WireWorkspace? {
         connection.tree.first { $0.id == "computer" }?.workspaces.first
     }
-    private var chats: [WireChat] {
-        guard let computer else { return [] }
-        return connection.chats.filter { $0.workspaceId == computer.id }
-            .sorted { $0.updatedAt > $1.updatedAt }
-    }
-
     var body: some View {
         Group {
-            if let chat = chats.first(where: { $0.id == chatId }) ?? chats.first {
-                ChatView(push: { path.append($0) },
-                         connection: connection, chat: chat,
-                         workspace: computer
-                            ?? WireWorkspace(id: chat.workspaceId, name: "Computer", path: "",
-                                             kind: "desktop", status: .idle))
-                    // A different conversation is a different screen.
-                    .id(chat.id)
-                    .onAppear { if chatId == nil { chatId = chat.id } }
-            } else if let computer {
-                // No conversation yet: the list, which is where + New chat is.
+            if let computer {
                 ChatsListView(connection: connection, workspace: computer) { chat in
-                    chatId = chat.id
                     path.append(chat)
                 }
             } else {

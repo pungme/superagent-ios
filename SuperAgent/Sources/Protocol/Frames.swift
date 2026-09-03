@@ -597,6 +597,17 @@ struct WireFileList: Decodable, Sendable {
     var files: [String]
 }
 
+struct WireBackgroundTask: Codable, Hashable, Sendable, Identifiable {
+    var chatId: String
+    var toolUseId: String
+    var command: String
+    var description: String?
+    var startedAt: Double
+    var output: String?
+    var manual: Bool?
+    var id: String { toolUseId }
+}
+
 struct WireBranch: Codable, Hashable, Sendable, Identifiable {
     var name: String
     var current: Bool
