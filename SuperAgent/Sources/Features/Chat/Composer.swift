@@ -112,6 +112,18 @@ struct Composer: View {
                         .superFont(15.5)
                         .textFieldStyle(.plain)
                         .focused(focused)
+                        // A hardware keyboard's Return sends, as it does on the
+                        // Mac. A vertical-axis TextField treats Return as a
+                        // newline and never fires onSubmit, so on an iPad with
+                        // a keyboard there was NO way to send by key at all.
+                        // Shift+Return keeps the newline, same as the desktop.
+                        .onKeyPress(.return, phases: .down) { press in
+                            if press.modifiers.contains(.shift) { return .ignored }
+                            guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            else { return .ignored }
+                            onSend()
+                            return .handled
+                        }
                         .padding(.leading, 12).padding(.vertical, 9)
                     Button {
                         Task { if dictation.listening { dictation.stop() } else { await dictation.start() } }
