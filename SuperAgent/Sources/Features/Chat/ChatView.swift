@@ -17,7 +17,6 @@ struct ChatView: View {
     let chat: WireChat
     let workspace: WireWorkspace
     @Environment(AppState.self) private var app
-    @Environment(\.dismiss) private var dismiss
 
     @State private var draft = ""
     @State private var error: String?
@@ -167,11 +166,6 @@ struct ChatView: View {
             }
             .navigationTitle(chat.title ?? "Conversation")
             .navigationBarTitleDisplayMode(.inline)
-            // A session is a stable workspace, not a card to drag around.
-            // Replacing the system Back item disables NavigationStack's
-            // interactive full-view horizontal transition while preserving a
-            // clear way back to the chat list.
-            .navigationBarBackButtonHidden(!wide)
             .toolbar { chatToolbar }
     }
 
@@ -353,12 +347,6 @@ struct ChatView: View {
 
     @ToolbarContentBuilder
     private var chatToolbar: some ToolbarContent {
-            ToolbarItem(placement: .topBarLeading) {
-                if !wide {
-                    Button { dismiss() } label: { Image(systemName: "chevron.left") }
-                        .accessibilityLabel("Back")
-                }
-            }
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
                     Text(chat.title ?? "Conversation").superFont(15, weight: .semibold).lineLimit(1)

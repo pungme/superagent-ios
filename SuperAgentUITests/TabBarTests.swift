@@ -50,9 +50,11 @@ final class TabBarTests: XCTestCase {
         chatRow.tap()
         XCTAssertFalse(app.tabBars.firstMatch.waitForExistence(timeout: 1),
                        "a session should use the whole phone without the bottom bar")
-        app.navigationBars.buttons.firstMatch.tap()
+        // Keep the native edge gesture: the hidden tab bar must not turn a
+        // session into a dead end that only its button can leave.
+        app.swipeRight()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5),
-                      "Back to the chat list should restore the bottom bar")
+                      "swiping back to the chat list should restore the bottom bar")
 
         select("Settings")
         XCTAssertTrue(app.staticTexts["Paired Macs"].waitForExistence(timeout: 5))

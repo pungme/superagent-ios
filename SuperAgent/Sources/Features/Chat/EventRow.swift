@@ -584,11 +584,20 @@ struct SentImagesRow: View {
                     Text("\(count) image\(count == 1 ? "" : "s")")
                         .superFont(11).foregroundStyle(Theme.textTertiary)
                 } else {
-                    HStack(spacing: 6) {
+                    // A horizontal row of four 132pt thumbnails is wider than
+                    // every phone. SwiftUI then widened the whole transcript
+                    // to fit it, taking the composer and controls off-screen.
+                    // One image keeps the generous preview; several become a
+                    // two-column square grid capped by the proposed chat width.
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 6),
+                                       count: shots.count == 1 ? 1 : 2),
+                        spacing: 6
+                    ) {
                         ForEach(Array(shots.enumerated()), id: \.offset) { _, image in
                             Image(uiImage: image)
                                 .resizable().scaledToFill()
-                                .frame(width: 132, height: 132)
+                                .aspectRatio(1, contentMode: .fit)
                                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                                 .overlay {
                                     RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -596,6 +605,7 @@ struct SentImagesRow: View {
                                 }
                         }
                     }
+                    .frame(maxWidth: shots.count == 1 ? 132 : 270)
                     .accessibilityLabel("\(count) image\(count == 1 ? "" : "s") you sent")
                 }
             }
