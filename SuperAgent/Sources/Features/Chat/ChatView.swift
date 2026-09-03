@@ -30,6 +30,8 @@ struct ChatView: View {
     /// True once a send has consumed what dictation produced. Cleared when a
     /// new dictation starts; see the transcript observer.
     @State private var dictationSpent = false
+    /// The board beside the conversation, iPad only. On a phone Todo pushes.
+    @State private var boardShown = false
     /// The message the next send answers, WhatsApp-style. Nil for a plain send.
     @State private var replyTarget: ReplyQuote?
     /// Whether the transcript is showing its end, read from the scroll
@@ -107,11 +109,13 @@ struct ChatView: View {
         VStack(spacing: 0) {
             ProjectBar(connection: connection, workspace: workspace, pageOpen: pageShown,
                        pageAttached: pageAttached,
-                       onBrowser: togglePage, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating)
+                       onBrowser: togglePage, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating,
+                       boardOpen: boardShown,
+                       onBoard: wide ? { withAnimation(.easeInOut(duration: 0.2)) { boardShown.toggle() } } : nil)
             // With the room, the page goes BESIDE the conversation, which is
             // what the Mac does. On a phone there is no room, so it docks above
             // and the keyboard takes it back.
-            if wide, simShown || pageShown {
+            if wide, simShown || pageShown || boardShown {
                 // The thing being built sits between the sidebar and the
                 // conversation, as it does on the Mac: what you are looking at
                 // in the middle, what you say about it down the right.
@@ -470,7 +474,9 @@ struct ChatView: View {
     /// mirrors over one conversation leaves room for neither.
     @ViewBuilder
     private var mirror: some View {
-        if pageShown { mirrorPage } else if simShown { mirrorSim }
+        // The board wins the side slot while it is open — like the Mac, where
+        // opening Todo covers the preview rather than fighting it for width.
+        if boardShown { boardSide } else if pageShown { mirrorPage } else if simShown { mirrorSim }
     }
 
     @ViewBuilder
@@ -644,6 +650,34 @@ struct ChatView: View {
     /// transcript was left with 219: less than one bubble, which reads as an
     /// empty chat you have to scroll up to find. The page can still be dragged
     /// bigger deliberately; it just will not start that way.
+    /// Todo beside the conversation. The same BoardView the push shows; only
+    /// the chrome differs, because there is no navigation bar to carry a title
+    /// or a Back — a header and an × do those jobs.
+    private var boardSide: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Todo").superFont(15, weight: .semibold).foregroundStyle(Theme.textPrimary)
+                Text(workspace.name).superFont(12).foregroundStyle(Theme.textTertiary)
+                Spacer()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { boardShown = false }
+                } label: {
+                    Image(systemName: "xmark")
+                        .superFont(12, weight: .semibold)
+                        .foregroundStyle(Theme.textTertiary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close Todo")
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            Divider().overlay(Theme.border)
+            BoardView(connection: connection, workspace: workspace)
+        }
+        .background(Theme.panel)
+    }
+
     private var pageAttached: Bool { connection.browsers[chat.id]?.open == true }
 
     private var simAttached: Bool { connection.simulators[chat.id]?.open == true }
@@ -861,6 +895,11 @@ struct ProjectBar: View {
     let onBranches: () -> Void
     let onNewChat: () -> Void
     let creating: Bool
+    /// Set on wide layouts: Todo toggles a panel beside the conversation, the
+    /// way the Mac shows it, instead of pushing a screen you must come back
+    /// from. Nil keeps the push, which is right on a phone with no room.
+    var boardOpen = false
+    var onBoard: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -871,7 +910,12 @@ struct ProjectBar: View {
                 HStack(spacing: 6) {
                     if !workspace.isBrowser, !workspace.isComputer {
                         NavigationLink(value: WorkspacePanel(kind: .files, workspace: workspace)) { barButton("Files", "doc.text") }
-                        NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
+                        if let onBoard {
+                            Button(action: onBoard) { barButton("Todo", "square.grid.2x2", on: boardOpen) }
+                                .buttonStyle(.plain)
+                        } else {
+                            NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
+                        }
                         NavigationLink(value: WorkspacePanel(kind: .routines, workspace: workspace)) { barButton("Routines", "clock.arrow.2.circlepath") }
                     }
                     if !pageAttached {

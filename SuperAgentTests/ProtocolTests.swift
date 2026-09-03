@@ -48,7 +48,7 @@ struct ProtocolTests {
         let kinds = f.events.map(\.data.kind)
         #expect(kinds == ["session", "user", "thinking", "tool", "tool_result", "diff", "approval",
                           "approval_end", "assistant", "notice", "turn_end", "something_new"])
-        guard case let .user(id, text, images, from) = f.events[1].data else { Issue.record("user"); return }
+        guard case let .user(id, text, images, from, _) = f.events[1].data else { Issue.record("user"); return }
         #expect(id == "L-1" && text == "ship it" && from == .ios && images.first?.size == 12345)
         guard case let .diff(_, file, hunks) = f.events[5].data else { Issue.record("diff"); return }
         #expect(file == "app.ts" && hunks == [DiffHunk(removed: ["y"], added: ["z"])])

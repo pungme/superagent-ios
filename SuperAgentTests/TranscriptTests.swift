@@ -61,7 +61,7 @@ struct TurnTests {
 
     @Test func groupsConsecutiveStepsInsideATurn() {
         let events = [
-            ev(1, .user(id: "u", text: "go", images: [], from: .ios)),
+            ev(1, .user(id: "u", text: "go", images: [], from: .ios, replyTo: nil)),
             ev(2, .session(claudeSessionId: "s", model: nil, commands: [])),
             ev(3, .assistant(id: "a1", text: "Looking.")),
             ev(4, .tool(id: "t1", name: "Bash", detail: "ls", task: nil)),
@@ -110,8 +110,8 @@ struct FixtureFieldTests {
 
 @Test func outboxRetiredByEcho() throws {
     var t = Transcript()
-    t.outbox.append(Outgoing(id: "L-1", chatId: "c1", text: "hi", images: [], ts: 0, model: nil, mode: nil))
-    t.outbox.append(Outgoing(id: "L-2", chatId: "c1", text: "again", images: [], ts: 0, model: nil, mode: nil))
+    t.outbox.append(Outgoing(id: "L-1", chatId: "c1", text: "hi", images: [], ts: 0, model: nil, mode: nil, replyTo: nil))
+    t.outbox.append(Outgoing(id: "L-2", chatId: "c1", text: "again", images: [], ts: 0, model: nil, mode: nil, replyTo: nil))
     let echo = try JSONDecoder().decode(WireEvent.self, from: Data(#"{"chatId":"c1","seq":1,"ts":1,"data":{"kind":"user","id":"L-1","text":"hi","from":"ios"}}"#.utf8))
     let applied = t.apply(echo)
     #expect(applied)

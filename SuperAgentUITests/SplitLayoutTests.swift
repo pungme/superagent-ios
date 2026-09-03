@@ -78,6 +78,40 @@ final class SplitLayoutTests: XCTestCase {
         XCTAssertFalse(app.navigationBars.buttons["Back"].exists)
     }
 
+    /// Reported on iPadOS as a crash: open a conversation, Todo, Back. The
+    /// cause never reproduced here — but the shape that crashed is gone on an
+    /// iPad: Todo opens BESIDE the conversation like the Mac's panel, so there
+    /// is no push and nothing to come back from. The conversation must stay on
+    /// screen the whole time, and the × must put things back exactly.
+    func testTodoOpensBesideTheConversationOnIPad() throws {
+        try XCTSkipUnless(isPad, "a phone pushes Todo; beside-the-chat needs the room")
+        project("landing-page").tap()
+        XCTAssertTrue(app.staticTexts["Tighten the hero copy"].waitForExistence(timeout: 5))
+        app.buttons["Todo"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Close Todo"].waitForExistence(timeout: 5), "the board panel opens")
+        XCTAssertTrue(
+            app.staticTexts["Tighten the hero copy"].exists,
+            "the conversation stays on screen next to the board — that is the point"
+        )
+        XCTAssertFalse(app.navigationBars.buttons["Back"].exists, "nothing was pushed")
+        app.buttons["Close Todo"].tap()
+        XCTAssertTrue(app.staticTexts["Tighten the hero copy"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    /// The phone keeps the push — there is no room for two columns, and a
+    /// pushed screen with a Back is the right shape there.
+    func testTodoStillPushesOnAPhone() throws {
+        try XCTSkipIf(isPad, "covered by the side-panel test above")
+        project("landing-page").tap()
+        XCTAssertTrue(app.staticTexts["Tighten the hero copy"].waitForExistence(timeout: 5))
+        app.buttons["Todo"].firstMatch.tap()
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        back.tap()
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     /// Activity is the other way of reading the same Mac: one flat list.
     func testActivityModeListsEveryConversation() {
         app.buttons["Activity"].firstMatch.tap()
