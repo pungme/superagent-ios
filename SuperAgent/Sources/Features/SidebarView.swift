@@ -956,7 +956,7 @@ private struct TreeRow<Content: View>: View {
     var body: some View {
         HStack(spacing: 0) {
             Spacer().frame(width: CGFloat(depth - 1) * 14)
-            Rectangle().fill(Theme.border).frame(width: 8, height: 1).padding(.leading, 10).padding(.top, 16)
+            Rectangle().fill(Theme.border).frame(width: 8, height: 1).padding(.leading, 10)
             content()
                 .superFont(13).foregroundStyle(Theme.textSecondary)
                 .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 4)
