@@ -3,11 +3,43 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("accent") private var accentChoice = ""
+
     var onPair: () -> Void
 
     var body: some View {
         NavigationStack {
             List {
+                Section("Appearance") {
+                    // The same seven as the desktop, so one product, one pink.
+                    // Picking a colour also swaps the home-screen icon to match:
+                    // on iOS the icon is the one place the app shows its colour
+                    // when closed, and a bundled alternate icon changes it for
+                    // real — unlike the Mac, where only the running Dock icon can.
+                    HStack(spacing: 12) {
+                        ForEach(Theme.Accent.allCases, id: \.rawValue) { a in
+                            Button {
+                                UserDefaults.standard.set(a.rawValue, forKey: "accent")
+                                accentChoice = a.rawValue
+                                UIApplication.shared.setAlternateIconName(a.iconName)
+                            } label: {
+                                Circle()
+                                    .fill(a.colour.map(Color.init) ?? Theme.textPrimary)
+                                    .frame(width: 26, height: 26)
+                                    .overlay {
+                                        if accentChoice == a.rawValue || (accentChoice.isEmpty && a == .standard) {
+                                            Circle().strokeBorder(Theme.textPrimary, lineWidth: 2).padding(-4)
+                                        }
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(a == .standard ? "Default accent" : "\(a.rawValue) accent")
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listRowBackground(Theme.card)
+
                 Section("Paired Macs") {
                     ForEach(app.machines) { m in
                         let c = app.connections[m.id]

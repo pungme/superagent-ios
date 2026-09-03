@@ -20,10 +20,53 @@ enum Theme {
     static let textPrimary = dynamic(light: UIColor(white: 0, alpha: 0.85), dark: UIColor(white: 1, alpha: 0.86))
     static let textSecondary = dynamic(light: UIColor(white: 0, alpha: 0.5), dark: UIColor(white: 1, alpha: 0.5))
     static let textTertiary = dynamic(light: UIColor(white: 0, alpha: 0.36), dark: UIColor(white: 1, alpha: 0.32))
-    /// The accent: near-black on light, off-white on dark (desktop --accent). User bubbles.
-    static let accent = dynamic(light: UIColor(red: 0.09, green: 0.094, blue: 0.114, alpha: 1), dark: UIColor(red: 0.941, green: 0.941, blue: 0.949, alpha: 1))
-    static let accentFg = dynamic(light: .white, dark: UIColor(red: 0.09, green: 0.094, blue: 0.114, alpha: 1))
-    static let accentSoft = dynamic(light: UIColor(white: 0, alpha: 0.07), dark: UIColor(white: 1, alpha: 0.14))
+    /// The accent choices, shared with the desktop's palette so a person using
+    /// both sees the same pink. 'standard' is the monochrome default below.
+    enum Accent: String, CaseIterable {
+        case standard, pink, violet, blue, teal, green, amber
+
+        /// The chosen colour, or nil for the monochrome default.
+        var colour: UIColor? {
+            switch self {
+            case .standard: nil
+            case .pink: UIColor(red: 0.878, green: 0.337, blue: 0.549, alpha: 1)
+            case .violet: UIColor(red: 0.486, green: 0.424, blue: 0.941, alpha: 1)
+            case .blue: UIColor(red: 0.239, green: 0.51, blue: 0.91, alpha: 1)
+            case .teal: UIColor(red: 0.071, green: 0.647, blue: 0.58, alpha: 1)
+            case .green: UIColor(red: 0.247, green: 0.631, blue: 0.388, alpha: 1)
+            case .amber: UIColor(red: 0.847, green: 0.529, blue: 0.227, alpha: 1)
+            }
+        }
+
+        /// The bundled alternate icon carrying this colour; nil = the shipped icon.
+        var iconName: String? {
+            self == .standard ? nil : "AppIcon" + rawValue.prefix(1).uppercased() + rawValue.dropFirst()
+        }
+    }
+
+    static var chosenAccent: Accent {
+        Accent(rawValue: UserDefaults.standard.string(forKey: "accent") ?? "") ?? .standard
+    }
+
+    /// The accent: near-black on light, off-white on dark (desktop --accent) —
+    /// or the user's chosen colour, same in both themes. User bubbles.
+    ///
+    /// Computed rather than stored so a change takes effect on the next render;
+    /// the root view re-identifies itself when the choice changes (see
+    /// SuperAgentApp), which is what makes "next render" mean "now".
+    static var accent: Color {
+        if let c = chosenAccent.colour { return Color(c) }
+        return dynamic(light: UIColor(red: 0.09, green: 0.094, blue: 0.114, alpha: 1), dark: UIColor(red: 0.941, green: 0.941, blue: 0.949, alpha: 1))
+    }
+    static var accentFg: Color {
+        chosenAccent == .standard
+            ? dynamic(light: .white, dark: UIColor(red: 0.09, green: 0.094, blue: 0.114, alpha: 1))
+            : .white
+    }
+    static var accentSoft: Color {
+        if let c = chosenAccent.colour { return Color(c.withAlphaComponent(0.16)) }
+        return dynamic(light: UIColor(white: 0, alpha: 0.07), dark: UIColor(white: 1, alpha: 0.14))
+    }
     /// Assistant bubble (desktop --assistant-bubble).
     static let assistantBubble = dynamic(light: UIColor(white: 0, alpha: 0.045), dark: UIColor(white: 1, alpha: 0.06))
     static let hover = dynamic(light: UIColor(white: 0, alpha: 0.05), dark: UIColor(white: 1, alpha: 0.07))

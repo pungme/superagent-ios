@@ -6,6 +6,11 @@ struct SuperAgentApp: App {
     @UIApplicationDelegateAdaptor(PushDelegate.self) private var pushDelegate
     @State private var app = AppState()
     @Environment(\.scenePhase) private var scenePhase
+    /// The chosen accent. Theme reads UserDefaults at render time; this is what
+    /// makes a change render NOW — the root re-identifies and everything below
+    /// re-evaluates with the new colour.
+    @AppStorage("accent") private var accent = ""
+
 
     var body: some Scene {
         WindowGroup {
@@ -24,6 +29,7 @@ struct SuperAgentApp: App {
                 RootView()
                 #endif
             }
+                .id(accent)
                 .environment(app)
                 .onAppear { PushDelegate.app = app }
                 .onChange(of: scenePhase, initial: true) { _, phase in
