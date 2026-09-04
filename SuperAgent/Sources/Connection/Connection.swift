@@ -730,6 +730,10 @@ extension Connection {
 
 extension Bundle {
     var shortVersion: String { infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
+    /// The build number (CFBundleVersion). Xcode Cloud bumps it per build, so it
+    /// is what tells two TestFlight builds apart when the marketing version has
+    /// not changed — e.g. "am I on the build with the fix?".
+    var buildNumber: String { infoDictionary?["CFBundleVersion"] as? String ?? "0" }
 }
 
 #if DEBUG

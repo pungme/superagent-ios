@@ -85,7 +85,7 @@ struct SettingsView: View {
                     }
                 }
                 Section {
-                    LabeledContent("Version", value: Bundle.main.shortVersion)
+                    LabeledContent("Version", value: "\(Bundle.main.shortVersion) (\(Bundle.main.buildNumber))")
                     LabeledContent("Device id", value: String(DeviceIdentity.id.prefix(8)))
                 } footer: {
                     Text("Everything between this phone and your Mac is end-to-end encrypted; the relay only forwards. Remove a Mac here or from the Mac's Settings → Phone.")
