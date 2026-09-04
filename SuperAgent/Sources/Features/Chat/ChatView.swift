@@ -17,6 +17,7 @@ struct ChatView: View {
     let chat: WireChat
     let workspace: WireWorkspace
     @Environment(AppState.self) private var app
+    @Environment(\.scenePhase) private var scenePhase
 
     // The draft lives in the Composer now, so a keystroke never re-renders this
     // view (and with it the whole transcript). See Composer.draft.
@@ -188,7 +189,13 @@ struct ChatView: View {
                 loadHidden()
                 markRead()
             }
-            .task(id: chat.id) {
+            // Poll the running-jobs pills ONLY while the app is foreground and
+            // this chat is on screen. Keyed on scenePhase so backgrounding
+            // cancels it — a poll every 2s is small, but "ask for nothing when
+            // you can see nothing" is the rule, and this was asking in the
+            // background until iOS suspended it.
+            .task(id: [chat.id, scenePhase == .active ? "active" : "bg"].joined(separator: "#")) {
+                guard scenePhase == .active else { return }
                 while !Task.isCancelled {
                     if connection.state == .connected {
                         backgroundTasks = (try? await connection.backgroundTasks(chatId: chat.id)) ?? backgroundTasks
