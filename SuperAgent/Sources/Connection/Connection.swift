@@ -172,7 +172,14 @@ final class Connection {
     private func handle(_ event: RelayTransport.Event) {
         switch event {
         case .opened:
-            attempt = 0
+            // Do NOT reset the backoff here. A socket that opens and is
+            // immediately closed — the relay kicking us for quota, or the relay
+            // itself blocked/erroring — would otherwise reconnect at the minimum
+            // delay forever, because every open zeroed the counter. That is a
+            // ~3s reconnect storm, and each reconnect is a Durable Object
+            // request on the relay; two devices stuck in it exceed the free
+            // tier's whole daily request budget on their own. The backoff is
+            // reset only once the connection proves good (welcome received).
             send(.hello(device: machine.deviceId, token: machine.token, app: "ios/\(Bundle.main.shortVersion)"))
         case .text(let text):
             if text.hasPrefix("{") {
@@ -232,6 +239,10 @@ final class Connection {
     private func apply(_ frame: ServerFrame) {
         switch frame {
         case let .welcome(machineInfo, tree, chats):
+            // The connection is proven good: NOW reset the backoff. (Moved here
+            // from .opened — see the note there. A storm of reconnects that
+            // never reach welcome must keep backing off.)
+            attempt = 0
             info = machineInfo
             self.tree = tree
             self.chats = chats
