@@ -18,7 +18,8 @@ struct ChatView: View {
     let workspace: WireWorkspace
     @Environment(AppState.self) private var app
 
-    @State private var draft = ""
+    // The draft lives in the Composer now, so a keystroke never re-renders this
+    // view (and with it the whole transcript). See Composer.draft.
     @State private var error: String?
     @State private var attachments: [Attachment] = []
     @State private var pickerItems: [PhotosPickerItem] = []
@@ -31,7 +32,6 @@ struct ChatView: View {
     /// straight back into the composer, under its own bubble.
     /// True once a send has consumed what dictation produced. Cleared when a
     /// new dictation starts; see the transcript observer.
-    @State private var dictationSpent = false
     /// The board beside the conversation, iPad only. On a phone Todo pushes.
     @State private var boardShown = false
     /// The message the next send answers, WhatsApp-style. Nil for a plain send.
@@ -186,7 +186,6 @@ struct ChatView: View {
                 connection.subscribe(chatId: chat.id)
                 rebuild()
                 loadHidden()
-                loadDraft()
                 markRead()
             }
             .task(id: chat.id) {
@@ -197,8 +196,6 @@ struct ChatView: View {
                     try? await Task.sleep(for: .seconds(2))
                 }
             }
-            .onDisappear { saveDraft() }
-            .onChange(of: draft) { _, _ in saveDraft() }
             // Being in a conversation is reading it, so the mark keeps pace
             // with what arrives rather than stopping where you came in.
             .onChange(of: connection.chats.first(where: { $0.id == chat.id })?.updatedAt) { _, _ in markRead() }
@@ -207,18 +204,7 @@ struct ChatView: View {
             .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
             .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
             .onChange(of: pickerItems) { _, items in loadPicked(items) }
-            .onChange(of: dictation.transcript) { _, t in
-                // Not "is this the same words we just sent" — a recogniser
-                // revises its final result after you stop it (punctuation,
-                // capitalisation), so comparing text let the revision through
-                // and it typed your sent message straight back into the empty
-                // composer. Nothing dictated before a send belongs in the
-                // composer after it, whatever it says.
-                guard !dictationSpent else { return }
-                if !t.isEmpty { draft = t }
-            }
-            // A new dictation is not an echo of the last one, even word for word.
-            .onChange(of: dictation.listening) { _, on in if on { dictationSpent = false } }
+            // Dictation now writes into the composer's own draft; see Composer.
             // The agent called `open_file`. Show it, as the Mac just did — but
             // only while this chat is the one on screen, so a file asked for by
             // a conversation you have left does not open over the one you moved
@@ -394,7 +380,7 @@ struct ChatView: View {
 
     private var composerBar: some View {
         Composer(
-            draft: $draft, attachments: $attachments, pickerItems: $pickerItems, files: $files,
+            chatID: chat.id, attachments: $attachments, pickerItems: $pickerItems, files: $files,
             dictation: dictation, connected: connection.state == .connected,
             working: isWorking, commands: connection.commands[chat.id] ?? [],
             context: contextReading,
@@ -406,7 +392,7 @@ struct ChatView: View {
                     catch { self.error = error.localizedDescription }
                 }
             },
-            onSend: { send(text: draft) },
+            onSend: { text in send(text: text) },
             onStop: { Task { try? await connection.interrupt(chatId: chat.id) } },
             focused: $composerFocused)
     }
@@ -682,17 +668,13 @@ struct ChatView: View {
         let images = sending.map { (mediaType: "image/jpeg", data: $0.jpeg(maxBytes: perImage)) }
         // Sending ends the dictation that wrote it. Left running, the recogniser
         // goes on delivering results — including the final one, after the send —
-        // and each of those was written straight back into the composer.
+        // and each of those was written straight back into the composer. (The
+        // composer also marks dictation spent; stopping it here is the source.)
         if fromComposer, dictation.listening { dictation.stop() }
-        // Whatever the recogniser says from here belongs to the message that
-        // just left, not to the empty composer it would land in.
-        if fromComposer { dictationSpent = true }
         withAnimation(.easeOut(duration: 0.2)) {
-            if fromComposer {
-                draft = ""
-                attachments = []
-                saveDraft()
-            }
+            // The draft is the composer's now and it clears itself; here we only
+            // clear what this view still owns.
+            if fromComposer { attachments = [] }
             // The quote belongs to the message it went with, not to the next one.
             let quote = fromComposer ? replyTarget : nil
             if fromComposer { replyTarget = nil }
@@ -701,26 +683,6 @@ struct ChatView: View {
                                    model: onCodex || app.preferredModel.isEmpty ? nil : app.preferredModel,
                                    mode: app.preferredMode,
                                    replyTo: quote)
-        }
-        // Clear it once more, a turn later.
-        //
-        // `draft = ""` above is the whole clear, and for a plain field it works.
-        // A field with an uncommitted autocorrect suggestion is not a plain
-        // field: UIKit still owns marked text at that moment and puts its own
-        // buffer back over the assignment, so the message goes and the words
-        // stay — which is what it does after typing a word the keyboard is still
-        // offering corrections for. By the next turn of the run loop UIKit has
-        // finished with the field and the assignment sticks.
-        //
-        // Guarded on non-empty so it can never eat something typed in between,
-        // and it costs nothing when the first clear already worked.
-        if fromComposer {
-            Task { @MainActor in
-                if !draft.isEmpty {
-                    draft = ""
-                    saveDraft()
-                }
-            }
         }
         Haptics.tap()
     }
@@ -804,29 +766,9 @@ struct ChatView: View {
 
     /// Putting a mirror away is a decision about this conversation, not about
     /// this visit to it — and an expensive one to forget: a mirror you did not
-    /// want back is a picture a second crossing the relay. Both kinds are kept
-    /// per chat, so leaving and coming back finds them where you left them.
-    /// What you had typed and not sent.
-    ///
-    /// A composer is not a scratchpad you expect to survive nothing. Leaving a
-    /// conversation to look something up threw away whatever was in it, which is
-    /// the kind of small loss that stops people typing anything long on a phone.
-    private static func draftKey(_ chatId: String) -> String { "draft:" + chatId }
-
-    private func loadDraft() {
-        guard draft.isEmpty else { return }
-        draft = UserDefaults.standard.string(forKey: Self.draftKey(chat.id)) ?? ""
-    }
-
-    private func saveDraft() {
-        let key = Self.draftKey(chat.id)
-        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            UserDefaults.standard.removeObject(forKey: key)
-        } else {
-            UserDefaults.standard.set(draft, forKey: key)
-        }
-    }
-
+    /// want back is a picture a second crossing the relay. Kept per chat, so
+    /// leaving and coming back finds it where you left it. (The unsent draft is
+    /// kept the same way, but by the composer that owns it now.)
     private static func hiddenKey(_ chatId: String) -> String { "pageHidden:" + chatId }
     private static func simHiddenKey(_ chatId: String) -> String { "simHidden:" + chatId }
 

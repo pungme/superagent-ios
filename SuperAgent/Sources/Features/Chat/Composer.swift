@@ -13,7 +13,15 @@ struct Composer: View {
     @ScaledMetric(relativeTo: .subheadline) private var wellMetric: CGFloat = 34
     private var well: CGFloat { min(wellMetric, 46) }
 
-    @Binding var draft: String
+    /// The draft lives HERE, not in ChatView, and that is the whole point.
+    /// When it lived on ChatView every keystroke re-evaluated the entire
+    /// conversation — a non-lazy transcript of hundreds of turns re-diffed per
+    /// character — so typing crawled in long chats. Owned by the composer, a
+    /// keystroke invalidates only this small view; the transcript never sees it.
+    @State private var draft: String = ""
+    /// Which conversation's draft this is, for load/save and to reload when the
+    /// composer is reused across a chat switch.
+    let chatID: String
     @Binding var attachments: [Attachment]
     @Binding var pickerItems: [PhotosPickerItem]
     /// Files on their way to the agent — anything, not just pictures.
@@ -30,7 +38,9 @@ struct Composer: View {
     /// its account default here; permission modes are shared by both agents.
     let provider: String
     let onProvider: (String) -> Void
-    let onSend: () -> Void
+    /// The composer clears itself and hands the text up; ChatView does the rest
+    /// (attachments, reply quote, delivery) and never touches the draft.
+    let onSend: (String) -> Void
     let onStop: () -> Void
 
     /// Owned by ChatView. The chat needs to know when the keyboard is up: it
@@ -54,6 +64,45 @@ struct Composer: View {
 
     @State private var showPhotoPicker = false
     @State private var showFilePicker = false
+    /// Nothing the recogniser says after a send belongs in the emptied composer;
+    /// a recogniser revises its final result after you stop it, and that
+    /// revision used to type the sent message straight back in.
+    @State private var dictationSpent = false
+
+    private static func draftKey(_ chatID: String) -> String { "draft:" + chatID }
+
+    private func loadDraft() {
+        guard draft.isEmpty else { return }
+        draft = UserDefaults.standard.string(forKey: Self.draftKey(chatID)) ?? ""
+    }
+
+    private func saveDraft() {
+        let key = Self.draftKey(chatID)
+        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            UserDefaults.standard.set(draft, forKey: key)
+        }
+    }
+
+    /// Send from the composer: clear here, hand the text up. The second clear a
+    /// run-loop turn later is for an uncommitted autocorrect suggestion — UIKit
+    /// still owns marked text at send and puts its buffer back over the first
+    /// assignment, so the words stayed while the message went. Guarded so it can
+    /// never eat something typed in between.
+    private func submit() {
+        let text = draft
+        dictationSpent = true
+        draft = ""
+        saveDraft()
+        onSend(text)
+        Task { @MainActor in
+            if !draft.isEmpty {
+                draft = ""
+                saveDraft()
+            }
+        }
+    }
 
     private var canSend: Bool {
         (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !files.isEmpty)
@@ -167,7 +216,7 @@ struct Composer: View {
                             if press.modifiers.contains(.shift) { return .ignored }
                             guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             else { return .ignored }
-                            onSend()
+                            submit()
                             return .handled
                         }
                         .padding(.leading, 12).padding(.vertical, 9)
@@ -196,7 +245,7 @@ struct Composer: View {
                     .accessibilityLabel("Stop")
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 }
-                Button(action: onSend) {
+                Button(action: submit) {
                     Image(systemName: "arrow.up").superFont(15, weight: .bold)
                         .frame(width: well, height: well)
                         .background(canSend ? Theme.accent : Theme.accentSoft, in: Circle())
@@ -282,6 +331,25 @@ struct Composer: View {
         }
         .padding(.top, 8).padding(.bottom, 8)
         .background(Theme.content)
+        .onAppear { loadDraft() }
+        .onDisappear { saveDraft() }
+        // Reused across a chat switch: keep the old chat's words, load the new
+        // chat's. (id is set on ChatView today, so this is belt-and-braces.)
+        .onChange(of: chatID) { old, _ in
+            let key = Self.draftKey(old)
+            if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                UserDefaults.standard.removeObject(forKey: key)
+            } else {
+                UserDefaults.standard.set(draft, forKey: key)
+            }
+            draft = UserDefaults.standard.string(forKey: Self.draftKey(chatID)) ?? ""
+        }
+        .onChange(of: draft) { _, _ in saveDraft() }
+        .onChange(of: dictation.transcript) { _, t in
+            guard !dictationSpent else { return }
+            if !t.isEmpty { draft = t }
+        }
+        .onChange(of: dictation.listening) { _, on in if on { dictationSpent = false } }
     }
 }
 
