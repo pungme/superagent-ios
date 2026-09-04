@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import SuperAgent
 
@@ -66,5 +67,22 @@ struct UnreadTests {
         let second = Unread(machineId: id)
         #expect(second.isUnread(chat("a", 101)))
         #expect(!second.isUnread(chat("a", 100)))
+    }
+}
+
+/// UISearchBar's reserved icon/clear-button width leaves no room to lay out
+/// "Search every conversation" at .xxLarge and up, so it renders no
+/// placeholder at all rather than truncating — see SidebarView.searchPrompt.
+struct SidebarSearchPromptTests {
+    @Test func fullPromptAtOrdinarySizes() {
+        for size: DynamicTypeSize in [.xSmall, .medium, .large, .xLarge] {
+            #expect(SidebarView.searchPrompt(for: size) == "Search every conversation")
+        }
+    }
+
+    @Test func shortPromptOnceTooNarrow() {
+        for size: DynamicTypeSize in [.xxLarge, .xxxLarge, .accessibility1, .accessibility5] {
+            #expect(SidebarView.searchPrompt(for: size) == "Search")
+        }
     }
 }

@@ -45,6 +45,7 @@ struct SidebarView: View {
     @State private var busy = false
     @State private var error: String?
     @Environment(\.horizontalSizeClass) private var width
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var query = ""
     @State private var hits: [WireSearchHit] = []
     /// Which way the sidebar is reading right now, remembered between launches.
@@ -143,10 +144,20 @@ struct SidebarView: View {
     @ViewBuilder
     private func searchableIfWanted(_ view: some View) -> some View {
         if showsSearch {
-            view.searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search every conversation")
+            view.searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: Self.searchPrompt(for: typeSize))
         } else {
             view
         }
+    }
+
+    /// UISearchBar reserves a fixed width for its icon and clear button, and at
+    /// `.xxxLarge` — the largest NON-accessibility size, reached well before
+    /// `isAccessibilitySize` — what's left is too narrow for "Search every
+    /// conversation" to lay out at all, so it renders no placeholder rather than
+    /// truncating it. The rest of the sidebar already scales fine at that size;
+    /// only the search bar's own placeholder needs the shorter word.
+    static func searchPrompt(for size: DynamicTypeSize) -> String {
+        size >= .xxLarge ? "Search" : "Search every conversation"
     }
 
     private func sheetsAndAlerts(_ view: some View) -> some View {
