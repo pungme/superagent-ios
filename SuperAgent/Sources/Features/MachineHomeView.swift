@@ -76,7 +76,7 @@ struct ConnectionPill: View {
         switch state { case .connected: Theme.working; case .connecting: Theme.needsYou; default: Theme.textTertiary }
     }
     static func label(for state: Connection.State) -> String {
-        switch state { case .connected: "Live"; case .connecting: "Connecting"; case .machineOffline: "Mac asleep"; default: "Offline" }
+        switch state { case .connected: "Live"; case .connecting: "Connecting"; case .machineOffline: "Mac asleep"; case .quotaExhausted: "Relay limit hit — back at midnight UTC"; default: "Offline" }
     }
     var body: some View {
         HStack(spacing: 5) {
@@ -90,7 +90,7 @@ struct ConnectionPill: View {
         switch state { case .connected: Theme.working; case .connecting: Theme.needsYou; default: Theme.textTertiary }
     }
     private var label: String {
-        switch state { case .connected: "Live"; case .connecting: "Connecting"; case .machineOffline: "Mac asleep"; default: "Offline" }
+        switch state { case .connected: "Live"; case .connecting: "Connecting"; case .machineOffline: "Mac asleep"; case .quotaExhausted: "Relay limit hit — back at midnight UTC"; default: "Offline" }
     }
 }
 
@@ -127,6 +127,7 @@ struct ConnectionBanner: View {
     private var icon: String {
         switch connection.state {
         case .machineOffline: "moon.zzz"
+        case .quotaExhausted: "gauge.badge.minus"
         case .failed: "exclamationmark.triangle"
         default: "wifi.slash"
         }

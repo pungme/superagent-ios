@@ -66,6 +66,8 @@ final class Connection {
         case connecting
         case connected
         case machineOffline
+        /** The Mac is fine; the relay's daily data budget is spent (resets midnight UTC). */
+        case quotaExhausted
         case failed(String)
     }
 
@@ -175,7 +177,12 @@ final class Connection {
         case .text(let text):
             if text.hasPrefix("{") {
                 // Relay's own frames arrive in the clear.
-                if text.contains("\"offline\"") { state = .machineOffline }
+                if text.contains("\"offline\"") {
+                    // The relay says WHY when it knows: a Mac locked out for
+                    // spending the day's byte budget is not asleep, and
+                    // telling someone to go wake it wastes their walk.
+                    state = text.contains("\"quota\"") ? .quotaExhausted : .machineOffline
+                }
                 if text.contains("\"usage\"") { readUsage(text) }
                 return
             }
@@ -185,11 +192,12 @@ final class Connection {
         case .closed(let code, let reason):
             transport = nil
             pingTask?.cancel()
-            if state != .machineOffline {
+            if state != .machineOffline && state != .quotaExhausted {
                 state = wantConnected ? .connecting : .idle
             }
             if !reason.isEmpty { lastError = reason }
             if code == 4404 { state = .machineOffline }
+            if code == 4413 { state = .quotaExhausted }
             scheduleReconnect()
         }
     }
@@ -197,7 +205,7 @@ final class Connection {
     private func scheduleReconnect() {
         guard wantConnected else { return }
         reconnectTask?.cancel()
-        let delay = min(30.0, pow(2.0, Double(min(attempt, 5)))) * (state == .machineOffline ? 3 : 1)
+        let delay = min(30.0, pow(2.0, Double(min(attempt, 5)))) * (state == .machineOffline || state == .quotaExhausted ? 3 : 1)
         attempt += 1
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
