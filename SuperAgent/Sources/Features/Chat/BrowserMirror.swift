@@ -281,7 +281,14 @@ struct SimulatorMirror: View {
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(Theme.panel)
         }
-        .task(id: paused) { await loop() }
+        // Keyed on scenePhase as well as paused, so backgrounding the app
+        // cancels the poll — the browser mirror already did this; the simulator
+        // one did not, and kept polling (a JPEG a second) while the phone was
+        // asleep. That is what quietly drained the relay's daily budget
+        // overnight with nobody watching. Only poll while actually on screen.
+        .task(id: [paused, scenePhase != .active].description) {
+            if !paused, scenePhase == .active { await loop() }
+        }
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await refresh(force: true) } } }
     }
 
