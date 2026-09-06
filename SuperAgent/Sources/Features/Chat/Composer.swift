@@ -74,6 +74,10 @@ struct Composer: View {
     /// mid-task. Flushed by the working→false change below.
     struct Held: Identifiable { let id = UUID(); let text: String }
     @State private var held: [Held] = []
+    /// The inline "send now / send when it finishes" menu, opened by a long-press.
+    @State private var sendMenu = false
+    /// Set by the long-press so the tap SwiftUI fires afterwards is swallowed.
+    @State private var didLongPress = false
 
     private static func draftKey(_ chatID: String) -> String { "draft:" + chatID }
 
@@ -118,6 +122,10 @@ struct Composer: View {
     private func holdForLater() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // Nothing running to wait for → just send it. Otherwise queue it; the
+        // working→false change flushes it. (Only a queue that can actually be
+        // flushed — queuing while idle would sit for ever.)
+        guard working else { submit(); return }
         held.append(Held(text: draft))
         dictationSpent = true
         draft = ""
@@ -286,7 +294,11 @@ struct Composer: View {
                     .accessibilityLabel("Stop")
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 }
-                Button(action: submit) {
+                Button {
+                    // A long-press opened the menu; swallow the tap that follows.
+                    if didLongPress { didLongPress = false; return }
+                    submit()
+                } label: {
                     Image(systemName: "arrow.up").superFont(15, weight: .bold)
                         .frame(width: well, height: well)
                         .background(canSend ? Theme.accent : Theme.accentSoft, in: Circle())
@@ -296,18 +308,28 @@ struct Composer: View {
                 .disabled(!canSend)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .accessibilityLabel("Send")
-                // A tap sends now. Long-press opens a menu to confirm sending
-                // AFTER the agent finishes (only offered while it is working —
-                // otherwise there is nothing to wait for). You can queue several;
-                // each shows a cancelable pill and they go in order when it ends.
-                .contextMenu {
-                    if working && canSend {
-                        Button { holdForLater() } label: {
-                            Label("Send when it finishes", systemImage: "clock")
-                        }
+                // A tap sends now. A long-press opens a small inline menu to
+                // choose "send now" vs "send when it finishes" — inline, not a
+                // system context menu, so the keyboard stays up. Both options
+                // always show; "when it finishes" just sends now if nothing is
+                // running (see holdForLater).
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                        guard canSend else { return }
+                        didLongPress = true
+                        sendMenu = true
+                        Haptics.tap()
                     }
-                    Button { submit() } label: { Label("Send now", systemImage: "arrow.up") }
-                        .disabled(!canSend)
+                )
+                .overlay(alignment: .bottomTrailing) {
+                    if sendMenu {
+                        SendMenu(
+                            onLater: { sendMenu = false; holdForLater() },
+                            onNow: { sendMenu = false; submit() },
+                            onDismiss: { sendMenu = false }
+                        )
+                        .offset(y: -(well + 8))
+                    }
                 }
             }
             .padding(.horizontal, 12)
@@ -447,5 +469,44 @@ struct ProviderMark: View {
             Image("ClaudeMark").renderingMode(.original).resizable().scaledToFit()
                 .frame(width: size, height: size)
         }
+    }
+}
+
+/// The little "send now / send when it finishes" menu shown on a long-press of
+/// Send. Inline (an overlay), not a system context menu, so the keyboard is not
+/// dismissed while you decide.
+private struct SendMenu: View {
+    let onLater: () -> Void
+    let onNow: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: onLater) {
+                Label("Send when it finishes", systemImage: "clock")
+                    .superFont(14).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+            }
+            Divider()
+            Button(action: onNow) {
+                Label("Send now", systemImage: "arrow.up")
+                    .superFont(14).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Theme.textPrimary)
+        .frame(width: 230)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.border))
+        .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        // Tap anywhere else to dismiss, without stealing the keyboard.
+        .background(
+            Color.clear
+                .frame(width: 3000, height: 3000)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onDismiss)
+        )
+        .fixedSize()
     }
 }
