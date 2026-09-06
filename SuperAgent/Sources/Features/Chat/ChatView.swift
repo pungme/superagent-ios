@@ -198,7 +198,13 @@ struct ChatView: View {
                 guard scenePhase == .active else { return }
                 while !Task.isCancelled {
                     if connection.state == .connected {
-                        backgroundTasks = (try? await connection.backgroundTasks(chatId: chat.id)) ?? backgroundTasks
+                        let next = (try? await connection.backgroundTasks(chatId: chat.id)) ?? backgroundTasks
+                        // Only assign when it actually changed. A @State write
+                        // always re-renders, and re-rendering this view re-lays-out
+                        // the whole non-lazy transcript — every 2s, for nothing,
+                        // which on an iPad's big screen is a visible hitch that
+                        // makes typing and tapping feel slow.
+                        if next != backgroundTasks { backgroundTasks = next }
                     }
                     try? await Task.sleep(for: .seconds(2))
                 }
