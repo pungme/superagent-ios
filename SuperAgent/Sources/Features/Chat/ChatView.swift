@@ -260,6 +260,7 @@ struct ChatView: View {
                     TurnView(connection: connection, turn: turn, pendingApprovals: pendingApprovals,
                              answer: answer, choose: { send(text: $0, fromComposer: false) },
                              reply: beginReply)
+                        .equatable()
                 }
                 ForEach(transcript.outbox) { msg in
                     OutgoingRow(message: msg,

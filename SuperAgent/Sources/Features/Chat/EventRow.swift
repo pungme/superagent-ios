@@ -2,7 +2,14 @@ import Foundation
 import SwiftUI
 
 /// One turn: the user's message, the collapsed steps, the reply, a quiet footer.
-struct TurnView: View {
+///
+/// Equatable so SwiftUI can skip a turn whose content has not changed. Without
+/// it, any re-render of the transcript (a streamed delta, a poll, activity in
+/// another chat) re-runs EVERY turn's body — which re-parses all their Markdown.
+/// Comparing turn + its pending-approval state means an unchanged turn does
+/// nothing while a reply streams into the tail. The closures and `connection`
+/// are deliberately not compared: they are stable for the life of the chat.
+struct TurnView: View, Equatable {
     /// Only so a picture on a message this phone did not send can be fetched
     /// from the Mac; nothing else down here talks to it.
     let connection: Connection
@@ -12,6 +19,10 @@ struct TurnView: View {
     let choose: (String) -> Void
     /// Hold a message to answer that one specifically.
     let reply: (ReplyQuote) -> Void
+
+    nonisolated static func == (lhs: TurnView, rhs: TurnView) -> Bool {
+        lhs.turn == rhs.turn && lhs.pendingApprovals == rhs.pendingApprovals
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

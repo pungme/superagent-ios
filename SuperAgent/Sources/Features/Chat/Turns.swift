@@ -3,7 +3,7 @@ import Foundation
 /// The transcript, regrouped the way the desktop shows it: each user message
 /// starts a turn; inside a turn, runs of tool activity collapse into one
 /// "steps" row between the assistant's messages.
-struct Turn: Identifiable {
+struct Turn: Identifiable, Equatable {
     let id: String
     var items: [TurnItem]
     var cost: Double?
@@ -16,7 +16,7 @@ struct Turn: Identifiable {
     }
 }
 
-enum TurnItem: Identifiable {
+enum TurnItem: Identifiable, Equatable {
     case event(WireEvent)
     case steps(StepGroup)
 
@@ -29,7 +29,7 @@ enum TurnItem: Identifiable {
 }
 
 /// Consecutive tool calls, edits, results and thoughts.
-struct StepGroup: Identifiable {
+struct StepGroup: Identifiable, Equatable {
     let id: String
     var events: [WireEvent]
 
