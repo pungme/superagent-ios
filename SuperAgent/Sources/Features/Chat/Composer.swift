@@ -323,15 +323,20 @@ struct Composer: View {
                     HStack(spacing: 8) {
                 Menu {
                     Button { onProvider("claude") } label: {
-                        Label { Text("Claude Code") } icon: { if provider != "codex" { Image(systemName: "checkmark") } }
+                        Label {
+                            Text(provider != "codex" ? "✓ Claude Code" : "Claude Code")
+                        } icon: { Image("ClaudeMark").renderingMode(.original) }
                     }
                     Button { onProvider("codex") } label: {
-                        Label { Text("Codex") } icon: { if provider == "codex" { Image(systemName: "checkmark") } }
+                        Label {
+                            Text(provider == "codex" ? "✓ Codex" : "Codex")
+                        } icon: { Image("OpenAIMark").renderingMode(.template) }
                     }
                 } label: {
                     ControlPill {
                         HStack(spacing: 4) {
                             Text("Agent").foregroundStyle(Theme.textTertiary)
+                            ProviderMark(provider: provider, size: 13)
                             Text(provider == "codex" ? "Codex" : "Claude Code")
                             Image(systemName: "chevron.down").superFont(9, weight: .bold)
                         }
@@ -428,4 +433,22 @@ struct PickedFile: Identifiable, Equatable {
     let id = UUID()
     let name: String
     let data: Data
+}
+
+/// The agent's brand mark — Anthropic's sunburst (its own orange) for Claude,
+/// OpenAI's blossom (tinted) for Codex — so which backend a chat runs on is
+/// legible at a glance, in the Agent pill and its menu. Assets are vector SVGs
+/// in the catalog (ClaudeMark / OpenAIMark).
+struct ProviderMark: View {
+    let provider: String
+    var size: CGFloat = 14
+    var body: some View {
+        if provider == "codex" {
+            Image("OpenAIMark").renderingMode(.template).resizable().scaledToFit()
+                .frame(width: size, height: size).foregroundStyle(Theme.textSecondary)
+        } else {
+            Image("ClaudeMark").renderingMode(.original).resizable().scaledToFit()
+                .frame(width: size, height: size)
+        }
+    }
 }
