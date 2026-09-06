@@ -69,6 +69,14 @@ struct Composer: View {
     /// revision used to type the sent message straight back in.
     @State private var dictationSpent = false
 
+    /// "Send when it's done": messages the user chose (by holding Send while the
+    /// agent is working) to hold until the turn finishes, rather than interject
+    /// mid-task. Flushed by the working→false change below.
+    struct Held: Identifiable { let id = UUID(); let text: String }
+    @State private var held: [Held] = []
+    /// Set by the long-press so the tap that follows it does not also fire.
+    @State private var didLongPress = false
+
     private static func draftKey(_ chatID: String) -> String { "draft:" + chatID }
 
     private func loadDraft() {
@@ -104,6 +112,21 @@ struct Composer: View {
         }
     }
 
+    /// Hold Send while the agent is working to send AFTER it finishes, instead
+    /// of interjecting mid-task. Captures the text, clears the composer; the
+    /// pill above shows what's waiting and the working→false change sends it.
+    /// Text only — an attachment mid-run is rare and the composer's images live
+    /// on ChatView, which send() reads at flush time anyway.
+    private func holdForLater() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        held.append(Held(text: draft))
+        dictationSpent = true
+        draft = ""
+        saveDraft()
+        Haptics.tap()
+    }
+
     private var canSend: Bool {
         (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !files.isEmpty)
     }
@@ -118,6 +141,26 @@ struct Composer: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            if !held.isEmpty {
+                VStack(spacing: 4) {
+                    ForEach(held) { m in
+                        HStack(spacing: 8) {
+                            Image(systemName: "clock").superFont(12).foregroundStyle(Theme.accent)
+                            Text(m.text).superFont(13).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                            Spacer(minLength: 6)
+                            Text("sends when done").superFont(11).foregroundStyle(Theme.textTertiary)
+                            Button { held.removeAll { $0.id == m.id } } label: {
+                                Image(systemName: "xmark.circle.fill").superFont(13).foregroundStyle(Theme.textTertiary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.border))
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
             if !matchingCommands.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -245,7 +288,12 @@ struct Composer: View {
                     .accessibilityLabel("Stop")
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 }
-                Button(action: submit) {
+                Button {
+                    // A hold already acted (queued, or sent when idle); swallow
+                    // the tap that SwiftUI fires on release after a long press.
+                    if didLongPress { didLongPress = false; return }
+                    submit()
+                } label: {
                     Image(systemName: "arrow.up").superFont(15, weight: .bold)
                         .frame(width: well, height: well)
                         .background(canSend ? Theme.accent : Theme.accentSoft, in: Circle())
@@ -255,6 +303,15 @@ struct Composer: View {
                 .disabled(!canSend)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .accessibilityLabel("Send")
+                // Hold to send after the agent finishes (queue instead of
+                // interject). Idle, a hold is just a normal send.
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                        guard canSend else { return }
+                        didLongPress = true
+                        if working { holdForLater() } else { submit() }
+                    }
+                )
             }
             .padding(.horizontal, 12)
 
@@ -350,6 +407,18 @@ struct Composer: View {
             if !t.isEmpty { draft = t }
         }
         .onChange(of: dictation.listening) { _, on in if on { dictationSpent = false } }
+        // The turn finished: send everything held. Sending one starts the next
+        // turn (working flips true again), so a later hold waits for the next
+        // finish — no interleaving. Not on a manual Stop path: stopping is the
+        // user taking over, and the agent going quiet after a stop still flips
+        // working false; that is acceptable — a held message is one you wanted
+        // sent when it settled, and a stop settles it.
+        .onChange(of: working) { _, isWorking in
+            guard !isWorking, !held.isEmpty else { return }
+            let batch = held
+            held = []
+            for m in batch { onSend(m.text) }
+        }
     }
 }
 
