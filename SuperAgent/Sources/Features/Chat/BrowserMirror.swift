@@ -83,6 +83,12 @@ struct BrowserMirror: View {
                 Button(action: open) { Image(systemName: "arrow.right.circle.fill").superFont(compact ? 16 : 20) }
                     .tint(Theme.textPrimary).accessibilityLabel("Open")
             }
+            // Close in the top-right, matching the desktop. Reopenable via the
+            // Show bar. Was only a chevron in the toolbar below — not recognised.
+            if let onHide {
+                Button(action: onHide) { Image(systemName: "xmark").superFont(compact ? 12 : 14, weight: .semibold) }
+                    .buttonStyle(.plain).tint(Theme.textTertiary).accessibilityLabel("Close the page")
+            }
         }
         .padding(.horizontal, compact ? 10 : 12).padding(.vertical, compact ? 6 : 9)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -98,10 +104,6 @@ struct BrowserMirror: View {
             if let onExpand {
                 Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                     .accessibilityLabel("Open full screen")
-            }
-            if let onHide {
-                Button(action: onHide) { Image(systemName: "chevron.up") }
-                    .tint(Theme.textSecondary).accessibilityLabel("Hide the page")
             }
             Spacer()
             if let title = shot?.title, !title.isEmpty, !compact {
@@ -258,6 +260,13 @@ struct SimulatorMirror: View {
                 Text(device).superFont(13).lineLimit(1).foregroundStyle(Theme.textSecondary)
                 Spacer(minLength: 8)
                 if sending { ProgressView().controlSize(.mini) }
+                // A close in the top-right, where the desktop puts it, so the
+                // pane is obviously dismissable — the chevron in the toolbar
+                // below was a hide nobody recognised. Reopenable via the Show bar.
+                if let onHide {
+                    Button(action: onHide) { Image(systemName: "xmark").superFont(13, weight: .semibold) }
+                        .buttonStyle(.plain).tint(Theme.textTertiary).accessibilityLabel("Close the simulator")
+                }
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(Theme.panel)
@@ -267,10 +276,6 @@ struct SimulatorMirror: View {
             HStack(spacing: 18) {
                 Button { Task { await refresh(force: true) } } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.plain).tint(Theme.textSecondary)
-                if let onHide {
-                    Button(action: onHide) { Image(systemName: "chevron.up") }
-                        .buttonStyle(.plain).tint(Theme.textSecondary).accessibilityLabel("Hide the simulator")
-                }
                 Spacer()
                 if let onAttach, let data = image?.jpegData(compressionQuality: 0.8) {
                     Button { onAttach(data) } label: { Image(systemName: "paperclip") }
