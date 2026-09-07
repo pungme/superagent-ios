@@ -20,6 +20,9 @@ enum ShareInbox {
         var text: String
         /// File name (inside the inbox directory) of the shared image, if any.
         var imageFile: String?
+        /// New shares keep every selected image in one message. `imageFile`
+        /// remains above so inboxes written by older builds still decode.
+        var imageFiles: [String]? = nil
         var ts: Double
         /// Where this should go, when the share sheet already decided: the
         /// app delivers it silently on next launch instead of asking. nil
@@ -39,6 +42,11 @@ enum ShareInbox {
 
     @discardableResult
     static func save(text: String, imageData: Data? = nil, destination: Item? = nil) -> Item? {
+        save(text: text, imageDatas: imageData.map { [$0] } ?? [], destination: destination)
+    }
+
+    @discardableResult
+    static func save(text: String, imageDatas: [Data], destination: Item? = nil) -> Item? {
         guard let dir else { return nil }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let id = UUID().uuidString
@@ -49,15 +57,14 @@ enum ShareInbox {
             item.chatId = destination.chatId
             item.note = destination.note
         }
-        if let imageData {
-            let name = id + ".img"
-            do {
-                try imageData.write(to: dir.appendingPathComponent(name))
-                item.imageFile = name
-            } catch {
-                // The words still go through; the picture is best-effort.
+        var files: [String] = []
+        for (index, imageData) in imageDatas.enumerated() {
+            let name = id + "-\(index).img"
+            if (try? imageData.write(to: dir.appendingPathComponent(name))) != nil {
+                files.append(name)
             }
         }
+        item.imageFiles = files.isEmpty ? nil : files
         if let data = try? JSONEncoder().encode(item) {
             try? data.write(to: dir.appendingPathComponent(id + ".json"))
         }
@@ -83,14 +90,22 @@ enum ShareInbox {
     }
 
     static func imageData(_ item: Item) -> Data? {
-        guard let dir, let file = item.imageFile else { return nil }
-        return try? Data(contentsOf: dir.appendingPathComponent(file))
+        imageDatas(item).first
+    }
+
+    static func imageDatas(_ item: Item) -> [Data] {
+        guard let dir else { return [] }
+        let files = item.imageFiles ?? item.imageFile.map { [$0] } ?? []
+        return files.compactMap { try? Data(contentsOf: dir.appendingPathComponent($0)) }
     }
 
     static func remove(_ item: Item) {
         guard let dir else { return }
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(item.id + ".json"))
         if let file = item.imageFile {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(file))
+        }
+        for file in item.imageFiles ?? [] {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(file))
         }
     }

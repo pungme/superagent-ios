@@ -40,6 +40,7 @@ private struct ShareSheet: View {
     @State private var machines = MachineStore.load()
     @State private var snapshot = ShareSnapshot.load()
     @State private var machineId: String?
+    @State private var expandedProjects: Set<String> = []
     @State private var sending = false
     @State private var status: String?
 
@@ -84,18 +85,25 @@ private struct ShareSheet: View {
 
     private var picker: some View {
         List {
-            Section {
+            Section("Shared item") {
                 HStack(spacing: 10) {
                     if let data = payload.images.first, let img = UIImage(data: data) {
                         Image(uiImage: img).resizable().scaledToFill()
                             .frame(width: 40, height: 40)
                             .clipShape(RoundedRectangle(cornerRadius: 7))
                     }
-                    Text(payload.isEmpty && !loaded ? "Reading…" : (payload.text.isEmpty ? "Image" : payload.text))
+                    Text(payload.isEmpty && !loaded ? "Reading…" : (payload.text.isEmpty ? "\(payload.images.count) photo\(payload.images.count == 1 ? "" : "s")" : payload.text))
                         .font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(2)
                 }
+            }
+            Section("Your message") {
                 TextField("Add a message (optional)", text: $note, axis: .vertical)
                     .lineLimit(1...4)
+            }
+            Section("Text sent to the agent") {
+                Text(messageText.isEmpty ? "Photos only — no text" : messageText)
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
             if machines.count > 1 {
                 Section {
@@ -108,12 +116,21 @@ private struct ShareSheet: View {
                 }
             }
             if let slice {
-                ForEach(slice.workspaces) { ws in
-                    Section(ws.name) {
-                        row(label: "New chat", system: "plus.bubble") { send(workspaceId: ws.id, chatId: nil) }
-                        ForEach(chats(in: ws)) { chat in
-                            row(label: chat.title ?? "Untitled chat", system: "bubble.left") {
-                                send(workspaceId: ws.id, chatId: chat.id)
+                ForEach(groups(in: slice)) { group in
+                    Section(group.name.uppercased()) {
+                        ForEach(workspaces(in: group, slice: slice)) { ws in
+                            DisclosureGroup(isExpanded: Binding(
+                                get: { expandedProjects.contains(ws.id) },
+                                set: { if $0 { expandedProjects.insert(ws.id) } else { expandedProjects.remove(ws.id) } }
+                            )) {
+                                row(label: "New chat", system: "plus.bubble") { send(workspaceId: ws.id, chatId: nil) }
+                                ForEach(chats(in: ws)) { chat in
+                                    row(label: chat.title ?? "Untitled chat", system: "bubble.left") {
+                                        send(workspaceId: ws.id, chatId: chat.id)
+                                    }
+                                }
+                            } label: {
+                                Label(ws.name, systemImage: "folder")
                             }
                         }
                     }
@@ -131,6 +148,7 @@ private struct ShareSheet: View {
         }
         .disabled(sending || !loaded)
         .overlay { if sending { ProgressView() } }
+        .onAppear { if let slice { expandedProjects = Set(slice.workspaces.map(\.id)) } }
     }
 
     private func row(label: String, system: String, action: @escaping () -> Void) -> some View {
@@ -141,6 +159,16 @@ private struct ShareSheet: View {
 
     private func chats(in ws: ShareSnapshot.Workspace) -> [ShareSnapshot.Chat] {
         (slice?.chats ?? []).filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private func groups(in slice: ShareSnapshot.Machine) -> [ShareSnapshot.Group] {
+        if let groups = slice.groups, !groups.isEmpty { return groups }
+        return [.init(id: "projects", name: "Projects")]
+    }
+
+    private func workspaces(in group: ShareSnapshot.Group, slice: ShareSnapshot.Machine) -> [ShareSnapshot.Workspace] {
+        guard slice.groups?.isEmpty == false else { return slice.workspaces }
+        return slice.workspaces.filter { $0.groupId == group.id }
     }
 
     private var messageText: String {
@@ -157,21 +185,18 @@ private struct ShareSheet: View {
         Task {
             let conn = Connection(machine: machine)
             conn.connect()
-            let connected = await waitConnected(conn, timeout: 8)
+            let connected = await conn.waitUntilConnected()
             if connected {
                 do {
                     let target: String
                     if let chatId { target = chatId } else {
                         target = try await conn.createChat(workspaceId: workspaceId)
                     }
-                    conn.sendMessage(
+                    try await conn.sendMessageNow(
                         chatId: target,
                         text: messageText,
-                        images: payload.images.map { (mediaType: "image/jpeg", data: $0) }
+                        images: relaySafeImages()
                     )
-                    // sendMessage queues into the outbox and delivers async;
-                    // give the frames a moment to leave before the process dies.
-                    try? await Task.sleep(for: .seconds(1))
                     finish("Sent")
                     return
                 } catch {
@@ -187,24 +212,8 @@ private struct ShareSheet: View {
         }
     }
 
-    private func waitConnected(_ conn: Connection, timeout: Double) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if case .connected = conn.state { return true }
-            if case .failed = conn.state { return false }
-            try? await Task.sleep(for: .milliseconds(150))
-        }
-        return false
-    }
-
     private func stash(destination: ShareInbox.Item?) {
-        if payload.images.isEmpty {
-            ShareInbox.save(text: payload.text, destination: destination)
-        } else {
-            for (i, data) in payload.images.enumerated() {
-                ShareInbox.save(text: i == 0 ? payload.text : "", imageData: data, destination: destination)
-            }
-        }
+        ShareInbox.save(text: payload.text, imageDatas: payload.images, destination: destination)
     }
 
     private func finish(_ message: String) {
@@ -217,7 +226,7 @@ private struct ShareSheet: View {
 
     private func ingest() async {
         var texts: [String] = []
-        var images: [Data] = []
+        var images: [UIImage] = []
         for p in providers {
             if p.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                 if let url = try? await p.loadItem(forTypeIdentifier: UTType.url.identifier) as? URL {
@@ -227,8 +236,8 @@ private struct ShareSheet: View {
                 // Whatever arrived — HEIC, PNG, screenshot — leaves as JPEG,
                 // the one format every agent accepts.
                 if let data = await loadData(p, type: UTType.image.identifier),
-                   let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85) {
-                    images.append(jpeg)
+                   let image = UIImage(data: data) {
+                    images.append(image)
                 }
             } else if p.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
                 if let s = try? await p.loadItem(forTypeIdentifier: UTType.plainText.identifier) as? String {
@@ -236,8 +245,33 @@ private struct ShareSheet: View {
                 }
             }
         }
-        payload = SharedPayload(text: texts.joined(separator: "\n"), images: images)
+        let each = 480_000 / max(1, images.count)
+        payload = SharedPayload(text: texts.joined(separator: "\n"), images: images.compactMap { compress($0, maxBytes: each) })
         loaded = true
+    }
+
+    private func relaySafeImages() -> [(mediaType: String, data: Data)] {
+        payload.images.map { (mediaType: "image/jpeg", data: $0) }
+    }
+
+    private func compress(_ source: UIImage, maxBytes: Int) -> Data? {
+        var image = resized(source, maxSide: 1600)
+        var quality: CGFloat = 0.82
+        var data = image.jpegData(compressionQuality: quality) ?? Data()
+        while data.count > maxBytes, max(image.size.width, image.size.height) >= 200 {
+            if quality > 0.5 { quality -= 0.12 }
+            else { image = resized(image, maxSide: max(image.size.width, image.size.height) * 0.75); quality = 0.7 }
+            data = image.jpegData(compressionQuality: quality) ?? Data()
+        }
+        return data
+    }
+
+    private func resized(_ image: UIImage, maxSide: CGFloat) -> UIImage {
+        let scale = min(1, maxSide / max(image.size.width, image.size.height))
+        guard scale < 1 else { return image }
+        let size = CGSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat.default(); format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
     }
 
     private func loadData(_ p: NSItemProvider, type: String) async -> Data? {

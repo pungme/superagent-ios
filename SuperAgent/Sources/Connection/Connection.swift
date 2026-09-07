@@ -224,15 +224,16 @@ final class Connection {
     /// Keep the share extension's picker current: it reads this file, never
     /// the network, so the picker appears instantly inside other apps.
     private func writeShareSnapshot() {
-        let workspaces = tree
-            .filter { $0.id != "computer" }
-            .flatMap(\.workspaces)
-            .map { ShareSnapshot.Workspace(id: $0.id, name: $0.name) }
+        let projectGroups = tree.filter { $0.id != "computer" }
+        let workspaces = projectGroups.flatMap { group in
+            group.workspaces.map { ShareSnapshot.Workspace(id: $0.id, name: $0.name, groupId: group.id) }
+        }
         let snapChats = chats.map {
             ShareSnapshot.Chat(id: $0.id, workspaceId: $0.workspaceId, title: $0.title, updatedAt: $0.updatedAt)
         }
         ShareSnapshot.update(machine: .init(
-            id: machine.id, name: machine.name, workspaces: workspaces, chats: snapChats
+            id: machine.id, name: machine.name, workspaces: workspaces, chats: snapChats,
+            groups: projectGroups.map { .init(id: $0.id, name: $0.name) }
         ))
     }
 
@@ -378,6 +379,16 @@ final class Connection {
         return try JSONDecoder().decode(T.self, from: data.isEmpty ? Data("null".utf8) : data)
     }
 
+    func waitUntilConnected(timeout: TimeInterval = 8) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if state == .connected { return true }
+            if case .failed = state { return false }
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        return false
+    }
+
     private func timeOut(_ id: String) {
         if let c = pending.removeValue(forKey: id) {
             c.resume(throwing: RpcError(code: "timeout", message: "the Mac did not answer"))
@@ -401,6 +412,23 @@ final class Connection {
         t.outbox.append(msg)
         transcripts[chatId] = t
         Task { await deliver(chatId: chatId, id: msg.id) }
+    }
+
+    /// Send and wait until the Mac accepts the message. Share extensions can
+    /// be terminated as soon as they complete, so an unobserved delivery Task
+    /// is not sufficient there.
+    func sendMessageNow(chatId: String, text: String,
+                        images: [(mediaType: String, data: Data)] = []) async throws {
+        var params: [String: JSONValue] = [
+            "chatId": .string(chatId), "text": .string(text),
+            "localId": .string("S-" + UUID().uuidString.prefix(8))
+        ]
+        if !images.isEmpty {
+            params["images"] = .array(images.map {
+                .object(["mediaType": .string($0.mediaType), "data": .string($0.data.base64EncodedString())])
+            })
+        }
+        _ = try await rpc("chat.send", .object(params))
     }
 
     func retry(chatId: String, id: String) {

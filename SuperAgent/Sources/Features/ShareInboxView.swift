@@ -144,11 +144,10 @@ private struct ShareDestinationSheet: View {
                 if let chatId { target = chatId } else {
                     target = try await connection.createChat(workspaceId: ws.id)
                 }
-                let images: [(mediaType: String, data: Data)] =
-                    ShareInbox.imageData(item).map { [(mediaType: "image/jpeg", data: $0)] } ?? []
+                let images = ShareInbox.imageDatas(item).map { (mediaType: "image/jpeg", data: $0) }
                 let words = note.trimmingCharacters(in: .whitespacesAndNewlines)
                 let text = words.isEmpty ? item.text : (item.text.isEmpty ? words : words + "\n\n" + item.text)
-                connection.sendMessage(chatId: target, text: text, images: images)
+                try await connection.sendMessageNow(chatId: target, text: text, images: images)
                 Haptics.tap()
                 dismiss()
                 onDone(true)

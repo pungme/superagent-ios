@@ -95,7 +95,7 @@ targets:
             NSExtensionActivationRule:
               NSExtensionActivationSupportsWebURLWithMaxCount: 1
               NSExtensionActivationSupportsText: true
-              NSExtensionActivationSupportsImageWithMaxCount: 4
+              NSExtensionActivationSupportsImageWithMaxCount: 10
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pungme.superagent.ios.share

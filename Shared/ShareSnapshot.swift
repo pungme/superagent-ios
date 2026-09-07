@@ -18,6 +18,12 @@ enum ShareSnapshot {
     struct Workspace: Codable, Identifiable, Hashable {
         var id: String
         var name: String
+        var groupId: String? = nil
+    }
+
+    struct Group: Codable, Identifiable, Hashable {
+        var id: String
+        var name: String
     }
 
     struct Machine: Codable, Identifiable, Hashable {
@@ -25,6 +31,7 @@ enum ShareSnapshot {
         var name: String
         var workspaces: [Workspace]
         var chats: [Chat]
+        var groups: [Group]? = nil
     }
 
     private static var url: URL? {

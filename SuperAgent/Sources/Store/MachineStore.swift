@@ -23,16 +23,16 @@ enum MachineStore {
 
     static func load() -> [PairedMachine] {
         guard let data = read() ?? readFile() else { return [] }
+        // The extension has a separate Keychain sandbox. Keep a protected
+        // app-group mirror current whenever the main app can read the pairing.
+        writeFile(data)
         return (try? JSONDecoder().decode([PairedMachine].self, from: data)) ?? []
     }
 
     static func save(_ machines: [PairedMachine]) {
         guard let data = try? JSONEncoder().encode(machines) else { return }
-        if !write(data) {
-            // The keychain can refuse (simulator without entitlements, restricted
-            // profiles). Fall back to a protected file so pairing still sticks.
-            writeFile(data)
-        }
+        _ = write(data)
+        writeFile(data)
     }
 
     // MARK: File fallback (complete-until-first-unlock protection)

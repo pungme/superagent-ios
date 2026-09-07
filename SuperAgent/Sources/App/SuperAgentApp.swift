@@ -22,13 +22,9 @@ struct SuperAgentApp: App {
                   let machine = app.machines.first(where: { $0.id == machineId }) else { continue }
             let conn = app.connection(for: machine)
             conn.connect()
-            // Read the picture BEFORE removing — remove deletes the file too,
-            // and a failed send must be able to put the whole item back.
-            let imageData = ShareInbox.imageData(item)
-            ShareInbox.remove(item)
             Task {
-                let images: [(mediaType: String, data: Data)] =
-                    imageData.map { [(mediaType: "image/jpeg", data: $0)] } ?? []
+                guard await conn.waitUntilConnected() else { return }
+                let images = ShareInbox.imageDatas(item).map { (mediaType: "image/jpeg", data: $0) }
                 let note = item.note ?? ""
                 let text = note.isEmpty ? item.text : (item.text.isEmpty ? note : note + "\n\n" + item.text)
                 let target: String
@@ -36,13 +32,17 @@ struct SuperAgentApp: App {
                     target = chatId
                 } else {
                     guard let created = try? await conn.createChat(workspaceId: workspaceId) else {
-                        // The Mac is still away; requeue whole for next launch.
-                        ShareInbox.save(text: item.text, imageData: imageData, destination: item)
                         return
                     }
                     target = created
                 }
-                conn.sendMessage(chatId: target, text: text, images: images)
+                do {
+                    try await conn.sendMessageNow(chatId: target, text: text, images: images)
+                    ShareInbox.remove(item)
+                } catch {
+                    // Keep the original inbox item and its image for the next
+                    // foreground attempt. Never turn a failed send into loss.
+                }
             }
         }
     }
