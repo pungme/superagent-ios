@@ -95,6 +95,17 @@ struct Composer: View {
         }
     }
 
+    /// Add the image currently on the iOS pasteboard through the same
+    /// downscaling/encoding path as Photo Library attachments.
+    private func pasteImage() {
+        guard let image = UIPasteboard.general.image,
+              let data = image.jpegData(compressionQuality: 0.9),
+              let attachment = Attachment(imageData: data)
+        else { return }
+        attachments.append(attachment)
+        Haptics.tap()
+    }
+
     /// Send from the composer: clear here, hand the text up. The second clear a
     /// run-loop turn later is for an uncommitted autocorrect suggestion — UIKit
     /// still owns marked text at send and puts its buffer back over the first
@@ -227,6 +238,10 @@ struct Composer: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
                 Menu {
+                    Button(action: pasteImage) {
+                        Label("Paste Image", systemImage: "doc.on.clipboard")
+                    }
+                    .disabled(!UIPasteboard.general.hasImages)
                     Button { showPhotoPicker = true } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
                     Button { showFilePicker = true } label: { Label("Choose a File", systemImage: "doc") }
                 } label: {
@@ -334,12 +349,10 @@ struct Composer: View {
             }
             .padding(.horizontal, 12)
 
-            HStack(spacing: 8) {
-                // Same reasoning as the project bar: at the accessibility sizes
-                // two pills no longer fit across a phone, and "M… D…" tells you
-                // nothing about which model you are on.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
+            // Every pill belongs to the same strip. Memory used to sit outside
+            // this ScrollView and stay pinned over Model/Mode on narrow phones.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
                 Menu {
                     Button { onProvider("claude") } label: {
                         Label {
@@ -354,7 +367,6 @@ struct Composer: View {
                 } label: {
                     ControlPill {
                         HStack(spacing: 4) {
-                            Text("Agent").foregroundStyle(Theme.textTertiary)
                             ProviderMark(provider: provider, size: 13)
                             Text(provider == "codex" ? "Codex" : "Claude Code")
                             Image(systemName: "chevron.down").superFont(9, weight: .bold)
@@ -379,9 +391,6 @@ struct Composer: View {
                 } label: {
                     ControlPill { HStack(spacing: 4) { Text("Mode").foregroundStyle(Theme.textTertiary); Text(Composer.modes.first { $0.id == mode }?.label ?? "Full"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
-                    }
-                }
-                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
                 if let context {
                     let pct = min(100, Int((Double(context.used) / Double(max(1, context.window)) * 100).rounded()))
                     // The desktop's Memory gauge, at pill size: how much of the
@@ -406,9 +415,11 @@ struct Composer: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Memory \(pct) percent — \(context.used) of \(context.window) tokens")
                 }
-                if let e = dictation.error { Text(e).superFont(11).foregroundStyle(Theme.danger).lineLimit(1) }
+                }
             }
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .padding(.horizontal, 12)
+            if let e = dictation.error { Text(e).superFont(11).foregroundStyle(Theme.danger).lineLimit(1) }
         }
         .padding(.top, 8).padding(.bottom, 8)
         .background(Theme.content)
