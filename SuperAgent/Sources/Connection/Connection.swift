@@ -13,6 +13,8 @@ struct Transcript: Sendable {
     /// actually resolved to — what the meter under the composer draws.
     var contextTokens: Int?
     var model: String?
+    /// Models reported by this running session (Codex supplies these).
+    var models: [WireModelOption] = []
     /// Messages this phone has sent that the Mac hasn't echoed back yet. They
     /// render immediately; the echo (a `user` event with our id) retires them.
     var outbox: [Outgoing] = []
@@ -27,8 +29,9 @@ struct Transcript: Sendable {
         case let .turnEnd(_, _, _, _, ctx):
             streaming = ""
             if let ctx { contextTokens = ctx }
-        case let .session(_, model, _):
+        case let .session(_, model, _, models):
             if let model { self.model = model }
+            if !models.isEmpty { self.models = models }
         case .user(let id, _, _, _, _): outbox.removeAll { $0.id == id }
         default: break
         }
@@ -269,7 +272,7 @@ final class Connection {
             state = .failed(reason)
             wantConnected = reason == "version" ? false : wantConnected
         case .event(let e):
-            if case let .session(_, _, cmds) = e.data, !cmds.isEmpty { commands[e.chatId] = cmds }
+            if case let .session(_, _, cmds, _) = e.data, !cmds.isEmpty { commands[e.chatId] = cmds }
             var t = transcripts[e.chatId] ?? Transcript()
             if !t.apply(e) {
                 // Gap: ask again from what we have.
@@ -834,7 +837,8 @@ extension Connection {
             ("c5", "computer", "Rename the screenshots on my desktop", "All 34, by the date they were taken.", now - 90_000_000, false)
         ]
         c.chats = rows.map { id, wsId, title, preview, at, live in
-            WireChat(id: id, workspaceId: wsId, title: title, updatedAt: at, live: live, preview: preview)
+            WireChat(id: id, workspaceId: wsId, title: title, updatedAt: at, live: live, preview: preview,
+                     provider: id == "c2" ? "codex" : nil)
         }
         // Two of them have moved since this phone last looked.
         c.unread.note(c.chats.map { var x = $0; if x.id == "c1" || x.id == "c3" { x.updatedAt -= 600_000 }; return x })
@@ -856,6 +860,10 @@ extension Connection {
         }
         t.lastSeq = seq
         c.transcripts["c1"] = t
+        c.transcripts["c2"] = Transcript(models: [
+            .init(id: "gpt-5.6-codex", label: "GPT-5.6 Codex", hint: "Best coding model"),
+            .init(id: "gpt-5.6-mini", label: "GPT-5.6 Mini", hint: "Fast and efficient")
+        ])
         // Connected, without a socket: the harness is for looking at the app as
         // it is when everything is working.
         c.state = .connected

@@ -399,10 +399,15 @@ struct ChatView: View {
             working: isWorking, commands: connection.commands[chat.id] ?? [],
             context: contextReading,
             model: modelBinding, mode: modeBinding,
+            sessionModels: connection.transcripts[chat.id]?.models ?? [],
             provider: connection.chats.first(where: { $0.id == chat.id })?.provider ?? "claude",
             onProvider: { p in
                 Task {
-                    do { try await connection.setAgent(chatId: chat.id, provider: p); Haptics.tap() }
+                    do {
+                        app.preferredModel = ""
+                        try await connection.setAgent(chatId: chat.id, provider: p)
+                        Haptics.tap()
+                    }
                     catch { self.error = error.localizedDescription }
                 }
             },
@@ -412,9 +417,10 @@ struct ChatView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
+        let providerName = connection.chats.first(where: { $0.id == chat.id })?.isCodex == true ? "Codex" : "Claude"
+        return VStack(spacing: 8) {
             Image(systemName: "sparkles").superFont(28).foregroundStyle(Theme.textTertiary)
-            Text("Message Claude about \(workspace.name)")
+            Text("Message \(providerName) about \(workspace.name)")
                 .font(.subheadline.weight(.medium)).foregroundStyle(Theme.textSecondary)
             Text("It runs on your Mac; you'll see every step here.")
                 .font(.footnote).foregroundStyle(Theme.textTertiary)
@@ -692,9 +698,8 @@ struct ChatView: View {
             // The quote belongs to the message it went with, not to the next one.
             let quote = fromComposer ? replyTarget : nil
             if fromComposer { replyTarget = nil }
-            let onCodex = connection.chats.first(where: { $0.id == chat.id })?.isCodex ?? false
             connection.sendMessage(chatId: chat.id, text: text, images: images,
-                                   model: onCodex || app.preferredModel.isEmpty ? nil : app.preferredModel,
+                                   model: app.preferredModel.isEmpty ? nil : app.preferredModel,
                                    mode: app.preferredMode,
                                    replyTo: quote)
         }

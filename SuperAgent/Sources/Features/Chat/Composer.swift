@@ -34,6 +34,9 @@ struct Composer: View {
     let context: (used: Int, window: Int)?
     @Binding var model: String
     @Binding var mode: String
+    /// Codex reports the models available to this account when its session
+    /// starts. Claude uses the curated list below.
+    let sessionModels: [WireModelOption]
     /// Which agent this conversation runs on, and how to move it. Codex exposes
     /// its account default here; permission modes are shared by both agents.
     let provider: String
@@ -49,11 +52,12 @@ struct Composer: View {
     /// @FocusState here left all three dead, since nothing outside could see it.
     var focused: FocusState<Bool>.Binding
 
-    static let models: [(id: String, label: String, hint: String)] = [
-        ("", "Default", "Whatever your account uses"),
-        ("opus", "Opus", "Deepest reasoning"),
-        ("sonnet", "Sonnet", "Fast and capable"),
-        ("haiku", "Haiku", "Quickest, cheapest")
+    static let models: [WireModelOption] = [
+        .init(id: "", label: "Default", hint: "Recommended · best for everyday, complex tasks"),
+        .init(id: "opus[1m]", label: "Opus", hint: "Opus 5 · 1M context · everyday, complex tasks"),
+        .init(id: "fable", label: "Fable", hint: "Fable 5 · most capable, for the hardest, longest tasks"),
+        .init(id: "sonnet[1m]", label: "Sonnet", hint: "Sonnet 5 · efficient for routine tasks"),
+        .init(id: "haiku", label: "Haiku", hint: "Haiku 4.5 · fastest for quick answers")
     ]
     static let modes: [(id: String, label: String, hint: String)] = [
         ("bypassPermissions", "Full", "Runs commands and edits, like your terminal"),
@@ -155,6 +159,11 @@ struct Composer: View {
         guard let q = slashQuery else { return [] }
         return commands.filter { q.isEmpty || $0.localizedCaseInsensitiveContains(q) }.prefix(6).map { $0 }
     }
+    private var availableModels: [WireModelOption] {
+        if provider != "codex" { return Self.models }
+        return [.init(id: "", label: "Default", hint: "Whatever your account uses")] + sessionModels
+    }
+    private var providerName: String { provider == "codex" ? "Codex" : "Claude" }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -266,7 +275,7 @@ struct Composer: View {
                 }
 
                 HStack(alignment: .bottom, spacing: 6) {
-                    TextField(dictation.listening ? "Listening…" : "Message Claude…", text: $draft, axis: .vertical)
+                    TextField(dictation.listening ? "Listening…" : "Message \(providerName)…", text: $draft, axis: .vertical)
                         .lineLimit(1...6)
                         .superFont(15.5)
                         .textFieldStyle(.plain)
@@ -374,13 +383,13 @@ struct Composer: View {
                     }
                 }
                 Menu {
-                    ForEach(provider == "codex" ? Array(Composer.models.prefix(1)) : Composer.models, id: \.id) { m in
+                    ForEach(availableModels) { m in
                         Button { model = m.id } label: {
                             Label { Text(m.label); Text(m.hint) } icon: { if model == m.id { Image(systemName: "checkmark") } }
                         }
                     }
                 } label: {
-                    ControlPill { HStack(spacing: 4) { Text("Model").foregroundStyle(Theme.textTertiary); Text(provider == "codex" ? "Default" : (Composer.models.first { $0.id == model }?.label ?? "Default")); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                    ControlPill { HStack(spacing: 4) { Text("Model").foregroundStyle(Theme.textTertiary); Text(availableModels.first { $0.id == model }?.label ?? "Default"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
                 Menu {
                     ForEach(Composer.modes, id: \.id) { m in

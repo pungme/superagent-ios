@@ -17,6 +17,12 @@ struct ImageMeta: Codable, Hashable, Sendable {
     var size: Int
 }
 
+struct WireModelOption: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var label: String
+    var hint: String
+}
+
 enum ApprovalOutcome: String, Codable, Sendable { case approved, denied, expired }
 enum Origin: String, Codable, Sendable { case desktop, ios }
 
@@ -43,7 +49,7 @@ enum WireEventData: Hashable, Sendable {
     /// prompt will carry. `tokens` sums the whole turn, which can exceed the
     /// window several times over; the meter wants the former.
     case turnEnd(ok: Bool, subtype: String, costUsd: Double?, tokens: Int?, contextTokens: Int?)
-    case session(claudeSessionId: String, model: String?, commands: [String])
+    case session(claudeSessionId: String, model: String?, commands: [String], models: [WireModelOption])
     case notice(text: String)
     /// A file the agent handed over: a generated PDF, an export, a report.
     case file(id: String, path: String, name: String, workspaceId: String?, size: Int?, mediaType: String?)
@@ -74,7 +80,7 @@ enum WireEventData: Hashable, Sendable {
 extension WireEventData: Codable {
     private enum K: String, CodingKey {
         case kind, id, text, images, from, name, detail, toolId, ok, summary, file, hunks, path, size, mediaType, workspaceId, replyTo
-        case subtype, costUsd, tokens, contextTokens, claudeSessionId, model, commands, toolName, preview, approvalKind, expiresAt, outcome, by, task
+        case subtype, costUsd, tokens, contextTokens, claudeSessionId, model, commands, models, toolName, preview, approvalKind, expiresAt, outcome, by, task
     }
 
     init(from decoder: Decoder) throws {
@@ -119,7 +125,8 @@ extension WireEventData: Codable {
             self = .session(
                 claudeSessionId: try c.decode(String.self, forKey: .claudeSessionId),
                 model: try c.decodeIfPresent(String.self, forKey: .model),
-                commands: try c.decodeIfPresent([String].self, forKey: .commands) ?? [])
+                commands: try c.decodeIfPresent([String].self, forKey: .commands) ?? [],
+                models: try c.decodeIfPresent([WireModelOption].self, forKey: .models) ?? [])
         case "file":
             // Decoded a field at a time: as one call the type checker gave up.
             let fileId = try c.decode(String.self, forKey: .id)
@@ -177,9 +184,10 @@ extension WireEventData: Codable {
         case let .turnEnd(ok, subtype, costUsd, tokens, contextTokens):
             try c.encode(ok, forKey: .ok); try c.encode(subtype, forKey: .subtype)
             try c.encodeIfPresent(costUsd, forKey: .costUsd); try c.encodeIfPresent(tokens, forKey: .tokens); try c.encodeIfPresent(contextTokens, forKey: .contextTokens)
-        case let .session(sid, model, commands):
+        case let .session(sid, model, commands, models):
             try c.encode(sid, forKey: .claudeSessionId); try c.encodeIfPresent(model, forKey: .model)
             if !commands.isEmpty { try c.encode(commands, forKey: .commands) }
+            if !models.isEmpty { try c.encode(models, forKey: .models) }
         case let .notice(text):
             try c.encode(text, forKey: .text)
         case let .approval(id, toolName, preview, approvalKind, expiresAt):

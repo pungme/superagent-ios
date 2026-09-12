@@ -62,7 +62,7 @@ struct TurnTests {
     @Test func groupsConsecutiveStepsInsideATurn() {
         let events = [
             ev(1, .user(id: "u", text: "go", images: [], from: .ios, replyTo: nil)),
-            ev(2, .session(claudeSessionId: "s", model: nil, commands: [])),
+            ev(2, .session(claudeSessionId: "s", model: nil, commands: [], models: [])),
             ev(3, .assistant(id: "a1", text: "Looking.")),
             ev(4, .tool(id: "t1", name: "Bash", detail: "ls", task: nil)),
             ev(5, .toolResult(toolId: "t1", ok: true, summary: "")),
@@ -103,9 +103,20 @@ struct FixtureFieldTests {
         #expect(tree[0].workspaces[0].branch == "main")
         #expect(tree[0].workspaces[1].isBrowser && tree[0].workspaces[1].host == "en.wikipedia.org")
         #expect(chats[0].preview == "Done — tests pass.")
-        guard case let .session(_, _, commands) = f.events[0].data else { Issue.record("session"); return }
+        guard case let .session(_, _, commands, _) = f.events[0].data else { Issue.record("session"); return }
         #expect(commands == ["compact", "review"])
     }
+}
+
+@Test func decodesModelsReportedByCodexSession() throws {
+    let json = #"{"chatId":"c1","seq":1,"ts":1,"data":{"kind":"session","claudeSessionId":"thread-1","model":"gpt-5.6-codex","models":[{"id":"gpt-5.6-codex","label":"GPT-5.6 Codex","hint":"Best coding model"}]}}"#
+    let event = try JSONDecoder().decode(WireEvent.self, from: Data(json.utf8))
+    guard case let .session(_, model, _, models) = event.data else {
+        Issue.record("expected session")
+        return
+    }
+    #expect(model == "gpt-5.6-codex")
+    #expect(models == [.init(id: "gpt-5.6-codex", label: "GPT-5.6 Codex", hint: "Best coding model")])
 }
 
 @Test func outboxRetiredByEcho() throws {
