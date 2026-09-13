@@ -15,7 +15,9 @@ struct ChatsListView: View {
     @State private var error: String?
 
     private var chats: [WireChat] {
-        connection.chats.filter { $0.workspaceId == workspace.id }.sorted { $0.updatedAt > $1.updatedAt }
+        connection.chats.filter { $0.workspaceId == workspace.id }.sorted {
+            $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned
+        }
     }
 
     /// One conversation. Named rather than inline: this body was 296ms to
@@ -31,6 +33,7 @@ struct ChatsListView: View {
                         .superFont(14.5, weight: .medium)
                         .foregroundStyle(Theme.textPrimary)
                         .lineLimit(1)
+                    if chat.isPinned { Image(systemName: "pin.fill").superFont(10).foregroundStyle(Theme.textTertiary) }
                     if chat.live { ProgressView().controlSize(.mini) }
                     UnreadDot(on: connection.unread.isUnread(chat))
                     Spacer()
@@ -49,6 +52,12 @@ struct ChatsListView: View {
         }
         .buttonStyle(.plain)
         .listRowBackground(Theme.card)
+        .contextMenu {
+            Button { togglePin(chat) } label: {
+                Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
+            }
+            Button(role: .destructive) { deleting = chat } label: { Label("Delete", systemImage: "trash") }
+        }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { deleting = chat } label: { Label("Delete", systemImage: "trash") }
             Button { newTitle = chat.title ?? ""; renaming = chat } label: { Label("Rename", systemImage: "pencil") }
@@ -121,6 +130,13 @@ struct ChatsListView: View {
                 if let c = connection.chats.first(where: { $0.id == id }) { open(c) }
                 Haptics.tap()
             } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    private func togglePin(_ chat: WireChat) {
+        Task {
+            do { try await connection.pinChat(chatId: chat.id, pinned: !chat.isPinned); Haptics.tap() }
+            catch { self.error = error.localizedDescription }
         }
     }
 }

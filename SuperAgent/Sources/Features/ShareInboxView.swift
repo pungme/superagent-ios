@@ -133,7 +133,9 @@ private struct ShareDestinationSheet: View {
     }
 
     private func chats(in ws: WireWorkspace) -> [WireChat] {
-        connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
+        connection.chats.filter { $0.workspaceId == ws.id }.sorted {
+            $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned
+        }
     }
 
     private func send(to chatId: String?, in ws: WireWorkspace) {

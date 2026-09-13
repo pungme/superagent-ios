@@ -35,7 +35,9 @@ struct ProjectRow: View {
         case .needsYou: return "Needs you"
         case .idle:
             let live = chats.filter(\.live).count
-            if let p = chats.sorted(by: { $0.updatedAt > $1.updatedAt }).first?.preview, !p.isEmpty { return p }
+            if let p = chats.sorted(by: {
+                $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned
+            }).first?.preview, !p.isEmpty { return p }
             if live > 0 { return "\(live) running" }
             return chats.isEmpty ? "No conversations yet" : "\(chats.count) conversation\(chats.count == 1 ? "" : "s")"
         }

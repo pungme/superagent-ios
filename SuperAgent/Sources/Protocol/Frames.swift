@@ -259,6 +259,7 @@ struct WireChat: Codable, Hashable, Sendable, Identifiable {
     var workspaceId: String
     var title: String?
     var updatedAt: Double
+    var pinned: Bool? = nil
     var live: Bool
     var preview: String?
     /// Which copy of the project this chat is in: "" for the project folder
@@ -274,6 +275,7 @@ struct WireChat: Codable, Hashable, Sendable, Identifiable {
     /// to start. nil from a Mac too old to say.
     var provider: String?
     var isCodex: Bool { provider == "codex" }
+    var isPinned: Bool { pinned == true }
     /// The conversation in the project folder — what the project row opens.
     /// The same test the Mac's sidebar makes: in the folder, and staying there.
     var isFolderChat: Bool { cwd == "" && pending != true }

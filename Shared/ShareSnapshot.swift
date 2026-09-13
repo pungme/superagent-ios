@@ -13,6 +13,7 @@ enum ShareSnapshot {
         var workspaceId: String
         var title: String?
         var updatedAt: Double
+        var pinned: Bool? = nil
     }
 
     struct Workspace: Codable, Identifiable, Hashable {

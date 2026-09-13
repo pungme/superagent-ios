@@ -383,7 +383,7 @@ struct SidebarView: View {
         let claimed = Set(trees.compactMap(\.chatId))
         return connection.chats
             .filter { $0.workspaceId == ws.id && !claimed.contains($0.id) }
-            .sorted { $0.updatedAt > $1.updatedAt }
+            .sorted { $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned }
     }
 
     /// One branch of a project. The conversation is what you look for, so it
@@ -450,7 +450,7 @@ struct SidebarView: View {
     @ViewBuilder
     private var activitySection: some View {
         let names = projectNames
-        let recent = connection.chats.sorted { $0.updatedAt > $1.updatedAt }
+        let recent = connection.chats.sorted { $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned }
         Section {
             if recent.isEmpty {
                 Text("Nothing here yet.").superFont(13).foregroundStyle(Theme.textTertiary)
@@ -501,6 +501,9 @@ struct SidebarView: View {
         // beside it, "which one am I in" is otherwise unanswerable.
         .listRowBackground(chat.id == openId ? Theme.hover : Theme.card)
         .contextMenu {
+            Button { togglePin(chat) } label: {
+                Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
+            }
             Button(role: .destructive) {
                 deletingChat = chat
             } label: {
@@ -518,6 +521,7 @@ struct SidebarView: View {
                     Text(chat.title ?? "New chat")
                         .fontWeight(chat.id == openId ? .semibold : .regular)
                         .lineLimit(1)
+                    if chat.isPinned { Image(systemName: "pin.fill").superFont(9).foregroundStyle(Theme.textTertiary) }
                     Spacer()
                     UnreadDot(on: connection.unread.isUnread(chat))
                 }
@@ -525,6 +529,9 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
             .contextMenu {
+                Button { togglePin(chat) } label: {
+                    Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
+                }
                 Button(role: .destructive) {
                     deletingChat = chat
                 } label: {
@@ -549,7 +556,9 @@ struct SidebarView: View {
     /// A project and, under it, the same tree the desktop shows.
     @ViewBuilder
     private func projectRows(_ ws: WireWorkspace) -> some View {
-        let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
+        let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted {
+            $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned
+        }
         let mine = routines.filter { $0.workspaceId == ws.id }
         let repos = ws.subrepos ?? []
         let showChats = chats.count > 1
@@ -734,7 +743,9 @@ struct SidebarView: View {
     /// time out. It looked exactly like the app had frozen, and on an iPad,
     /// where the sidebar never goes away, it looked like it had frozen for good.
     private func openProject(_ ws: WireWorkspace) {
-        let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
+        let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted {
+            $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned
+        }
         // The Mac says which copy of the project each chat is in, so this is
         // the same test the desktop makes on the project row: the chat whose
         // copy IS the folder. A chat on a branch has its own row underneath.
@@ -811,6 +822,10 @@ struct SidebarView: View {
         let title = (chat.title ?? "New chat").trimmingCharacters(in: .whitespacesAndNewlines)
         let shown = title.count > 32 ? title.prefix(32) + "\u{2026}" : Substring(title)
         return "Delete \u{201C}\(shown)\u{201D}"
+    }
+
+    private func togglePin(_ chat: WireChat) {
+        Task { await run { try await connection.pinChat(chatId: chat.id, pinned: !chat.isPinned) } }
     }
 
     private func newChat(in ws: WireWorkspace) {

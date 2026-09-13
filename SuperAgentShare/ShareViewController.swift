@@ -158,7 +158,9 @@ private struct ShareSheet: View {
     }
 
     private func chats(in ws: ShareSnapshot.Workspace) -> [ShareSnapshot.Chat] {
-        (slice?.chats ?? []).filter { $0.workspaceId == ws.id }.sorted { $0.updatedAt > $1.updatedAt }
+        (slice?.chats ?? []).filter { $0.workspaceId == ws.id }.sorted {
+            ($0.pinned == true) == ($1.pinned == true) ? $0.updatedAt > $1.updatedAt : $0.pinned == true
+        }
     }
 
     private func groups(in slice: ShareSnapshot.Machine) -> [ShareSnapshot.Group] {

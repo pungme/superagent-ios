@@ -232,7 +232,8 @@ final class Connection {
             group.workspaces.map { ShareSnapshot.Workspace(id: $0.id, name: $0.name, groupId: group.id) }
         }
         let snapChats = chats.map {
-            ShareSnapshot.Chat(id: $0.id, workspaceId: $0.workspaceId, title: $0.title, updatedAt: $0.updatedAt)
+            ShareSnapshot.Chat(id: $0.id, workspaceId: $0.workspaceId, title: $0.title,
+                               updatedAt: $0.updatedAt, pinned: $0.pinned)
         }
         ShareSnapshot.update(machine: .init(
             id: machine.id, name: machine.name, workspaces: workspaces, chats: snapChats,
@@ -520,6 +521,11 @@ final class Connection {
     func renameChat(chatId: String, title: String) async throws {
         _ = try await rpc("chat.rename", .object(["chatId": .string(chatId), "title": .string(title)]))
         chats = chats.map { var c = $0; if c.id == chatId { c.title = title }; return c }
+    }
+
+    func pinChat(chatId: String, pinned: Bool) async throws {
+        _ = try await rpc("chat.pin", .object(["chatId": .string(chatId), "pinned": .bool(pinned)]))
+        chats = chats.map { var c = $0; if c.id == chatId { c.pinned = pinned }; return c }
     }
 
     func deleteChat(chatId: String) async throws {
