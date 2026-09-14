@@ -94,6 +94,21 @@ private struct ShareDestinationSheet: View {
                         .lineLimit(1...4)
                         .listRowBackground(Theme.card)
                 }
+                if !recentChats.isEmpty {
+                    Section("Recent") {
+                        ForEach(recentChats) { chat in
+                            Button { send(to: chat.id, in: workspace(of: chat)) } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(chat.title ?? "Untitled chat")
+                                        .superFont(14.5).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                                    Text(workspaceName(chat.workspaceId))
+                                        .superFont(12).foregroundStyle(Theme.textTertiary).lineLimit(1)
+                                }
+                            }
+                            .listRowBackground(Theme.card)
+                        }
+                    }
+                }
                 ForEach(workspaces) { ws in
                     Section(ws.name) {
                         Button { send(to: nil, in: ws) } label: {
@@ -136,6 +151,26 @@ private struct ShareDestinationSheet: View {
         connection.chats.filter { $0.workspaceId == ws.id }.sorted {
             $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned
         }
+    }
+
+    /// Across every project, so the chat you were just in is one tap away —
+    /// finding it by opening the right project first is what this skips.
+    private var recentChats: [WireChat] {
+        let ids = Set(workspaces.map(\.id))
+        return Array(
+            connection.chats.filter { ids.contains($0.workspaceId) }.sorted {
+                $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned
+            }
+            .prefix(6)
+        )
+    }
+
+    private func workspace(of chat: WireChat) -> WireWorkspace {
+        workspaces.first { $0.id == chat.workspaceId } ?? workspaces[0]
+    }
+
+    private func workspaceName(_ workspaceId: String) -> String {
+        workspaces.first { $0.id == workspaceId }?.name ?? ""
     }
 
     private func send(to chatId: String?, in ws: WireWorkspace) {

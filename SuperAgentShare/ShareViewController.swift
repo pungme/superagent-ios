@@ -116,6 +116,17 @@ private struct ShareSheet: View {
                 }
             }
             if let slice {
+                if !recentChats(in: slice).isEmpty {
+                    Section("Recent") {
+                        ForEach(recentChats(in: slice)) { chat in
+                            row(
+                                label: chat.title ?? "Untitled chat",
+                                subtitle: workspaceName(chat.workspaceId, in: slice),
+                                system: "bubble.left"
+                            ) { send(workspaceId: chat.workspaceId, chatId: chat.id) }
+                        }
+                    }
+                }
                 ForEach(groups(in: slice)) { group in
                     Section(group.name.uppercased()) {
                         ForEach(workspaces(in: group, slice: slice)) { ws in
@@ -151,9 +162,19 @@ private struct ShareSheet: View {
         .onAppear { if let slice { expandedProjects = Set(slice.workspaces.map(\.id)) } }
     }
 
-    private func row(label: String, system: String, action: @escaping () -> Void) -> some View {
+    private func row(label: String, subtitle: String? = nil, system: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(label, systemImage: system).font(.system(size: 15)).lineLimit(1)
+            if let subtitle {
+                HStack(spacing: 8) {
+                    Image(systemName: system).font(.system(size: 15))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(label).font(.system(size: 15)).lineLimit(1)
+                        Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            } else {
+                Label(label, systemImage: system).font(.system(size: 15)).lineLimit(1)
+            }
         }
     }
 
@@ -161,6 +182,21 @@ private struct ShareSheet: View {
         (slice?.chats ?? []).filter { $0.workspaceId == ws.id }.sorted {
             ($0.pinned == true) == ($1.pinned == true) ? $0.updatedAt > $1.updatedAt : $0.pinned == true
         }
+    }
+
+    /// Across every project, so the chat you were just in is one tap away —
+    /// finding it by opening the right project first is what this skips.
+    private func recentChats(in slice: ShareSnapshot.Machine) -> [ShareSnapshot.Chat] {
+        Array(
+            slice.chats.sorted {
+                ($0.pinned == true) == ($1.pinned == true) ? $0.updatedAt > $1.updatedAt : $0.pinned == true
+            }
+            .prefix(6)
+        )
+    }
+
+    private func workspaceName(_ workspaceId: String, in slice: ShareSnapshot.Machine) -> String {
+        slice.workspaces.first { $0.id == workspaceId }?.name ?? ""
     }
 
     private func groups(in slice: ShareSnapshot.Machine) -> [ShareSnapshot.Group] {

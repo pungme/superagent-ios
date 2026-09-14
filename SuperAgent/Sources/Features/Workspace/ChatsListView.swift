@@ -20,6 +20,12 @@ struct ChatsListView: View {
         }
     }
 
+    /// Pinning used to only mean "sorts first" — a chat already near the top
+    /// changed by nothing but a small glyph, which read as pinning having done
+    /// nothing at all. A real section makes it visible.
+    private var pinnedChats: [WireChat] { chats.filter(\.isPinned) }
+    private var unpinnedChats: [WireChat] { chats.filter { !$0.isPinned } }
+
     /// One conversation. Named rather than inline: this body was 296ms to
     /// type-check, and that limit is a time limit, so a slower machine gives up
     /// where this one does not — which is how it reached Xcode Cloud as errors
@@ -79,7 +85,16 @@ struct ChatsListView: View {
                 Text("No conversations yet.").superFont(13).foregroundStyle(Theme.textTertiary)
                     .listRowBackground(Theme.card)
             }
-            ForEach(chats) { chat in chatRow(chat) }
+            if !pinnedChats.isEmpty {
+                Section("Pinned") {
+                    ForEach(pinnedChats) { chat in chatRow(chat) }
+                }
+            }
+            if !unpinnedChats.isEmpty {
+                Section(pinnedChats.isEmpty ? "" : "Chats") {
+                    ForEach(unpinnedChats) { chat in chatRow(chat) }
+                }
+            }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)

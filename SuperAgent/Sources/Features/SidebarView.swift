@@ -450,13 +450,26 @@ struct SidebarView: View {
     @ViewBuilder
     private var activitySection: some View {
         let names = projectNames
-        let recent = connection.chats.sorted { $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned }
-        Section {
-            if recent.isEmpty {
+        let pinned = connection.chats.filter(\.isPinned).sorted { $0.updatedAt > $1.updatedAt }
+        let rest = connection.chats.filter { !$0.isPinned }.sorted { $0.updatedAt > $1.updatedAt }
+        if connection.chats.isEmpty {
+            Section {
                 Text("Nothing here yet.").superFont(13).foregroundStyle(Theme.textTertiary)
                     .listRowBackground(Theme.card)
             }
-            ForEach(recent) { chat in activityRow(chat, project: names[chat.workspaceId]) }
+        }
+        // Pinning used to only mean "sorts first" — a chat already near the
+        // top changed by nothing but a small glyph, which read as pinning
+        // having done nothing at all. A real section makes it visible.
+        if !pinned.isEmpty {
+            Section("Pinned") {
+                ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId]) }
+            }
+        }
+        if !rest.isEmpty {
+            Section(pinned.isEmpty ? "" : "Chats") {
+                ForEach(rest) { chat in activityRow(chat, project: names[chat.workspaceId]) }
+            }
         }
     }
 
@@ -480,6 +493,7 @@ struct SidebarView: View {
                         Text(chat.title ?? "New chat")
                             .superFont(14.5, weight: .medium)
                             .foregroundStyle(Theme.textPrimary).lineLimit(1)
+                        if chat.isPinned { Image(systemName: "pin.fill").superFont(9).foregroundStyle(Theme.textTertiary) }
                         if chat.live { ProgressView().controlSize(.mini) }
                         Spacer(minLength: 4)
                         Text(Date(timeIntervalSince1970: chat.updatedAt / 1000), format: .relative(presentation: .named))
