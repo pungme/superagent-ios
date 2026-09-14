@@ -1,6 +1,19 @@
 import Foundation
 import SwiftUI
 
+/// The `/loop` skill's own mechanical reminder, appended verbatim to every
+/// round's user message — "(/loop, self-paced: …)" or "(/loop 5m: …)". Split
+/// off the trailing parenthetical so it renders as a note, not as part of
+/// what the user actually typed.
+func splitLoopNote(_ text: String) -> (main: String, note: String?) {
+    guard let range = text.range(of: #"\n\n\(/loop\b[\s\S]*\)\s*$"#, options: .regularExpression) else {
+        return (text, nil)
+    }
+    let note = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+    let main = String(text[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    return (main, note)
+}
+
 /// One turn: the user's message, the collapsed steps, the reply, a quiet footer.
 ///
 /// Equatable so SwiftUI can skip a turn whose content has not changed. Without
@@ -234,17 +247,30 @@ struct EventRow: View {
                     // Mac's copy, every time.
                     SentImagesRow(connection: connection, messageId: messageId, count: images.count)
                     if !text.isEmpty {
-                        Text(text)
-                            .superFont(15.5)
-                            .foregroundStyle(Theme.accentFg)
-                            .padding(.horizontal, 14).padding(.vertical, 9)
-                            .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
-                            .textSelection(.enabled)
-                            .contextMenu {
-                                Button { reply(ReplyQuote(role: .user, text: text)) } label: {
-                                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                        let (mainText, loopNote) = splitLoopNote(text)
+                        if !mainText.isEmpty {
+                            Text(mainText)
+                                .superFont(15.5)
+                                .foregroundStyle(Theme.accentFg)
+                                .padding(.horizontal, 14).padding(.vertical, 9)
+                                .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
+                                .textSelection(.enabled)
+                                .contextMenu {
+                                    Button { reply(ReplyQuote(role: .user, text: text)) } label: {
+                                        Label("Reply", systemImage: "arrowshape.turn.up.left")
+                                    }
                                 }
-                            }
+                        }
+                        // The /loop skill appends this mechanical reminder to every
+                        // round's prompt, in the same plain text as whatever the
+                        // user actually asked for — split it into its own quiet
+                        // note so the request doesn't read as one run-on sentence.
+                        if let loopNote {
+                            Text(loopNote)
+                                .superFont(11).italic()
+                                .foregroundStyle(Theme.textTertiary)
+                                .padding(.horizontal, 4)
+                        }
                     }
                     if from == .ios {
                         Text("from this phone")
@@ -434,12 +460,22 @@ struct OutgoingRow: View {
                     }
                 }
                 if !message.text.isEmpty {
-                    Text(message.text)
-                        .superFont(15.5)
-                        .foregroundStyle(Theme.accentFg)
-                        .padding(.horizontal, 14).padding(.vertical, 9)
-                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
-                        .opacity(failed ? 0.55 : 1)
+                    let (mainText, loopNote) = splitLoopNote(message.text)
+                    if !mainText.isEmpty {
+                        Text(mainText)
+                            .superFont(15.5)
+                            .foregroundStyle(Theme.accentFg)
+                            .padding(.horizontal, 14).padding(.vertical, 9)
+                            .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
+                            .opacity(failed ? 0.55 : 1)
+                    }
+                    if let loopNote {
+                        Text(loopNote)
+                            .superFont(11).italic()
+                            .foregroundStyle(Theme.textTertiary)
+                            .padding(.horizontal, 4)
+                            .opacity(failed ? 0.55 : 1)
+                    }
                 }
                 HStack(spacing: 8) {
                     switch message.status {
