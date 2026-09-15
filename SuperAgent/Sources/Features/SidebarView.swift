@@ -75,6 +75,7 @@ struct SidebarView: View {
                     activitySection
                 } else {
                     machineSection
+                    pinnedShortcutsSection
                     browseSection
                     ForEach(groups) { group in groupSection(group) }
                     newGroupSection
@@ -443,6 +444,21 @@ struct SidebarView: View {
         .listRowBackground(Theme.panel)
         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
         .listRowSeparator(.hidden)
+    }
+
+    /// A pinned chat's whole point is to be reachable without hunting for its
+    /// project first — so in Projects mode it doesn't just sort first within
+    /// its own project's branch tree (still nested groups down); it surfaces
+    /// here, above every group, the same as Computer/Chats.
+    @ViewBuilder
+    private var pinnedShortcutsSection: some View {
+        let names = projectNames
+        let pinned = connection.chats.filter(\.isPinned).sorted { $0.updatedAt > $1.updatedAt }
+        if !pinned.isEmpty {
+            Section("Pinned") {
+                ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId]) }
+            }
+        }
     }
 
     /// Every conversation on this Mac, newest first — no groups, no projects,
