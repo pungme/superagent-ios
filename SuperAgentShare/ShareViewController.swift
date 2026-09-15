@@ -127,6 +127,15 @@ private struct ShareSheet: View {
                         }
                     }
                 }
+                if !recentProjects(in: slice).isEmpty {
+                    Section("New Chat") {
+                        ForEach(recentProjects(in: slice)) { ws in
+                            row(label: ws.name, system: "plus.bubble") {
+                                send(workspaceId: ws.id, chatId: nil)
+                            }
+                        }
+                    }
+                }
                 ForEach(groups(in: slice)) { group in
                     Section(group.name.uppercased()) {
                         ForEach(workspaces(in: group, slice: slice)) { ws in
@@ -197,6 +206,24 @@ private struct ShareSheet: View {
 
     private func workspaceName(_ workspaceId: String, in slice: ShareSnapshot.Machine) -> String {
         slice.workspaces.first { $0.id == workspaceId }?.name ?? ""
+    }
+
+    /// The projects worth a one-tap "New chat" — every project starts
+    /// collapsed here (unlike the in-app share inbox), so without this the
+    /// only way to start something new was to find and expand the right
+    /// project first. Ranked the same way "Recent" ranks chats: most
+    /// recently touched first, via its own newest chat.
+    private func recentProjects(in slice: ShareSnapshot.Machine) -> [ShareSnapshot.Workspace] {
+        var latest: [String: Double] = [:]
+        for chat in slice.chats {
+            latest[chat.workspaceId] = max(latest[chat.workspaceId] ?? 0, chat.updatedAt)
+        }
+        return Array(
+            slice.workspaces
+                .filter { latest[$0.id] != nil }
+                .sorted { (latest[$0.id] ?? 0) > (latest[$1.id] ?? 0) }
+                .prefix(4)
+        )
     }
 
     private func groups(in slice: ShareSnapshot.Machine) -> [ShareSnapshot.Group] {
