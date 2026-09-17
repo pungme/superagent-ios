@@ -36,7 +36,7 @@ struct StepGroup: Identifiable, Equatable {
     var toolCount: Int { events.filter { if case .tool = $0.data { return true }; return false }.count }
     var editCount: Int { events.filter { if case .diff = $0.data { return true }; return false }.count }
     var failed: Int {
-        events.filter { if case let .toolResult(_, ok, _) = $0.data { return !ok }; return false }.count
+        events.filter { if case let .toolResult(_, ok, _, _) = $0.data { return !ok }; return false }.count
     }
     /// "Running ×3 · Reading ×2" — distinct verbs in first-seen order, like the desktop.
     var summary: String {
@@ -105,7 +105,7 @@ enum TurnBuilder {
             case .user:
                 closeTurn()
                 current = Turn(id: e.id, items: [.event(e)], startedAt: e.ts)
-            case .toolResult(let toolId, _, _):
+            case .toolResult(let toolId, _, _, _):
                 if !attachResult(e, toolId: toolId) {
                     if group == nil { group = StepGroup(id: "g-\(e.id)", events: []) }
                     group!.events.append(e)

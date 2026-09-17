@@ -43,7 +43,10 @@ enum WireEventData: Hashable, Sendable {
     case assistant(id: String, text: String)
     case thinking(id: String, text: String)
     case tool(id: String, name: String, detail: String, task: TaskInfo?)
-    case toolResult(toolId: String, ok: Bool, summary: String)
+    /// `images`: a screenshot tool's own picture, or one Claude's Read opened —
+    /// fetched over chat.image keyed by this toolId, same store a message's
+    /// own sent pictures use.
+    case toolResult(toolId: String, ok: Bool, summary: String, images: [ImageMeta])
     case diff(id: String, file: String, hunks: [DiffHunk])
     /// `contextTokens` is the live context when the turn ended — what the next
     /// prompt will carry. `tokens` sums the whole turn, which can exceed the
@@ -108,7 +111,8 @@ extension WireEventData: Codable {
             self = .toolResult(
                 toolId: try c.decode(String.self, forKey: .toolId),
                 ok: try c.decodeIfPresent(Bool.self, forKey: .ok) ?? true,
-                summary: try c.decodeIfPresent(String.self, forKey: .summary) ?? "")
+                summary: try c.decodeIfPresent(String.self, forKey: .summary) ?? "",
+                images: try c.decodeIfPresent([ImageMeta].self, forKey: .images) ?? [])
         case "diff":
             self = .diff(
                 id: try c.decode(String.self, forKey: .id),
@@ -170,8 +174,9 @@ extension WireEventData: Codable {
         case let .tool(id, name, detail, task):
             try c.encode(id, forKey: .id); try c.encode(name, forKey: .name); try c.encode(detail, forKey: .detail)
             try c.encodeIfPresent(task, forKey: .task)
-        case let .toolResult(toolId, ok, summary):
+        case let .toolResult(toolId, ok, summary, images):
             try c.encode(toolId, forKey: .toolId); try c.encode(ok, forKey: .ok); try c.encode(summary, forKey: .summary)
+            if !images.isEmpty { try c.encode(images, forKey: .images) }
         case let .file(id, path, name, workspaceId, size, mediaType):
             try c.encode(id, forKey: .id)
             try c.encode(path, forKey: .path)

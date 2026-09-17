@@ -28,7 +28,7 @@ enum TaskList {
                 } else if name == "TaskUpdate", let id = task.taskId, let st = task.status {
                     status[id] = st
                 }
-            case let .toolResult(toolId, _, summary):
+            case let .toolResult(toolId, _, summary, _):
                 if created.contains(where: { $0.toolId == toolId }), let m = summary.firstMatch(of: /#(\d+)/) {
                     idByTool[toolId] = String(m.1)
                 }

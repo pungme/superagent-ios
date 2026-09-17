@@ -44,7 +44,7 @@ struct TurnView: View, Equatable {
                 case .event(let e):
                     EventRow(connection: connection, event: e, pending: pendingApprovals.contains(approvalId(e) ?? ""), answer: answer, choose: choose, reply: reply)
                 case .steps(let g):
-                    StepGroupRow(group: g)
+                    StepGroupRow(connection: connection, group: g)
                 }
             }
         }
@@ -57,6 +57,7 @@ struct TurnView: View, Equatable {
 }
 
 struct StepGroupRow: View {
+    let connection: Connection
     let group: StepGroup
     @State private var open = false
 
@@ -82,7 +83,9 @@ struct StepGroupRow: View {
             .buttonStyle(.plain)
             if open {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(group.events) { e in StepRow(event: e, result: result(for: e)) }
+                    ForEach(group.events) { e in
+                        StepRow(connection: connection, event: e, result: result(for: e))
+                    }
                 }
                 .padding(.leading, 16)
             }
@@ -103,13 +106,14 @@ struct StepGroupRow: View {
         case .diff(let i, _, _): id = i
         default: return nil
         }
-        for r in group.events { if case let .toolResult(toolId, ok, summary) = r.data, toolId == id { return (ok, summary) } }
+        for r in group.events { if case let .toolResult(toolId, ok, summary, _) = r.data, toolId == id { return (ok, summary) } }
         return nil
     }
 }
 
 /// One tool call / edit / thought inside an expanded step group.
 struct StepRow: View {
+    let connection: Connection
     let event: WireEvent
     let result: (ok: Bool, summary: String)?
 
@@ -145,8 +149,10 @@ struct StepRow: View {
                 Label("Thought", systemImage: "sparkle").superFont(12.5).foregroundStyle(Theme.textTertiary)
             }
             .tint(Theme.textTertiary)
-        case .toolResult:
-            EmptyView()
+        case let .toolResult(toolId, _, _, images):
+            if !images.isEmpty {
+                SentImagesRow(connection: connection, messageId: toolId, count: images.count)
+            }
         default:
             EmptyView()
         }
@@ -611,13 +617,17 @@ struct ConnectionFloat: View {
     }
 }
 
-/// The pictures a message was sent with.
+/// Pictures attached to something in the transcript — a message sent with
+/// them, or a tool result that produced one (a screenshot, a Read on an
+/// image file). Keyed generically by whatever id the wire event carries
+/// (a message id or a toolId), since both are looked up the same way.
 ///
-/// The thumbnails are this phone's own (see SentImages) — the transcript event
-/// carries only how many there were, because the bytes went to the agent rather
-/// than into the log. When there is no thumbnail to show — a message sent from
-/// the Mac, or one whose cache the system has reclaimed — it says how many
-/// there were, which is what the whole row used to be.
+/// A sent message's own thumbnails are this phone's (see SentImages) — the
+/// transcript event carries only how many there were, because the bytes went
+/// to the agent rather than into the log. A tool result never has a local
+/// copy at all. Either way, when there is no thumbnail to show, the Mac
+/// keeps one beside the log for exactly this — ask for it rather than
+/// showing "1 image" as grey text forever.
 struct SentImagesRow: View {
     let connection: Connection
     let messageId: String
@@ -653,7 +663,7 @@ struct SentImagesRow: View {
                         }
                     }
                     .frame(maxWidth: shots.count == 1 ? 132 : 270)
-                    .accessibilityLabel("\(count) image\(count == 1 ? "" : "s") you sent")
+                    .accessibilityLabel("\(count) image\(count == 1 ? "" : "s")")
                 }
             }
         }

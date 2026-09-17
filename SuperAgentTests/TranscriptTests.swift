@@ -65,7 +65,7 @@ struct TurnTests {
             ev(2, .session(claudeSessionId: "s", model: nil, commands: [], models: [])),
             ev(3, .assistant(id: "a1", text: "Looking.")),
             ev(4, .tool(id: "t1", name: "Bash", detail: "ls", task: nil)),
-            ev(5, .toolResult(toolId: "t1", ok: true, summary: "")),
+            ev(5, .toolResult(toolId: "t1", ok: true, summary: "", images: [])),
             ev(6, .tool(id: "t2", name: "Read", detail: "a.ts", task: nil)),
             ev(7, .diff(id: "t3", file: "a.ts", hunks: [])),
             ev(8, .assistant(id: "a2", text: "Done.")),
@@ -87,7 +87,7 @@ struct TurnTests {
         #expect(StepGroup.verb(for: "Write") == "Editing")
         let g = StepGroup(id: "g", events: [
             WireEvent(chatId: "c", seq: 1, ts: 0, data: .tool(id: "t", name: "Bash", detail: "", task: nil)),
-            WireEvent(chatId: "c", seq: 2, ts: 0, data: .toolResult(toolId: "t", ok: false, summary: "boom"))
+            WireEvent(chatId: "c", seq: 2, ts: 0, data: .toolResult(toolId: "t", ok: false, summary: "boom", images: []))
         ])
         #expect(g.failed == 1)
     }
@@ -117,6 +117,17 @@ struct FixtureFieldTests {
     }
     #expect(model == "gpt-5.6-codex")
     #expect(models == [.init(id: "gpt-5.6-codex", label: "GPT-5.6 Codex", hint: "Best coding model")])
+}
+
+@Test func decodesAToolResultsScreenshot() throws {
+    let json = #"{"chatId":"c1","seq":1,"ts":1,"data":{"kind":"tool_result","toolId":"t1","ok":true,"summary":"","images":[{"mediaType":"image/png","size":3}]}}"#
+    let event = try JSONDecoder().decode(WireEvent.self, from: Data(json.utf8))
+    guard case let .toolResult(toolId, ok, _, images) = event.data else {
+        Issue.record("expected tool_result")
+        return
+    }
+    #expect(toolId == "t1" && ok)
+    #expect(images == [ImageMeta(mediaType: "image/png", size: 3)])
 }
 
 @Test func outboxRetiredByEcho() throws {
