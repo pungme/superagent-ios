@@ -1,3 +1,4 @@
+import GameController
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -27,6 +28,15 @@ struct ChatView: View {
     @State private var files: [PickedFile] = []
     @State private var backgroundTasks: [WireBackgroundTask] = []
     @State private var dictation = Dictation()
+    /// A hardware keyboard connected (an iPad's Magic Keyboard, a Bluetooth
+    /// one) means there is no real on-screen keyboard about to cover the
+    /// composer — only the system's own thin shortcuts strip floating above
+    /// it. SwiftUI's automatic keyboard-avoidance does not know that: it
+    /// still reserves room as though the full software keyboard were coming,
+    /// so focusing the composer shoved the whole conversation upward for
+    /// nothing. Tracked here so `conversation` can turn that avoidance off
+    /// exactly when it would otherwise lie.
+    @State private var hardwareKeyboardAttached = GCKeyboard.coalesced != nil
     /// The dictated text that has already been dealt with. Speech results are
     /// asynchronous, and the last one — often the final, tidied-up version —
     /// lands AFTER you have tapped send. That put the message you just sent
@@ -499,6 +509,18 @@ struct ChatView: View {
             if !backgroundTasks.isEmpty { backgroundStrip }
             Divider().overlay(Theme.border)
             composer
+        }
+        // See hardwareKeyboardAttached: with one connected, ignoring the
+        // keyboard's safe area stops SwiftUI reserving room for a software
+        // keyboard that was never going to appear. Empty edges is a no-op,
+        // so a real on-screen keyboard still gets its usual room.
+        .ignoresSafeArea(.keyboard, edges: hardwareKeyboardAttached ? .bottom : [])
+        .onAppear { hardwareKeyboardAttached = GCKeyboard.coalesced != nil }
+        .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidConnect)) { _ in
+            hardwareKeyboardAttached = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidDisconnect)) { _ in
+            hardwareKeyboardAttached = GCKeyboard.coalesced != nil
         }
     }
 
