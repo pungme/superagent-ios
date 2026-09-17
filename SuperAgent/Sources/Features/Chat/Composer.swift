@@ -121,11 +121,17 @@ struct Composer: View {
         draft = ""
         saveDraft()
         onSend(text)
+        // A hardware Return key resigns first responder as its own default
+        // UIKit behavior on iPad, a run-loop turn after this closure returns —
+        // after `.onKeyPress` already marked the key `.handled`, so it's not
+        // something that guard prevents. Re-assert focus once that's had its
+        // turn, or every hardware-keyboard send left the field needing a tap.
         Task { @MainActor in
             if !draft.isEmpty {
                 draft = ""
                 saveDraft()
             }
+            focused.wrappedValue = true
         }
     }
 
@@ -279,6 +285,12 @@ struct Composer: View {
                         .lineLimit(1...6)
                         .superFont(15.5)
                         .textFieldStyle(.plain)
+                        // Off, not just spellcheck: on iPadOS with a hardware
+                        // keyboard attached, autocorrection is what draws the
+                        // QuickType suggestion strip above the keys. A coding
+                        // agent's prompts are not prose it should be guessing
+                        // at, so leaving it on made the strip is pure clutter.
+                        .autocorrectionDisabled()
                         .focused(focused)
                         // A hardware keyboard's Return sends, as it does on the
                         // Mac. A vertical-axis TextField treats Return as a
