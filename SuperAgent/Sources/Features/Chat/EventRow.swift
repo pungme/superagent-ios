@@ -670,6 +670,7 @@ struct SentImagesRow: View {
     let messageId: String
     let count: Int
     @State private var shots: [UIImage] = []
+    @State private var viewerIndex: Int?
 
     var body: some View {
         Group {
@@ -688,7 +689,7 @@ struct SentImagesRow: View {
                                        count: shots.count == 1 ? 1 : 2),
                         spacing: 6
                     ) {
-                        ForEach(Array(shots.enumerated()), id: \.offset) { _, image in
+                        ForEach(Array(shots.enumerated()), id: \.offset) { i, image in
                             Image(uiImage: image)
                                 .resizable().scaledToFill()
                                 .aspectRatio(1, contentMode: .fit)
@@ -697,10 +698,18 @@ struct SentImagesRow: View {
                                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                                         .stroke(Theme.border, lineWidth: 1)
                                 }
+                                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .onTapGesture { viewerIndex = i }
                         }
                     }
                     .frame(maxWidth: shots.count == 1 ? 132 : 270)
                     .accessibilityLabel("\(count) image\(count == 1 ? "" : "s")")
+                    .fullScreenCover(item: Binding(
+                        get: { viewerIndex.map { IdentifiedInt(value: $0) } },
+                        set: { viewerIndex = $0?.value }
+                    )) { start in
+                        ImageViewerSheet(images: shots, index: start.value)
+                    }
                 }
             }
         }
