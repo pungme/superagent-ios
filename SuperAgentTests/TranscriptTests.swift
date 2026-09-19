@@ -54,6 +54,41 @@ struct MarkdownTests {
     }
 }
 
+struct MessageTimeGroupsTests {
+    private func ev(_ seq: Int, _ ts: Double, _ data: WireEventData) -> WireEvent {
+        WireEvent(chatId: "c", seq: seq, ts: ts, data: data)
+    }
+
+    @Test func onlyTheLastOfAQuickBurstShowsItsTimestamp() {
+        let events = [
+            ev(1, 0, .user(id: "u1", text: "a", images: [], from: .ios, replyTo: nil)),
+            ev(2, 10_000, .assistant(id: "a1", text: "b")),
+            ev(3, 20_000, .user(id: "u2", text: "c", images: [], from: .ios, replyTo: nil))
+        ]
+        // All three are within the 5-minute gap of the one after them, so
+        // only the last (nothing follows it) shows its own timestamp.
+        #expect(MessageTimeGroups.visibleIds(events) == ["c#3"])
+    }
+
+    @Test func aRealPauseShowsBothSidesOfIt() {
+        let sixMinutes: Double = 6 * 60 * 1000
+        let events = [
+            ev(1, 0, .user(id: "u1", text: "a", images: [], from: .ios, replyTo: nil)),
+            ev(2, sixMinutes, .assistant(id: "a1", text: "b"))
+        ]
+        #expect(MessageTimeGroups.visibleIds(events) == ["c#1", "c#2"])
+    }
+
+    @Test func nonMessageEventsAreIgnoredEntirely() {
+        let events = [
+            ev(1, 0, .user(id: "u1", text: "a", images: [], from: .ios, replyTo: nil)),
+            ev(2, 1_000, .tool(id: "t1", name: "Bash", detail: "", task: nil)),
+            ev(3, 2_000, .assistant(id: "a1", text: "b"))
+        ]
+        #expect(MessageTimeGroups.visibleIds(events) == ["c#3"])
+    }
+}
+
 struct TurnTests {
     private func ev(_ seq: Int, _ data: WireEventData) -> WireEvent {
         WireEvent(chatId: "c", seq: seq, ts: Double(1_000 + seq * 1_000), data: data)

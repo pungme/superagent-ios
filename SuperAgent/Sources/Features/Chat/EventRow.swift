@@ -28,25 +28,49 @@ struct TurnView: View, Equatable {
     let connection: Connection
     let turn: Turn
     let pendingApprovals: Set<String>
+    /// WireEvent.id of every message that shows its own timestamp — see
+    /// MessageTimeGroups. A message NOT in here is a quick follow-up to the
+    /// next one, so the row that comes after it sits closer, iMessage-style.
+    let timeIds: Set<String>
     let answer: (String, Bool) -> Void
     let choose: (String) -> Void
     /// Hold a message to answer that one specifically.
     let reply: (ReplyQuote) -> Void
 
     nonisolated static func == (lhs: TurnView, rhs: TurnView) -> Bool {
-        lhs.turn == rhs.turn && lhs.pendingApprovals == rhs.pendingApprovals
+        lhs.turn == rhs.turn && lhs.pendingApprovals == rhs.pendingApprovals && lhs.timeIds == rhs.timeIds
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(turn.items) { item in
-                switch item {
-                case .event(let e):
-                    EventRow(connection: connection, event: e, pending: pendingApprovals.contains(approvalId(e) ?? ""), answer: answer, choose: choose, reply: reply)
-                case .steps(let g):
-                    StepGroupRow(connection: connection, group: g)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(turn.items.enumerated()), id: \.element.id) { i, item in
+                Group {
+                    switch item {
+                    case .event(let e):
+                        EventRow(connection: connection, event: e,
+                                 pending: pendingApprovals.contains(approvalId(e) ?? ""),
+                                 showTime: timeIds.contains(e.id),
+                                 answer: answer, choose: choose, reply: reply)
+                    case .steps(let g):
+                        StepGroupRow(connection: connection, group: g)
+                    }
                 }
+                .padding(.top, i == 0 ? 0 : topGap(before: turn.items[i - 1]))
             }
+        }
+    }
+
+    /// The previous row groups with this one (its own timestamp hidden, a
+    /// quick follow-up) — sit close, the way desktop's tightened margin does.
+    private func topGap(before previous: TurnItem) -> CGFloat {
+        guard case .event(let e) = previous, isMessage(e), !timeIds.contains(e.id) else { return 10 }
+        return 4
+    }
+
+    private func isMessage(_ e: WireEvent) -> Bool {
+        switch e.data {
+        case .user, .assistant: true
+        default: false
         }
     }
 
@@ -230,9 +254,14 @@ struct EventRow: View {
     let connection: Connection
     let event: WireEvent
     let pending: Bool
+    /// This message is the last in its burst (or sent alone) — show its own
+    /// timestamp. See MessageTimeGroups.
+    var showTime: Bool = false
     let answer: (String, Bool) -> Void
     let choose: (String) -> Void
     let reply: (ReplyQuote) -> Void
+
+    private var timestamp: Date { Date(timeIntervalSince1970: event.ts / 1000) }
 
     var body: some View {
         switch event.data {
@@ -282,6 +311,10 @@ struct EventRow: View {
                         Text("from this phone")
                             .superFont(11).foregroundStyle(Theme.textTertiary)
                     }
+                    if showTime {
+                        Text(messageTimeLabel(timestamp))
+                            .superFont(10).foregroundStyle(Theme.textTertiary)
+                    }
                 }
             }
         case let .assistant(_, text):
@@ -294,6 +327,10 @@ struct EventRow: View {
                                 Label("Reply", systemImage: "arrowshape.turn.up.left")
                             }
                         }
+                    if showTime {
+                        Text(messageTimeLabel(timestamp))
+                            .superFont(10).foregroundStyle(Theme.textTertiary)
+                    }
                 }
                 if let choices { ChoicesView(choices: choices, choose: choose) }
             }

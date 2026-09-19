@@ -101,6 +101,9 @@ struct ChatView: View {
     /// scroll); regrouping every event each time froze long conversations.
     @State private var turns: [Turn] = []
     @State private var tasks: [TaskItem] = []
+    /// WireEvent.id of every message that should show its own timestamp —
+    /// see MessageTimeGroups.
+    @State private var timeIds: Set<String> = []
     @State private var pendingApprovals: Set<String> = []
     /// Working while the Mac says this chat's agent process is alive (`live`,
     /// pushed on start/exit), or while text is streaming / a send is in flight.
@@ -270,7 +273,8 @@ struct ChatView: View {
                 }
                 ForEach(turns) { turn in
                     TurnView(connection: connection, turn: turn, pendingApprovals: pendingApprovals,
-                             answer: answer, choose: { send(text: $0, fromComposer: false) },
+                             timeIds: timeIds, answer: answer,
+                             choose: { send(text: $0, fromComposer: false) },
                              reply: beginReply)
                         .equatable()
                 }
@@ -461,6 +465,7 @@ struct ChatView: View {
         let events = transcript.events
         turns = TurnBuilder.build(events)
         tasks = TaskList.build(events)
+        timeIds = MessageTimeGroups.visibleIds(events)
         var open = Set<String>()
         for e in events {
             switch e.data {
