@@ -45,6 +45,10 @@ enum TaskList {
 
 struct TasksView: View {
     let tasks: [TaskItem]
+    /// Send a pending/in-progress task back to the agent as a prompt, the
+    /// same "work on this" a Choices answer sends — nil for a completed one,
+    /// which stays inert since there's nothing left to ask for.
+    var onWorkOn: ((String) -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -65,6 +69,12 @@ struct TasksView: View {
                             .strikethrough(t.isDone, color: Theme.textTertiary)
                     }
                     .listRowBackground(Theme.card)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard !t.isDone, let onWorkOn else { return }
+                        onWorkOn(t.text)
+                        dismiss()
+                    }
                 }
             }
             .listStyle(.insetGrouped)

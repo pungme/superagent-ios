@@ -603,7 +603,7 @@ struct SidebarView: View {
         Button { openProject(ws) } label: {
             HStack(spacing: 8) {
                 StatusIndicator(status: ws.status).frame(width: 10)
-                ProjectGlyph(workspace: ws)
+                ProjectGlyph(connection: connection, workspace: ws)
                 Text(ws.isBrowser ? (ws.host ?? ws.name) : ws.name)
                     .superFont(14.5, weight: .medium).foregroundStyle(Theme.textPrimary).lineLimit(1)
                 Spacer(minLength: 6)
@@ -1040,10 +1040,33 @@ private struct TreeRow<Content: View>: View {
 }
 
 /// The kind glyph on a project row: folder, globe/favicon, or the Mac.
+/// A data URI's own bytes, decoded — `nativeImage`/browser favicon fetches
+/// on the Mac all produce these; this is the one place iOS unwraps one.
+private func decodeDataURI(_ uri: String) -> UIImage? {
+    guard let comma = uri.firstIndex(of: ",") else { return nil }
+    guard let data = Data(base64Encoded: String(uri[uri.index(after: comma)...])) else { return nil }
+    return UIImage(data: data)
+}
+
+/// An app/screenplay/design/music/documents project with no picture to show
+/// for it — the same symbolic categories desktop's glyph set covers.
+private func glyphSystemName(for kind: String) -> String {
+    switch kind {
+    case "screenplay": "film"
+    case "design": "pencil.tip.crop.circle"
+    case "music": "music.note"
+    case "documents": "doc.text"
+    default: "folder"
+    }
+}
+
 private struct ProjectGlyph: View {
     @ScaledMetric(relativeTo: .footnote) private var box: CGFloat = 16
 
+    let connection: Connection
     let workspace: WireWorkspace
+    @State private var icon: ProjectIconResult?
+
     var body: some View {
         Group {
             if workspace.isBrowser, let host = workspace.host, let url = URL(string: "https://\(host)/favicon.ico") {
@@ -1054,11 +1077,19 @@ private struct ProjectGlyph: View {
                 Image(systemName: "globe")
             } else if workspace.isComputer {
                 Image(systemName: "desktopcomputer")
+            } else if case let .image(dataUri) = icon, let img = decodeDataURI(dataUri) {
+                Image(uiImage: img).resizable().scaledToFit()
+            } else if case let .kind(k) = icon {
+                Image(systemName: glyphSystemName(for: k))
             } else {
                 Image(systemName: "folder")
             }
         }
         .superFont(13).foregroundStyle(Theme.textSecondary)
         .frame(width: box, height: box)
+        .task(id: workspace.id) {
+            guard !workspace.isBrowser, !workspace.isComputer else { return }
+            icon = try? await connection.projectIcon(workspaceId: workspace.id, path: workspace.path)
+        }
     }
 }

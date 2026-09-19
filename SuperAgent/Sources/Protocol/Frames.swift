@@ -570,6 +570,27 @@ struct WireImage: Decodable, Sendable {
     var data: String
 }
 
+/// `project.icon`: what a project actually IS, read off its own files on the
+/// Mac — a website's favicon, a native app's own app icon, a manual override,
+/// or (no picture to show) a symbolic glyph for a non-dev project. Mirrors
+/// desktop's DetectedIcon (project-icon.ts). nil when nothing was detected —
+/// the caller falls back to its own generic folder glyph.
+enum ProjectIconResult: Decodable, Sendable, Hashable {
+    case image(dataUri: String)
+    case kind(String)
+
+    private enum CodingKeys: String, CodingKey { case source, dataUri, kind }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if try c.decode(String.self, forKey: .source) == "kind" {
+            self = .kind(try c.decode(String.self, forKey: .kind))
+        } else {
+            self = .image(dataUri: try c.decode(String.self, forKey: .dataUri))
+        }
+    }
+}
+
 /// `files.chunk`: one slice of a file's bytes, base64, indexed from 0.
 struct WireFileChunk: Decodable, Sendable {
     var path: String

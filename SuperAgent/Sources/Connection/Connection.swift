@@ -618,6 +618,14 @@ extension Connection {
                       as: WireImage.self)
     }
 
+    /// A manual override if one was set on the Mac, else whatever's detected
+    /// in the project's own folder — same detection desktop's sidebar uses.
+    func projectIcon(workspaceId: String, path: String) async throws -> ProjectIconResult? {
+        try await rpc("project.icon",
+                      .object(["workspaceId": .string(workspaceId), "path": .string(path)]),
+                      as: ProjectIconResult?.self)
+    }
+
     /// One slice of a file's bytes. `files.read` says how many there are.
     func readFileChunk(workspaceId: String, path: String, index: Int, chatId: String? = nil) async throws -> WireFileChunk {
         let p = fileParams(workspaceId, chatId,

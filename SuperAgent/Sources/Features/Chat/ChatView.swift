@@ -188,7 +188,9 @@ struct ChatView: View {
                     if let a = Attachment(imageData: data) { attachments.append(a) }
                 }
             }
-            .sheet(isPresented: $showTasks) { TasksView(tasks: tasks) }
+            .sheet(isPresented: $showTasks) {
+                TasksView(tasks: tasks, onWorkOn: { send(text: $0, fromComposer: false) })
+            }
     }
 
     private func events(_ view: some View) -> some View {
