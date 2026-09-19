@@ -34,7 +34,7 @@ asked what exists rather than the app trusting what it recorded).
 | Project groups, `+` add project (folder dialog) | ✅ | folder picker of the Mac (`fs.dirs`), home-rooted |
 | Group rename / delete, `+ New group` | ✅ | context menu on the header |
 | Group collapse caret | 🟡 | collapses on the phone (44 pt target); the Mac keeps its own state — no `group.update` RPC yet |
-| Project row: status, kind glyph/favicon, name, `⎇` chip | ✅ | |
+| Project row: status, icon, name, `⎇` chip | ✅ | matches desktop's own detection now, not just browser/computer glyphs: a website's favicon, a native app's Xcode icon, a symbolic glyph for a screenplay/design/music/documents folder, or a manual override — `project.icon` RPC, added 19 Sep 2026 |
 | Ahead/behind on the chip | ❌ | `gitAheadBehind` exists on the Mac; add to `tree.list` |
 | Unread dot on chats/projects | ✅ | the phone's own: a conversation that has moved since you last had it open, kept per Mac on the phone. The Mac's unread is its window's, and says nothing about what *you* have read |
 | × remove project | ✅ | swipe |
@@ -76,6 +76,7 @@ asked what exists rather than the app trusting what it recorded).
 |---|---|---|
 | Streaming reply, Markdown, code blocks with Copy | ✅ | |
 | Collapsed tool steps, results, diffs | ✅ | |
+| A tool result's own picture (screenshot, a Read on an image) shown inline | ✅ | `images` on `tool_result`, fetched over `chat.image` like a sent message's own pictures |
 | Ask-block choices | ✅ | |
 | "Working Ns" while a turn runs | ✅ | the desktop shows no per-turn tokens or cost, and neither do we |
 | Context meter (used / window, model) | ❌ | the desktop's bar under the composer |
@@ -85,7 +86,8 @@ asked what exists rather than the app trusting what it recorded).
 | Paste / attach images | ✅ | photos, browser capture |
 | `/` commands | ✅ | |
 | `@` file mentions in the composer | ❌ | needs `files.list` wired to the composer |
-| Tasks panel (TodoWrite / TaskCreate) | ✅ | shown when the agent uses them |
+| Tasks panel (TodoWrite / TaskCreate) | ✅ | shown when the agent uses them; a pending/in-progress task taps through to send it back as a prompt, matching desktop's click-to-prompt (added 19 Sep 2026) |
+| Message timestamps, iMessage-style clustering | ✅ | a burst of quick messages shows only the last one's time and sits closer together, same 5-minute threshold as desktop's message-time-groups.ts (added 19 Sep 2026) |
 | Unread marking | ✅ | opening a conversation reads it, and it keeps pace while you stay in it |
 | Rename / delete conversation | ✅ | |
 | Search across conversations | ✅ | phone-only convenience |
