@@ -156,17 +156,8 @@ struct FileView: View {
     let ref: FileRef
     @State private var content: WireFileContent?
     @State private var error: String?
-    /// Plain text defaults to monospace, two-axis scroll — right for code,
-    /// cramped for prose (a README, notes, a log someone will actually read).
-    /// Reader trades that for a proportional font, generous line spacing and
-    /// single-column wrap, the way Safari's own Reader re-sets an article.
-    @State private var readerMode = false
 
     private var isMarkdown: Bool { ["md", "markdown"].contains((ref.path as NSString).pathExtension.lowercased()) }
-    private var isPlainText: Bool {
-        guard case .text = content else { return false }
-        return !isMarkdown
-    }
 
     var body: some View {
         Group {
@@ -174,24 +165,13 @@ struct FileView: View {
                 switch content {
                 case let .text(_, _, text, truncated):
                     // Markdown renders formatted, like the desktop viewer's View mode;
-                    // plain text is monospace with two-axis scroll by default, pinned
-                    // top-left (a two-axis ScrollView centres content smaller than
-                    // itself) — unless Reader is on, which drops the horizontal scroll
-                    // for a wrapped, proportional-font read.
-                    let reader = isMarkdown || readerMode
+                    // everything else is monospace with two-axis scroll, pinned top-left
+                    // (a two-axis ScrollView centres content smaller than itself).
                     GeometryReader { geo in
-                        ScrollView(reader ? [.vertical] : [.vertical, .horizontal]) {
+                        ScrollView(isMarkdown ? [.vertical] : [.vertical, .horizontal]) {
                             VStack(alignment: .leading, spacing: 0) {
                                 if isMarkdown {
                                     MarkdownView(text: text).padding(14)
-                                } else if readerMode {
-                                    Text(text)
-                                        .superFont(16, design: .rounded)
-                                        .lineSpacing(6)
-                                        .foregroundStyle(Theme.textPrimary)
-                                        .textSelection(.enabled)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(18)
                                 } else {
                                     Text(text)
                                         .superFont(12.5, design: .monospaced)
@@ -204,7 +184,7 @@ struct FileView: View {
                                         .font(.footnote).foregroundStyle(Theme.textTertiary).padding(14)
                                 }
                             }
-                            .frame(minWidth: reader ? nil : geo.size.width, minHeight: geo.size.height, alignment: .topLeading)
+                            .frame(minWidth: geo.size.width, minHeight: geo.size.height, alignment: .topLeading)
                         }
                     }
                 case let .image(_, _, _, data):
@@ -230,14 +210,6 @@ struct FileView: View {
         .navigationTitle((ref.path as NSString).lastPathComponent)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if isPlainText {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { readerMode.toggle(); Haptics.tap() } label: {
-                        Image(systemName: readerMode ? "text.justify" : "book")
-                    }
-                    .accessibilityLabel(readerMode ? "Switch to code view" : "Switch to Reader")
-                }
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { UIPasteboard.general.string = ref.path; Haptics.tap() } label: { Image(systemName: "doc.on.doc") }
                     .accessibilityLabel("Copy path")
