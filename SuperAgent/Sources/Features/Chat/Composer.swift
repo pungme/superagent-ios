@@ -76,7 +76,9 @@ struct Composer: View {
     /// "Send when it's done": messages the user chose (by holding Send while the
     /// agent is working) to hold until the turn finishes, rather than interject
     /// mid-task. Flushed by the working→false change below.
-    struct Held: Identifiable { let id = UUID(); let text: String }
+    struct Held: Identifiable, Codable, Equatable { let id: UUID; let text: String
+        init(text: String) { id = UUID(); self.text = text }
+    }
     @State private var held: [Held] = []
     /// The inline "send now / send when it finishes" menu, opened by a long-press.
     @State private var sendMenu = false
@@ -96,6 +98,29 @@ struct Composer: View {
             UserDefaults.standard.removeObject(forKey: key)
         } else {
             UserDefaults.standard.set(draft, forKey: key)
+        }
+    }
+
+    /// A message held to send once the turn finishes lived only in @State —
+    /// leaving the chat (or the app being reclaimed in the background, which
+    /// iOS does far more readily than a Mac) threw it away with no way back.
+    /// Persisted the same way the draft already is.
+    private static func heldKey(_ chatID: String) -> String { "held:" + chatID }
+
+    private func loadHeld() {
+        guard held.isEmpty,
+              let data = UserDefaults.standard.data(forKey: Self.heldKey(chatID)),
+              let decoded = try? JSONDecoder().decode([Held].self, from: data)
+        else { return }
+        held = decoded
+    }
+
+    private func saveHeld() {
+        let key = Self.heldKey(chatID)
+        if held.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else if let data = try? JSONEncoder().encode(held) {
+            UserDefaults.standard.set(data, forKey: key)
         }
     }
 
@@ -444,8 +469,8 @@ struct Composer: View {
         }
         .padding(.top, 8).padding(.bottom, 8)
         .background(Theme.content)
-        .onAppear { loadDraft() }
-        .onDisappear { saveDraft() }
+        .onAppear { loadDraft(); loadHeld() }
+        .onDisappear { saveDraft(); saveHeld() }
         // Reused across a chat switch: keep the old chat's words, load the new
         // chat's. (id is set on ChatView today, so this is belt-and-braces.)
         .onChange(of: chatID) { old, _ in
@@ -456,8 +481,22 @@ struct Composer: View {
                 UserDefaults.standard.set(draft, forKey: key)
             }
             draft = UserDefaults.standard.string(forKey: Self.draftKey(chatID)) ?? ""
+
+            let heldKey = Self.heldKey(old)
+            if held.isEmpty {
+                UserDefaults.standard.removeObject(forKey: heldKey)
+            } else if let data = try? JSONEncoder().encode(held) {
+                UserDefaults.standard.set(data, forKey: heldKey)
+            }
+            if let data = UserDefaults.standard.data(forKey: Self.heldKey(chatID)),
+               let decoded = try? JSONDecoder().decode([Held].self, from: data) {
+                held = decoded
+            } else {
+                held = []
+            }
         }
         .onChange(of: draft) { _, _ in saveDraft() }
+        .onChange(of: held) { _, _ in saveHeld() }
         .onChange(of: dictation.transcript) { _, t in
             guard !dictationSpent else { return }
             if !t.isEmpty { draft = t }
