@@ -2,12 +2,11 @@ import Foundation
 import Observation
 import UIKit
 
-/// What the phone knows about one chat: its sequenced events plus the text
-/// currently streaming (which is never persisted, only shown).
+/// What the phone knows about one chat: its sequenced events. The text
+/// streaming in lives apart from it, in LiveStream.
 struct Transcript: Sendable {
     var events: [WireEvent] = []
     var lastSeq: Int = 0
-    var streaming: String = ""
     var subscribed = false
     /// The live context after the last finished turn, and the model the session
     /// actually resolved to — what the meter under the composer draws.
@@ -18,6 +17,11 @@ struct Transcript: Sendable {
     /// Messages this phone has sent that the Mac hasn't echoed back yet. They
     /// render immediately; the echo (a `user` event with our id) retires them.
     var outbox: [Outgoing] = []
+    /// "Send when it's done": messages held to go out once the Mac's current
+    /// turn ends. The Mac holds these, not this phone — it sends them whether
+    /// or not this phone is still around, exactly like the outbox above is
+    /// retired by the same `user` echo. See `Connection.queueSend`.
+    var heldSends: [HeldSend] = []
 
     mutating func apply(_ e: WireEvent) -> Bool {
         // Gaps mean we missed something; the caller re-subscribes from lastSeq.
@@ -25,17 +29,49 @@ struct Transcript: Sendable {
         events.append(e)
         lastSeq = e.seq
         switch e.data {
-        case .assistant, .notice: streaming = ""
         case let .turnEnd(_, _, _, _, ctx):
-            streaming = ""
             if let ctx { contextTokens = ctx }
         case let .session(_, model, _, models):
             if let model { self.model = model }
             if !models.isEmpty { self.models = models }
-        case .user(let id, _, _, _, _): outbox.removeAll { $0.id == id }
+        case .user(let id, _, _, _, _):
+            outbox.removeAll { $0.id == id }
+            heldSends.removeAll { $0.id == id }
         default: break
         }
         return true
+    }
+}
+
+/// A message queued on the Mac to send once the chat's current turn ends.
+struct HeldSend: Identifiable, Hashable, Sendable {
+    let id: String
+    let text: String
+}
+
+/// The reply being typed right now, for one chat — never persisted, only shown.
+///
+/// Its own observable object rather than a field on Transcript, on purpose:
+/// every view in a conversation reads `transcripts`, so a word landing there
+/// redrew the whole conversation, and the transcript is a non-lazy stack of
+/// every message in it. Here a word redraws the bubble showing it and nothing
+/// else. `active` flips only at the start and end of a reply, so what depends
+/// on "is anything typing" redraws twice per reply, not per word.
+@MainActor
+@Observable
+final class LiveStream {
+    private(set) var text = ""
+    private(set) var active = false
+
+    func append(_ s: String) {
+        guard !s.isEmpty else { return }
+        text += s
+        if !active { active = true }
+    }
+
+    func clear() {
+        if !text.isEmpty { text = "" }
+        if active { active = false }
     }
 }
 
@@ -125,7 +161,44 @@ final class Connection {
         unread.note(chats)
     }
 
-    private var transcriptSaves: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var transcriptSaves: [String: Task<Void, Never>] = [:]
+
+    /// The chats something on screen is actually showing. Only these stay
+    /// subscribed on the Mac. The phone used to subscribe to every chat it
+    /// opened and never let go, so after visiting a few, every token of every
+    /// session running on the Mac streamed here — and since all transcripts
+    /// live in one observed dictionary, each of those tokens redrew whichever
+    /// chat was on screen, however unrelated.
+    @ObservationIgnored private var watching: Set<String> = []
+
+    /// Streamed text waiting to be shown. A reply arrives a few characters
+    /// per frame, dozens of frames a second, and each one used to redraw the
+    /// whole conversation. Collected here and shown once per display frame.
+    @ObservationIgnored private var pendingDeltas: [String: String] = [:]
+    @ObservationIgnored private var streams: [String: LiveStream] = [:]
+
+    /// The reply streaming into a chat. Always the same object per chat, so a
+    /// view can hold on to it across redraws.
+    func stream(_ chatId: String) -> LiveStream {
+        if let s = streams[chatId] { return s }
+        let s = LiveStream()
+        streams[chatId] = s
+        return s
+    }
+    @ObservationIgnored private var deltaFlush: Task<Void, Never>?
+
+    /// Show streamed text collected since the last frame — one chat's, or all.
+    private func flushDeltas(for chatId: String? = nil) {
+        if let chatId {
+            guard let text = pendingDeltas.removeValue(forKey: chatId) else { return }
+            stream(chatId).append(text)
+            return
+        }
+        deltaFlush = nil
+        let batch = pendingDeltas
+        pendingDeltas.removeAll()
+        for (id, text) in batch { stream(id).append(text) }
+    }
 
     /// Write a chat's recent events a moment after they settle (not per frame).
     private func scheduleTranscriptSave(_ chatId: String) {
@@ -260,7 +333,8 @@ final class Connection {
             state = .connected
             lastError = nil
             // Resubscribe to whatever we were watching, from where we left off.
-            for (chatId, t) in transcripts where !t.subscribed {
+            for chatId in watching {
+                guard let t = transcripts[chatId], !t.subscribed else { continue }
                 send(.subscribe(chatId: chatId, afterSeq: t.lastSeq))
                 transcripts[chatId]?.subscribed = true
             }
@@ -274,17 +348,37 @@ final class Connection {
             wantConnected = reason == "version" ? false : wantConnected
         case .event(let e):
             if case let .session(_, _, cmds, _) = e.data, !cmds.isEmpty { commands[e.chatId] = cmds }
-            var t = transcripts[e.chatId] ?? Transcript()
-            if !t.apply(e) {
+            // Text streamed before this event belongs before it: an assistant
+            // message clears `streaming`, and a delta flushed after that would
+            // put the finished reply's tail back on screen as if still typing.
+            flushDeltas(for: e.chatId)
+            // Mutated in place. Copying the transcript out, appending and
+            // writing it back copied its whole events array on every event —
+            // the dictionary still held the old buffer — which made catching
+            // up on a long conversation quadratic.
+            if transcripts[e.chatId] == nil { transcripts[e.chatId] = Transcript() }
+            let isNext = e.seq == transcripts[e.chatId]!.lastSeq + 1
+            if !transcripts[e.chatId]!.apply(e), watching.contains(e.chatId) {
                 // Gap: ask again from what we have.
-                send(.subscribe(chatId: e.chatId, afterSeq: t.lastSeq))
+                send(.subscribe(chatId: e.chatId, afterSeq: transcripts[e.chatId]!.lastSeq))
             }
-            transcripts[e.chatId] = t
+            // The finished message replaces what was typing it out.
+            if isNext {
+                switch e.data {
+                case .assistant, .notice, .turnEnd: streams[e.chatId]?.clear()
+                default: break
+                }
+            }
             scheduleTranscriptSave(e.chatId)
         case let .delta(chatId, text):
-            var t = transcripts[chatId] ?? Transcript()
-            t.streaming += text
-            transcripts[chatId] = t
+            guard watching.contains(chatId) else { break }
+            pendingDeltas[chatId, default: ""] += text
+            if deltaFlush == nil {
+                deltaFlush = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(33))
+                    self?.flushDeltas()
+                }
+            }
         case let .status(workspaceId, status):
             tree = tree.map { g in
                 var g = g
@@ -349,12 +443,26 @@ final class Connection {
     }
 
     func subscribe(chatId: String) {
+        watching.insert(chatId)
         var t = transcripts[chatId] ?? cachedTranscript(chatId) ?? Transcript()
         if state == .connected, !t.subscribed {
             send(.subscribe(chatId: chatId, afterSeq: t.lastSeq))
             t.subscribed = true
         }
         transcripts[chatId] = t
+    }
+
+    /// Nothing is showing this chat any more: stop the Mac streaming it here.
+    /// Its events stay, so coming back is a catch-up from `lastSeq`, not a
+    /// reload — the half-streamed reply is dropped, since the finished message
+    /// replaces it anyway.
+    func unsubscribe(chatId: String) {
+        watching.remove(chatId)
+        pendingDeltas[chatId] = nil
+        streams[chatId]?.clear()
+        guard let t = transcripts[chatId], t.subscribed else { return }
+        if state == .connected { send(.unsubscribe(chatId: chatId)) }
+        transcripts[chatId]?.subscribed = false
     }
 
     /// A chat's recent events from the last time it was open; the Mac fills in
@@ -490,6 +598,25 @@ final class Connection {
 
     func interrupt(chatId: String) async throws {
         _ = try await rpc("chat.interrupt", .object(["chatId": .string(chatId)]))
+    }
+
+    /// Hold a message on the Mac to send once this chat's current turn ends.
+    /// The Mac is what actually sends it — this phone can close, background,
+    /// or lose the network entirely and the message still goes out.
+    @discardableResult
+    func queueSend(chatId: String, text: String) async throws -> HeldSend? {
+        let result = try await rpc("chat.queueSend", .object(["chatId": .string(chatId), "text": .string(text)]))
+        guard case .object(let o) = result, case .string(let id)? = o["id"] else { return nil }
+        let held = HeldSend(id: id, text: text)
+        var t = transcripts[chatId] ?? Transcript()
+        t.heldSends.append(held)
+        transcripts[chatId] = t
+        return held
+    }
+
+    func cancelQueuedSend(chatId: String, id: String) async throws {
+        transcripts[chatId]?.heldSends.removeAll { $0.id == id }
+        _ = try await rpc("chat.cancelQueuedSend", .object(["chatId": .string(chatId), "id": .string(id)]))
     }
 
     func answerApproval(id: String, approve: Bool, trustRest: Bool = false) async throws {

@@ -56,6 +56,8 @@ struct ChatView: View {
     /// following it would strand a cold open halfway up the transcript — the
     /// bug this exists to stop. Only the reader's own scrolling changes it.
     @State private var following = true
+    /// A reference, not a value: flipping it must not itself redraw the view.
+    @State private var rebuildGate = RebuildGate()
     @State private var position = ScrollPosition()
     /// Everything in the chat that is neither the docked page nor the
     /// transcript: the project bar, the drag handle, the offline banner, the
@@ -110,7 +112,7 @@ struct ChatView: View {
     /// The last event alone was wrong: a turn that ended without a turn_end
     /// (interrupted, crashed) kept the spinner on for good.
     private var isWorking: Bool {
-        if !transcript.streaming.isEmpty { return true }
+        if connection.stream(chat.id).active { return true }
         if transcript.outbox.contains(where: { $0.status == .sending }) { return true }
         return connection.chats.first { $0.id == chat.id }?.live ?? false
     }
@@ -204,6 +206,9 @@ struct ChatView: View {
                 loadHidden()
                 markRead()
             }
+            // Off screen is off the wire: see Connection.watching. Coming back
+            // resubscribes from lastSeq and catches up on whatever it missed.
+            .onDisappear { connection.unsubscribe(chatId: chat.id) }
             // Poll the running-jobs pills ONLY while the app is foreground and
             // this chat is on screen. Keyed on scenePhase so backgrounding
             // cancels it — a poll every 2s is small, but "ask for nothing when
@@ -227,8 +232,9 @@ struct ChatView: View {
             // Being in a conversation is reading it, so the mark keeps pace
             // with what arrives rather than stopping where you came in.
             .onChange(of: connection.chats.first(where: { $0.id == chat.id })?.updatedAt) { _, _ in markRead() }
-            .onChange(of: transcript.lastSeq) { _, _ in rebuild() }
-            .onChange(of: transcript.events.count) { _, _ in rebuild() }
+            // Both move on every appended event, so this ran rebuild — a full
+            // pass over every event in the conversation — twice per event.
+            .onChange(of: [transcript.lastSeq, transcript.events.count]) { _, _ in scheduleRebuild() }
             .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
             .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
             .onChange(of: pickerItems) { _, items in loadPicked(items) }
@@ -268,7 +274,7 @@ struct ChatView: View {
             // nothing realised in it. That is the blank chat. The Mac caps
             // what it sends at 400 events, so measuring them all is affordable.
             VStack(alignment: .leading, spacing: 12) {
-                if transcript.events.isEmpty, transcript.streaming.isEmpty {
+                if transcript.events.isEmpty, !connection.stream(chat.id).active {
                     emptyState
                 }
                 ForEach(turns) { turn in
@@ -350,14 +356,23 @@ struct ChatView: View {
         // Your own message always brings you back to the end, wherever you
         // were reading.
         .onChange(of: transcript.outbox.count) { _, _ in following = true; scrollToEnd() }
-        // A reply streams in without adding an event, so it grows the tail
-        // without going through rebuild(). Follow it too.
-        .onChange(of: transcript.streaming) { _, _ in if following { scrollToEnd(animated: false) } }
         // Only the reader's own scrolling decides whether we keep following:
         // a scroll phase is a gesture, where `atBottom` is just geometry and
-        // says false whenever a batch of rows outruns the anchor.
-        .onScrollPhaseChange { _, phase in
-            if phase == .idle { following = atBottom }
+        // says false whenever a batch of rows outruns the anchor. That is
+        // the theory — but `.idle` also follows `.animating`, which is what
+        // OUR OWN scrollTo calls go through (rebuild's catch-up, the
+        // jump-to-bottom button, a streaming reply). A history batch that
+        // finished laying out a beat after one of those settled read as
+        // "you scrolled away" and latched `following` off before the reader
+        // had touched the screen — a cold open silently stopped following
+        // the very messages it just loaded. Requiring the phase to have
+        // passed through an actual touch first is what makes this true to
+        // the comment above: dragging or its momentum, not our own settle.
+        .onScrollPhaseChange { oldPhase, newPhase in
+            guard newPhase == .idle, oldPhase == .interacting || oldPhase == .decelerating else {
+                return
+            }
+            following = atBottom
         }
     }
 
@@ -429,6 +444,9 @@ struct ChatView: View {
             },
             onSend: { text in send(text: text) },
             onStop: { Task { try? await connection.interrupt(chatId: chat.id) } },
+            heldSends: connection.transcripts[chat.id]?.heldSends ?? [],
+            onQueue: { text in Task { try? await connection.queueSend(chatId: chat.id, text: text) } },
+            onCancelQueue: { id in Task { try? await connection.cancelQueuedSend(chatId: chat.id, id: id) } },
             focused: $composerFocused)
     }
 
@@ -453,14 +471,32 @@ struct ChatView: View {
     /// What sits under the last turn: the text streaming in, or the working row.
     @ViewBuilder
     private var tail: some View {
-        if !transcript.streaming.isEmpty {
-            AssistantBubble(text: transcript.streaming, streaming: true).id("streaming")
+        let live = connection.stream(chat.id)
+        if live.active {
+            // A reply streams in without adding an event, so it grows the tail
+            // without going through rebuild(). Follow it too — from inside the
+            // bubble, so a word redraws the bubble and not this whole view.
+            StreamingReply(stream: live) { if following { scrollToEnd(animated: false) } }
+                .id("streaming")
         } else if isWorking {
             WorkingRow(since: lastUserAt).id("working")
         }
     }
 
     /// One pass over the events for everything derived from them.
+    /// Catching up on a conversation delivers its events one frame at a
+    /// time, and each used to trigger its own full rebuild — quadratic in the
+    /// length of the chat. Wait a beat and rebuild once for the whole burst.
+    private func scheduleRebuild() {
+        guard !rebuildGate.pending else { return }
+        rebuildGate.pending = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
+            rebuildGate.pending = false
+            rebuild()
+        }
+    }
+
     private func rebuild() {
         let events = transcript.events
         turns = TurnBuilder.build(events)
@@ -1056,3 +1092,20 @@ struct ChatHarness: View {
     }
 }
 #endif
+
+/// See ChatView.scheduleRebuild.
+private final class RebuildGate {
+    var pending = false
+}
+
+/// The reply being typed. The only view that reads the streamed text, so it
+/// is the only one a streamed word redraws.
+private struct StreamingReply: View {
+    let stream: LiveStream
+    let onGrow: () -> Void
+
+    var body: some View {
+        AssistantBubble(text: stream.text, streaming: true)
+            .onChange(of: stream.text) { _, _ in onGrow() }
+    }
+}

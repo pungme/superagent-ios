@@ -139,6 +139,18 @@ struct SidebarView: View {
                 ConnectionPill(state: connection.state).fixedSize()
             }
             #endif
+            // Talk to the Mac without picking a project (or a group) first: a
+            // fresh conversation in Chats, opened straight away — the same as
+            // the compose button on the Mac's own Chats row.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    if let c = computer { newChat(in: c) }
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .accessibilityLabel("New chat")
+                .disabled(computer == nil || connection.state != .connected || busy)
+            }
         }
     }
 

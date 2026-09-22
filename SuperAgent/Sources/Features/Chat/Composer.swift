@@ -45,6 +45,11 @@ struct Composer: View {
     /// (attachments, reply quote, delivery) and never touches the draft.
     let onSend: (String) -> Void
     let onStop: () -> Void
+    /// "Send when it's done": held on the Mac, not here — see `Connection.queueSend`.
+    /// ChatView owns the RPC call and the resulting list; this view only shows it.
+    let heldSends: [HeldSend]
+    let onQueue: (String) -> Void
+    let onCancelQueue: (String) -> Void
 
     /// Owned by ChatView. The chat needs to know when the keyboard is up: it
     /// gives the docked page's room back to the transcript, pauses the mirror,
@@ -73,13 +78,6 @@ struct Composer: View {
     /// revision used to type the sent message straight back in.
     @State private var dictationSpent = false
 
-    /// "Send when it's done": messages the user chose (by holding Send while the
-    /// agent is working) to hold until the turn finishes, rather than interject
-    /// mid-task. Flushed by the working→false change below.
-    struct Held: Identifiable, Codable, Equatable { let id: UUID; let text: String
-        init(text: String) { id = UUID(); self.text = text }
-    }
-    @State private var held: [Held] = []
     /// The inline "send now / send when it finishes" menu, opened by a long-press.
     @State private var sendMenu = false
     /// Set by the long-press so the tap SwiftUI fires afterwards is swallowed.
@@ -98,29 +96,6 @@ struct Composer: View {
             UserDefaults.standard.removeObject(forKey: key)
         } else {
             UserDefaults.standard.set(draft, forKey: key)
-        }
-    }
-
-    /// A message held to send once the turn finishes lived only in @State —
-    /// leaving the chat (or the app being reclaimed in the background, which
-    /// iOS does far more readily than a Mac) threw it away with no way back.
-    /// Persisted the same way the draft already is.
-    private static func heldKey(_ chatID: String) -> String { "held:" + chatID }
-
-    private func loadHeld() {
-        guard held.isEmpty,
-              let data = UserDefaults.standard.data(forKey: Self.heldKey(chatID)),
-              let decoded = try? JSONDecoder().decode([Held].self, from: data)
-        else { return }
-        held = decoded
-    }
-
-    private func saveHeld() {
-        let key = Self.heldKey(chatID)
-        if held.isEmpty {
-            UserDefaults.standard.removeObject(forKey: key)
-        } else if let data = try? JSONEncoder().encode(held) {
-            UserDefaults.standard.set(data, forKey: key)
         }
     }
 
@@ -161,18 +136,18 @@ struct Composer: View {
     }
 
     /// Hold Send while the agent is working to send AFTER it finishes, instead
-    /// of interjecting mid-task. Captures the text, clears the composer; the
-    /// pill above shows what's waiting and the working→false change sends it.
+    /// of interjecting mid-task. Captures the text, clears the composer, and
+    /// hands it to the Mac to hold — the pill above shows what's waiting, but
+    /// it's the Mac's turn-end, not this phone, that actually sends it.
     /// Text only — an attachment mid-run is rare and the composer's images live
     /// on ChatView, which send() reads at flush time anyway.
     private func holdForLater() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        // Nothing running to wait for → just send it. Otherwise queue it; the
-        // working→false change flushes it. (Only a queue that can actually be
-        // flushed — queuing while idle would sit for ever.)
+        // Nothing running to wait for → just send it now. (The Mac applies the
+        // same rule if this phone's `working` is a moment stale.)
         guard working else { submit(); return }
-        held.append(Held(text: draft))
+        onQueue(text)
         dictationSpent = true
         draft = ""
         saveDraft()
@@ -198,15 +173,15 @@ struct Composer: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            if !held.isEmpty {
+            if !heldSends.isEmpty {
                 VStack(spacing: 4) {
-                    ForEach(held) { m in
+                    ForEach(heldSends) { m in
                         HStack(spacing: 8) {
                             Image(systemName: "clock").superFont(12).foregroundStyle(Theme.accent)
                             Text(m.text).superFont(13).foregroundStyle(Theme.textPrimary).lineLimit(1)
                             Spacer(minLength: 6)
                             Text("sends when done").superFont(11).foregroundStyle(Theme.textTertiary)
-                            Button { held.removeAll { $0.id == m.id } } label: {
+                            Button { onCancelQueue(m.id) } label: {
                                 Image(systemName: "xmark.circle.fill").superFont(13).foregroundStyle(Theme.textTertiary)
                             }
                             .buttonStyle(.plain)
@@ -469,8 +444,8 @@ struct Composer: View {
         }
         .padding(.top, 8).padding(.bottom, 8)
         .background(Theme.content)
-        .onAppear { loadDraft(); loadHeld() }
-        .onDisappear { saveDraft(); saveHeld() }
+        .onAppear { loadDraft() }
+        .onDisappear { saveDraft() }
         // Reused across a chat switch: keep the old chat's words, load the new
         // chat's. (id is set on ChatView today, so this is belt-and-braces.)
         .onChange(of: chatID) { old, _ in
@@ -481,39 +456,13 @@ struct Composer: View {
                 UserDefaults.standard.set(draft, forKey: key)
             }
             draft = UserDefaults.standard.string(forKey: Self.draftKey(chatID)) ?? ""
-
-            let heldKey = Self.heldKey(old)
-            if held.isEmpty {
-                UserDefaults.standard.removeObject(forKey: heldKey)
-            } else if let data = try? JSONEncoder().encode(held) {
-                UserDefaults.standard.set(data, forKey: heldKey)
-            }
-            if let data = UserDefaults.standard.data(forKey: Self.heldKey(chatID)),
-               let decoded = try? JSONDecoder().decode([Held].self, from: data) {
-                held = decoded
-            } else {
-                held = []
-            }
         }
         .onChange(of: draft) { _, _ in saveDraft() }
-        .onChange(of: held) { _, _ in saveHeld() }
         .onChange(of: dictation.transcript) { _, t in
             guard !dictationSpent else { return }
             if !t.isEmpty { draft = t }
         }
         .onChange(of: dictation.listening) { _, on in if on { dictationSpent = false } }
-        // The turn finished: send everything held. Sending one starts the next
-        // turn (working flips true again), so a later hold waits for the next
-        // finish — no interleaving. Not on a manual Stop path: stopping is the
-        // user taking over, and the agent going quiet after a stop still flips
-        // working false; that is acceptable — a held message is one you wanted
-        // sent when it settled, and a stop settles it.
-        .onChange(of: working) { _, isWorking in
-            guard !isWorking, !held.isEmpty else { return }
-            let batch = held
-            held = []
-            for m in batch { onSend(m.text) }
-        }
     }
 }
 

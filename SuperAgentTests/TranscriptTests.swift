@@ -175,6 +175,33 @@ struct FixtureFieldTests {
     #expect(t.outbox.map(\.id) == ["L-2"])
 }
 
+/// The typing bubble's state. `active` is what the rest of the conversation
+/// reads, so it must flip only at a reply's start and end — never per word.
+@MainActor @Test func liveStreamFlipsActiveOnlyAtEdges() {
+    let s = LiveStream()
+    #expect(!s.active)
+    s.append("")
+    #expect(!s.active)  // nothing arrived, nothing is typing
+    s.append("Hel")
+    s.append("lo")
+    #expect(s.active)
+    #expect(s.text == "Hello")
+    s.clear()
+    #expect(!s.active)
+    #expect(s.text.isEmpty)
+}
+
+/// Replaying a conversation you already have must not append it twice.
+@Test func duplicateEventIsIgnoredNotAppended() throws {
+    var t = Transcript()
+    let e = try JSONDecoder().decode(WireEvent.self, from: Data(#"{"chatId":"c1","seq":1,"ts":1,"data":{"kind":"user","id":"u1","text":"hi","from":"ios"}}"#.utf8))
+    let first = t.apply(e)
+    let again = t.apply(e)  // already have it: fine, not a gap
+    #expect(first)
+    #expect(again)
+    #expect(t.events.count == 1)
+}
+
 @Test func offlineCacheRoundTrip() throws {
     let id = "test-" + UUID().uuidString.prefix(8)
     defer { OfflineCache.remove(id) }
