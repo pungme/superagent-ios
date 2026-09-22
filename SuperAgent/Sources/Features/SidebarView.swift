@@ -53,9 +53,18 @@ struct SidebarView: View {
     private var mode: SidebarMode { fixedMode ?? SidebarMode(rawValue: modeRaw) ?? .projects }
 
     private static let tabsGroup = "__tabs"
+    /// Projects under no group: the Mac draws them with no header, so does this.
+    private static let flatGroup = "__flat"
     private var computer: WireWorkspace? { connection.tree.first { $0.id == "computer" }?.workspaces.first }
     private var tabs: [WireWorkspace] { connection.tree.first { $0.name == Self.tabsGroup }?.workspaces ?? [] }
-    private var groups: [WireGroup] { connection.tree.filter { $0.id != "computer" && $0.name != Self.tabsGroup } }
+    private var groups: [WireGroup] {
+        connection.tree.filter {
+            $0.id != "computer" && $0.name != Self.tabsGroup && $0.name != Self.flatGroup
+        }
+    }
+    private var flatProjects: [WireWorkspace] {
+        connection.tree.first { $0.name == Self.flatGroup }?.workspaces ?? []
+    }
 
     var body: some View {
         sheetsAndAlerts(listView)
@@ -77,6 +86,9 @@ struct SidebarView: View {
                     machineSection
                     pinnedShortcutsSection
                     browseSection
+                    if !flatProjects.isEmpty {
+                        Section { ForEach(flatProjects) { ws in projectRows(ws) } }
+                    }
                     ForEach(groups) { group in groupSection(group) }
                     newGroupSection
                 }
