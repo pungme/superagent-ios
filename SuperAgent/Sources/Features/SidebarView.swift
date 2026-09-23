@@ -85,10 +85,7 @@ struct SidebarView: View {
                 } else {
                     machineSection
                     pinnedShortcutsSection
-                    browseSection
-                    if !flatProjects.isEmpty {
-                        Section { ForEach(flatProjects) { ws in projectRows(ws) } }
-                    }
+                    projectsSection
                     ForEach(groups) { group in groupSection(group) }
                     newGroupSection
                 }
@@ -266,15 +263,46 @@ struct SidebarView: View {
         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 12))
     }
 
-    /// A section header: the desktop's small caps, the caret and + as real buttons.
-    /// Plain browser tabs, above the projects.
+    /// Everything you work in, as on the Mac: open tabs first (their favicons
+    /// set them apart), then the projects not in a group. It used to be a
+    /// Browse section and an unlabelled one below it — with no tabs open the
+    /// Browse header sat on top of the projects and made them read as tabs.
+    /// The two ways to add something are two buttons on the one header.
     @ViewBuilder
-    private var browseSection: some View {
+    private var projectsSection: some View {
         Section {
             ForEach(tabs) { ws in projectRows(ws) }
+            ForEach(flatProjects) { ws in projectRows(ws) }
         } header: {
-            sectionHeader("Browse", caret: false) { newTab() }
+            projectsHeader
         }
+    }
+
+    private var flatGroupRecord: WireGroup? { connection.tree.first { $0.name == Self.flatGroup } }
+
+    private var projectsHeader: some View {
+        HStack(spacing: 0) {
+            Text("Projects").font(.footnote.weight(.semibold)).textCase(.uppercase).tracking(0.5)
+                .foregroundStyle(Theme.textSecondary)
+                .frame(minHeight: 36)
+            Spacer(minLength: 0)
+            Button { newTab() } label: {
+                Image(systemName: "globe").superFont(15, weight: .medium).foregroundStyle(Theme.textSecondary)
+                    .frame(width: 40, height: addTarget).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(connection.state != .connected)
+            .accessibilityLabel("New tab")
+            Button { addingTo = flatGroupRecord } label: {
+                Image(systemName: "folder.badge.plus").superFont(15, weight: .medium).foregroundStyle(Theme.textSecondary)
+                    .frame(width: 44, height: addTarget).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(connection.state != .connected || flatGroupRecord == nil)
+            .accessibilityLabel("Add a project")
+        }
+        .textCase(nil)
+        .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 4))
     }
 
     @ViewBuilder
