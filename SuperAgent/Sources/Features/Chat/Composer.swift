@@ -387,7 +387,7 @@ struct Composer: View {
                     Button { onProvider("codex") } label: {
                         Label {
                             Text(provider == "codex" ? "✓ Codex" : "Codex")
-                        } icon: { Image("OpenAIMark").renderingMode(.template) }
+                        } icon: { Image("CodexMark").renderingMode(.template) }
                     }
                 } label: {
                     ControlPill {
@@ -478,16 +478,17 @@ struct PickedFile: Identifiable, Equatable {
     let data: Data
 }
 
-/// The agent's brand mark — Anthropic's sunburst (its own orange) for Claude,
-/// OpenAI's blossom (tinted) for Codex — so which backend a chat runs on is
-/// legible at a glance, in the Agent pill and its menu. Assets are vector SVGs
-/// in the catalog (ClaudeMark / OpenAIMark).
+/// The agent's brand mark — Claude's spark (its own orange) for Claude, Codex's
+/// own mark (OpenAI's blossom as a cloud with a >_ prompt, tinted) for Codex —
+/// so which backend a chat runs on is legible at a glance, in the Agent pill
+/// and its menu. Assets are the real vector paths (Simple Icons / LobeHub) in
+/// the catalog (ClaudeMark / CodexMark), not redrawn.
 struct ProviderMark: View {
     let provider: String
     var size: CGFloat = 14
     var body: some View {
         if provider == "codex" {
-            Image("OpenAIMark").renderingMode(.template).resizable().scaledToFit()
+            Image("CodexMark").renderingMode(.template).resizable().scaledToFit()
                 .frame(width: size, height: size).foregroundStyle(Theme.textSecondary)
         } else {
             Image("ClaudeMark").renderingMode(.original).resizable().scaledToFit()
