@@ -271,15 +271,6 @@ struct SidebarView: View {
     private var browseSection: some View {
         Section {
             ForEach(tabs) { ws in projectRows(ws) }
-            if tabs.isEmpty {
-                Button { newTab() } label: {
-                    Label("Open a tab to browse", systemImage: "plus")
-                        .superFont(13.5)
-                        .foregroundStyle(Theme.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .listRowBackground(Theme.card)
-            }
         } header: {
             sectionHeader("Browse", caret: false) { newTab() }
         }
