@@ -1077,7 +1077,7 @@ private func glyphSystemName(for kind: String) -> String {
 }
 
 private struct ProjectGlyph: View {
-    @ScaledMetric(relativeTo: .footnote) private var box: CGFloat = 16
+    @ScaledMetric(relativeTo: .footnote) private var box: CGFloat = 19
 
     let connection: Connection
     let workspace: WireWorkspace
@@ -1101,7 +1101,7 @@ private struct ProjectGlyph: View {
                 Image(systemName: "folder")
             }
         }
-        .superFont(13).foregroundStyle(Theme.textSecondary)
+        .superFont(15).foregroundStyle(Theme.textSecondary)
         .frame(width: box, height: box)
         .task(id: workspace.id) {
             guard !workspace.isBrowser, !workspace.isComputer else { return }
