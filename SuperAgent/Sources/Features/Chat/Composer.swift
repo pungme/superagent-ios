@@ -57,12 +57,14 @@ struct Composer: View {
     /// @FocusState here left all three dead, since nothing outside could see it.
     var focused: FocusState<Bool>.Binding
 
+    /// Fallback only: the Mac sends Claude's real line-up (from its CLI) on the
+    /// session event. Families, not versions, so this never goes stale.
     static let models: [WireModelOption] = [
         .init(id: "", label: "Default", hint: "Recommended · best for everyday, complex tasks"),
-        .init(id: "opus[1m]", label: "Opus", hint: "Opus 5 · 1M context · everyday, complex tasks"),
-        .init(id: "fable", label: "Fable", hint: "Fable 5 · most capable, for the hardest, longest tasks"),
-        .init(id: "sonnet[1m]", label: "Sonnet", hint: "Sonnet 5 · efficient for routine tasks"),
-        .init(id: "haiku", label: "Haiku", hint: "Haiku 4.5 · fastest for quick answers")
+        .init(id: "opus[1m]", label: "Opus", hint: "1M context · everyday, complex tasks"),
+        .init(id: "fable", label: "Fable", hint: "Most capable, for the hardest, longest tasks"),
+        .init(id: "sonnet", label: "Sonnet", hint: "Efficient for routine tasks"),
+        .init(id: "haiku", label: "Haiku", hint: "Fastest for quick answers")
     ]
     static let modes: [(id: String, label: String, hint: String)] = [
         ("bypassPermissions", "Full", "Runs commands and edits, like your terminal"),
@@ -166,7 +168,9 @@ struct Composer: View {
         return commands.filter { q.isEmpty || $0.localizedCaseInsensitiveContains(q) }.prefix(6).map { $0 }
     }
     private var availableModels: [WireModelOption] {
-        if provider != "codex" { return Self.models }
+        if provider != "codex" && sessionModels.isEmpty { return Self.models }
+        // Claude's list carries its own Default entry; Codex's doesn't.
+        if sessionModels.contains(where: { $0.id.isEmpty }) { return sessionModels }
         return [.init(id: "", label: "Default", hint: "Whatever your account uses")] + sessionModels
     }
     private var providerName: String { provider == "codex" ? "Codex" : "Claude" }
