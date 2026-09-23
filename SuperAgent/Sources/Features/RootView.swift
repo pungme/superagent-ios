@@ -57,6 +57,15 @@ struct RootView: View {
         // A tapped notification lands on its conversation.
         .onChange(of: app.openChatId, initial: true) { _, _ in openPending() }
         .onChange(of: app.chatsVersion) { _, _ in openPending() }
+        // Another Mac: what was open belonged to the old one's projects.
+        .onChange(of: app.machineSwitches) { _, _ in
+            projectsPath = NavigationPath()
+            activityPath = NavigationPath()
+            chatPath = NavigationPath()
+            searchPath = NavigationPath()
+            path = NavigationPath()
+            shown = nil
+        }
         .onOpenURL { url in
             log.info("open url \(url.absoluteString.prefix(40), privacy: .public)")
             guard let payload = PairPayload.parse(url.absoluteString) else { log.error("pair link did not parse"); return }

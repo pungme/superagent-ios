@@ -56,7 +56,7 @@ struct SettingsView: View {
                             if app.selectedMachineId == m.id { Image(systemName: "checkmark").foregroundStyle(.tint) }
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture { app.selectedMachineId = m.id }
+                        .onTapGesture { app.switchTo(m.id) }
                         .swipeActions {
                             Button(role: .destructive) { app.remove(m) } label: { Label("Remove", systemImage: "trash") }
                         }

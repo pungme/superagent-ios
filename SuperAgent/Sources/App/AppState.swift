@@ -8,7 +8,16 @@ import SwiftUI
 final class AppState {
     private(set) var machines: [PairedMachine] = MachineStore.load()
     private(set) var connections: [String: Connection] = [:]
-    var selectedMachineId: String?
+    /// Remembered, so the app reopens on the Mac you last picked rather than
+    /// whichever was paired first.
+    var selectedMachineId: String? {
+        didSet { UserDefaults.standard.set(selectedMachineId, forKey: "selectedMachine") }
+    }
+    /// Bumped only when YOU switch Macs (the title menu, Settings), so the
+    /// screens stacked on the old Mac's projects can be cleared. A notification
+    /// also changes the Mac, but it is navigating to a chat at the same moment,
+    /// and clearing on every change would close the chat it just opened.
+    private(set) var machineSwitches = 0
     var pushToken: String?
 
     /// The composer's Model / Mode pills, remembered like the desktop's.
@@ -24,7 +33,15 @@ final class AppState {
     }
 
     init() {
-        selectedMachineId = machines.first?.id
+        let saved = UserDefaults.standard.string(forKey: "selectedMachine")
+        selectedMachineId = machines.contains { $0.id == saved } ? saved : machines.first?.id
+    }
+
+    /// Switch to another paired Mac by hand.
+    func switchTo(_ id: String) {
+        guard id != selected?.id else { return }
+        selectedMachineId = id
+        machineSwitches += 1
     }
 
     #if DEBUG

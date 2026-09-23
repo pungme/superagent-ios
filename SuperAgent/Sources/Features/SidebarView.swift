@@ -113,6 +113,7 @@ struct SidebarView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
         .navigationTitle(connection.machine.name)
+        .modifier(MachineSwitcher(current: connection.machine.id))
         // A large title needs a phone's width to breathe; in an iPad's sidebar
         // column it truncates the Mac's name to make room for itself.
         .navigationBarTitleDisplayMode(width == .regular ? .inline : .large)
@@ -1105,6 +1106,34 @@ private struct ProjectGlyph: View {
         .task(id: workspace.id) {
             guard !workspace.isBrowser, !workspace.isComputer else { return }
             icon = try? await connection.projectIcon(workspaceId: workspace.id, path: workspace.path)
+        }
+    }
+}
+
+/// With more than one Mac paired, the name at the top switches between them —
+/// no trip to Settings to look at a different Mac's projects. Attached only
+/// then: an empty title menu would still draw a chevron that opens nothing.
+private struct MachineSwitcher: ViewModifier {
+    @Environment(AppState.self) private var app
+    let current: String
+
+    func body(content: Content) -> some View {
+        if app.machines.count > 1 {
+            content.toolbarTitleMenu {
+                ForEach(app.machines) { m in
+                    Button {
+                        app.switchTo(m.id)
+                    } label: {
+                        if m.id == current {
+                            Label(m.name, systemImage: "checkmark")
+                        } else {
+                            Text(m.name)
+                        }
+                    }
+                }
+            }
+        } else {
+            content
         }
     }
 }
