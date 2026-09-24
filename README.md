@@ -86,9 +86,19 @@ rather than a stretched phone.
   questions as buttons you can answer — the same rows the Mac draws, at a size
   your thumb can hit.
 - **The sidebar is the Mac's.** Computer at the top with its own conversations,
-  plain browser tabs next, then your projects grouped the way you group them —
-  nested repos, conversations and routines underneath, a spinner while the agent
-  works, the git branch where you expect it.
+  then one Projects section — open browser tabs first, then your projects, with
+  New tab and Add project buttons on its header. Each project shows its own icon;
+  conversations and routines sit underneath, with a spinner while the agent
+  works and the git branch where you expect it. A project holding several repos
+  folds them under a caret on its own row, and a repo that is still cloning says
+  "cloning…".
+- **More than one Mac.** Switch between paired Macs from the title at the top of
+  Projects or Activity. The app reopens on the Mac you picked last.
+- **Pinned in the Mac's order.** Pinned chats appear in the order you dragged
+  them into on the Mac, with Move up and Move down in the long-press menu to
+  reorder them.
+- **The Mac's model list.** The model picker shows the Mac's current Claude
+  models, so a new one appears here when it appears there.
 - **Approve from the lock screen.** When the agent asks permission in Ask mode,
   the notification carries **Approve** and **Deny**. Answer without opening the app.
 - **Unread, where you would expect it.** A dot on any conversation that moved
@@ -101,6 +111,9 @@ rather than a stretched phone.
   is refused.
 - **Files, PDFs and pictures.** Browse the project, read source, rendered
   Markdown, images and PDFs; when the agent opens a file for you, it opens here too.
+  Images in the agent's replies show as previews that open full screen, with zoom.
+- **Search that shows where things are.** Each conversation in the search
+  results carries its project's icon.
 - **Talk instead of typing.** Hold the mic and speak; transcribed on the phone.
 - **Scales with your text size.** Every size follows Larger Text, all the way up
   through the accessibility sizes.
