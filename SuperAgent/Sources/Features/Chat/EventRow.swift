@@ -263,6 +263,22 @@ struct EventRow: View {
 
     private var timestamp: Date { Date(timeIntervalSince1970: event.ts / 1000) }
 
+    /// Pictures in a reply live on the Mac: ask it for them, through the same
+    /// files.read the Files screen uses.
+    private var imageLoader: @Sendable (String) async -> Data? {
+        let connection = connection
+        let chatId = event.chatId
+        return { path in await Self.fetchImage(connection, chatId: chatId, path: path) }
+    }
+
+    @MainActor
+    private static func fetchImage(_ connection: Connection, chatId: String, path: String) async -> Data? {
+        guard let ws = connection.chats.first(where: { $0.id == chatId })?.workspaceId,
+              case let .image(_, _, _, b64)? = try? await connection.readFile(workspaceId: ws, path: path, chatId: chatId)
+        else { return nil }
+        return Data(base64Encoded: b64)
+    }
+
     var body: some View {
         switch event.data {
         case let .user(messageId, text, images, from, replyTo):
@@ -322,6 +338,7 @@ struct EventRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 if !body.isEmpty {
                     AssistantBubble(text: body, streaming: false)
+                        .environment(\.markdownImageLoader, imageLoader)
                         .contextMenu {
                             Button { reply(ReplyQuote(role: .assistant, text: body)) } label: {
                                 Label("Reply", systemImage: "arrowshape.turn.up.left")

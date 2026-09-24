@@ -34,6 +34,18 @@ struct MarkdownTests {
         #expect(blocks[7] == .table(["| a | b |", "| 1 | 2 |"]))
     }
 
+    @Test func imageOnItsOwnLineIsAnImageBlock() {
+        let blocks = MarkdownParser.parse("Here it is:\n\n![The creators page](/Users/me/app/shot.png)\n\nLooks right.")
+        #expect(blocks == [
+            .paragraph("Here it is:"),
+            .image(alt: "The creators page", src: "/Users/me/app/shot.png"),
+            .paragraph("Looks right.")
+        ])
+        // A title after the path is allowed; text around it keeps it inline.
+        #expect(MarkdownParser.parse("![a](x.png \"t\")") == [.image(alt: "a", src: "x.png")])
+        #expect(MarkdownParser.parse("see ![a](x.png) here") == [.paragraph("see ![a](x.png) here")])
+    }
+
     @Test func unterminatedCodeFenceStillRenders() {
         let blocks = MarkdownParser.parse("Look:\n```\nstill streaming")
         #expect(blocks == [.paragraph("Look:"), .code(language: nil, text: "still streaming")])

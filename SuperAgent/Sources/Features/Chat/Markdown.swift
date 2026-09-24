@@ -13,6 +13,8 @@ enum MarkdownBlock: Equatable {
     case quote(String)
     case rule
     case table([String])
+    /// `![alt](src)` alone on a line: a picture the agent put in its reply.
+    case image(alt: String, src: String)
 }
 
 enum MarkdownParser {
@@ -40,6 +42,7 @@ enum MarkdownParser {
                 continue
             }
             if trimmed.isEmpty { flush(); continue }
+            if let img = image(trimmed) { flush(); blocks.append(img); continue }
             if let h = heading(trimmed) { flush(); blocks.append(h); continue }
             if trimmed == "---" || trimmed == "***" || trimmed == "___" { flush(); blocks.append(.rule); continue }
             if trimmed.hasPrefix(">") {
@@ -77,6 +80,11 @@ enum MarkdownParser {
         }
         flush()
         return blocks
+    }
+
+    private static func image(_ s: String) -> MarkdownBlock? {
+        guard let m = s.wholeMatch(of: /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/) else { return nil }
+        return .image(alt: String(m.1), src: String(m.2))
     }
 
     private static func heading(_ s: String) -> MarkdownBlock? {
@@ -151,6 +159,8 @@ struct MarkdownView: View {
                 .padding(.top, 2)
         case let .paragraph(text):
             InlineText(text)
+        case let .image(alt, src):
+            MarkdownImage(alt: alt, src: src)
         case let .bullets(items, ordered):
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(items.enumerated()), id: \.offset) { i, item in
@@ -274,5 +284,59 @@ struct CodeBlock: View {
         }
         .background(Theme.codeBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.border))
+    }
+}
+
+// MARK: - Images
+
+extension EnvironmentValues {
+    /// Fetches the bytes of a picture a reply refers to by path — it lives on
+    /// the Mac, so the chat sets this to ask the Mac for it. nil (a file
+    /// viewer, a preview) shows the picture's name instead.
+    @Entry var markdownImageLoader: (@Sendable (String) async -> Data?)? = nil
+}
+
+/// A picture in a reply, as a small preview — not the width of the bubble,
+/// which pushed the text around it apart. Tap for full screen, with zoom.
+struct MarkdownImage: View {
+    let alt: String
+    let src: String
+    @Environment(\.markdownImageLoader) private var loader
+    @State private var image: UIImage?
+    @State private var failed = false
+    @State private var showFull = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .frame(maxWidth: 220, maxHeight: 160, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.border))
+                    .contentShape(Rectangle())
+                    .onTapGesture { showFull = true }
+                    .fullScreenCover(isPresented: $showFull) { ImageViewerSheet(images: [image], index: 0) }
+                    .accessibilityLabel(alt.isEmpty ? "Image" : alt)
+            } else if failed {
+                Label(alt.isEmpty ? (src as NSString).lastPathComponent : alt, systemImage: "photo")
+                    .font(.footnote).foregroundStyle(Theme.textSecondary)
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.hover)
+                    .frame(width: 160, height: 100)
+                    .overlay(ProgressView())
+            }
+        }
+        .task(id: src) { await load() }
+    }
+
+    private func load() async {
+        var data: Data?
+        if let url = URL(string: src), url.scheme == "https" || url.scheme == "http" {
+            data = try? await URLSession.shared.data(from: url).0
+        } else if let loader {
+            let path = src.hasPrefix("file://") ? (URL(string: src)?.path ?? src) : src
+            data = await loader(path)
+        }
+        if let data, let img = UIImage(data: data) { image = img } else { failed = true }
     }
 }
