@@ -30,7 +30,9 @@ struct SidebarView: View {
     /// from it — keyed by project. The Mac's sidebar is a row per one of these,
     /// asked of git rather than of anything the app recorded.
     @State private var worktrees: [String: [WireWorktree]] = [:]
-    @State private var reposOpen: Set<String> = []
+    /// Projects whose repos are unfolded — remembered, as on the Mac.
+    @AppStorage("sidebar.reposOpen") private var reposOpenRaw = ""
+    private var reposOpen: Set<String> { Set(reposOpenRaw.split(separator: "\u{1}").map(String.init)) }
     /// Collapsed groups, remembered on this phone (the caret is a real button
     /// here — on the desktop it's a 16 px glyph you can hit with a mouse).
     @AppStorage("sidebar.collapsedGroups") private var collapsedRaw = ""
@@ -497,10 +499,10 @@ struct SidebarView: View {
     @ViewBuilder
     private var pinnedShortcutsSection: some View {
         let names = projectNames
-        let pinned = connection.chats.filter(\.isPinned).sorted { $0.updatedAt > $1.updatedAt }
+        let pinned = pinnedChats
         if !pinned.isEmpty {
             Section("Pinned") {
-                ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId]) }
+                ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId], pinned: pinned) }
             }
         }
     }
@@ -510,7 +512,7 @@ struct SidebarView: View {
     @ViewBuilder
     private var activitySection: some View {
         let names = projectNames
-        let pinned = connection.chats.filter(\.isPinned).sorted { $0.updatedAt > $1.updatedAt }
+        let pinned = pinnedChats
         let rest = connection.chats.filter { !$0.isPinned }.sorted { $0.updatedAt > $1.updatedAt }
         if connection.chats.isEmpty {
             Section {
@@ -523,7 +525,7 @@ struct SidebarView: View {
         // having done nothing at all. A real section makes it visible.
         if !pinned.isEmpty {
             Section("Pinned") {
-                ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId]) }
+                ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId], pinned: pinned) }
             }
         }
         if !rest.isEmpty {
@@ -544,7 +546,7 @@ struct SidebarView: View {
     /// One conversation, the way a message thread reads: who it is with (the
     /// project), what was last said, when, and whether you have read it.
     @ViewBuilder
-    private func activityRow(_ chat: WireChat, project: String?) -> some View {
+    private func activityRow(_ chat: WireChat, project: String?, pinned: [WireChat] = []) -> some View {
         Button { open(chat) } label: {
             HStack(alignment: .top, spacing: 8) {
                 UnreadDot(on: connection.unread.isUnread(chat)).padding(.top, 5)
@@ -577,6 +579,15 @@ struct SidebarView: View {
         .contextMenu {
             Button { togglePin(chat) } label: {
                 Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
+            }
+            // The Mac drags pins into order; a hold menu is the phone's way.
+            if let i = pinned.firstIndex(where: { $0.id == chat.id }) {
+                if i > 0 {
+                    Button { movePin(pinned, from: i, to: i - 1) } label: { Label("Move up", systemImage: "arrow.up") }
+                }
+                if i < pinned.count - 1 {
+                    Button { movePin(pinned, from: i, to: i + 1) } label: { Label("Move down", systemImage: "arrow.down") }
+                }
             }
             Button(role: .destructive) {
                 deletingChat = chat
@@ -644,6 +655,9 @@ struct SidebarView: View {
         let hasTree = !repos.isEmpty || extras > 0 || !mine.isEmpty
 
         // .sidebar-item: status dot, kind icon, 13.5/500 name, branch chip; 7/8 padding, radius 8.
+        // The caret folds the project's repos from the row itself, as on the
+        // Mac — not a separate "N repos" row under every project.
+        HStack(spacing: 0) {
         Button { openProject(ws) } label: {
             HStack(spacing: 8) {
                 StatusIndicator(status: ws.status).frame(width: 10)
@@ -664,6 +678,17 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        if !repos.isEmpty {
+            Button { toggle(ws.id) } label: {
+                Image(systemName: "chevron.right").superFont(11, weight: .semibold)
+                    .foregroundStyle(Theme.textTertiary)
+                    .rotationEffect(.degrees(reposOpen.contains(ws.id) ? 90 : 0))
+                    .frame(width: 32, height: 40).contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(reposOpen.contains(ws.id) ? "Hide repos" : "Show \(repos.count) repos")
+        }
+        }
         .listRowBackground(chats.contains { $0.id == openId } ? Theme.hover : Theme.card)
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 12))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -689,22 +714,9 @@ struct SidebarView: View {
             }()
             let treeEndsInRepos = mine.isEmpty && loose.isEmpty && nonMain.isEmpty
             Group {
-                if !repos.isEmpty {
-                    TreeRow(last: treeEndsInRepos && !reposOpen.contains(ws.id)) {
-                        Button { toggle(ws.id) } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: reposOpen.contains(ws.id) ? "chevron.down" : "chevron.right")
-                                    .superFont(9, weight: .semibold).foregroundStyle(Theme.textTertiary).frame(width: 10)
-                                Text("\(repos.count) repo\(repos.count == 1 ? "" : "s")")
-                                Spacer()
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    if reposOpen.contains(ws.id) {
+                if !repos.isEmpty && reposOpen.contains(ws.id) {
                         ForEach(repos) { r in
-                            TreeRow(depth: 2, last: treeEndsInRepos && r.path == repos.last?.path) {
+                            TreeRow(last: treeEndsInRepos && r.path == repos.last?.path) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "chevron.left.forwardslash.chevron.right").superFont(10).foregroundStyle(Theme.textTertiary)
                                     Text(r.name).lineLimit(1)
@@ -716,6 +728,8 @@ struct SidebarView: View {
                                                 .background(Theme.accent, in: Capsule()).foregroundStyle(Theme.accentFg)
                                         }
                                         .buttonStyle(.borderless)
+                                    } else if r.cloning == true {
+                                        Text("cloning…").superFont(10.5).foregroundStyle(Theme.textTertiary)
                                     } else if let b = r.branch, !b.isEmpty {
                                         Text("⎇ \(b)").superFont(10.5).foregroundStyle(Theme.textTertiary)
                                     }
@@ -725,7 +739,6 @@ struct SidebarView: View {
                             }
                         }
                     }
-                }
                 // A project holds many conversations; show them only once there's a
                 // choice to make, so a single-chat project stays as quiet as before.
                 // One row per branch, main first, the way the Mac lists them.
@@ -898,6 +911,21 @@ struct SidebarView: View {
         return "Delete \u{201C}\(shown)\u{201D}"
     }
 
+    /// Pinned chats in the Mac's order: when each was pinned (or put in place),
+    /// newest first. Sorting by last activity reshuffled them on every reply
+    /// and ignored the order set on the Mac.
+    private var pinnedChats: [WireChat] {
+        connection.chats.filter(\.isPinned).sorted {
+            ($0.pinnedAt ?? $0.updatedAt) > ($1.pinnedAt ?? $1.updatedAt)
+        }
+    }
+
+    private func movePin(_ pinned: [WireChat], from: Int, to: Int) {
+        var ids = pinned.map(\.id)
+        ids.insert(ids.remove(at: from), at: to)
+        Task { await run { try await connection.reorderPinned(chatIds: ids) } }
+    }
+
     private func togglePin(_ chat: WireChat) {
         Task { await run { try await connection.pinChat(chatId: chat.id, pinned: !chat.isPinned) } }
     }
@@ -929,7 +957,9 @@ struct SidebarView: View {
     }
 
     private func toggle(_ id: String) {
-        if reposOpen.contains(id) { reposOpen.remove(id) } else { reposOpen.insert(id) }
+        var next = reposOpen
+        if next.contains(id) { next.remove(id) } else { next.insert(id) }
+        withAnimation(.easeOut(duration: 0.18)) { reposOpenRaw = next.joined(separator: "\u{1}") }
     }
 
     private func loadRoutines() async {

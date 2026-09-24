@@ -242,6 +242,8 @@ struct WireSubrepo: Codable, Hashable, Sendable, Identifiable {
     var name: String
     var path: String
     var branch: String?
+    /// Still being cloned: no branch yet.
+    var cloning: Bool? = nil
     var id: String { path }
 }
 
@@ -265,6 +267,9 @@ struct WireChat: Codable, Hashable, Sendable, Identifiable {
     var title: String?
     var updatedAt: Double
     var pinned: Bool? = nil
+    /// The Pinned list's order, newest first — the Mac's, so both show pins in
+    /// the order you set. nil from an older Mac; last activity stands in.
+    var pinnedAt: Double? = nil
     var live: Bool
     var preview: String?
     /// Which copy of the project this chat is in: "" for the project folder

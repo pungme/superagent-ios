@@ -655,6 +655,15 @@ final class Connection {
         chats = chats.map { var c = $0; if c.id == chatId { c.pinned = pinned }; return c }
     }
 
+    /// Save the Pinned list's order, top first. Mirrors the Mac's rule — the
+    /// list sorts by pinnedAt, newest first — so the order shows at once.
+    func reorderPinned(chatIds: [String]) async throws {
+        let base = Date().timeIntervalSince1970 * 1000
+        let stamps = Dictionary(uniqueKeysWithValues: chatIds.enumerated().map { ($1, base - Double($0)) })
+        chats = chats.map { var c = $0; if let t = stamps[c.id] { c.pinnedAt = t }; return c }
+        _ = try await rpc("chat.reorderPinned", .object(["chatIds": .array(chatIds.map { .string($0) })]))
+    }
+
     func deleteChat(chatId: String) async throws {
         _ = try await rpc("chat.delete", .object(["chatId": .string(chatId)]))
         chats.removeAll { $0.id == chatId }
@@ -960,6 +969,15 @@ extension Connection {
                 WireWorkspace(id: "computer", name: "Computer", path: "/", kind: "desktop",
                               status: .idle, branch: nil, browserUrl: nil, subrepos: [])
             ]),
+            // Ungrouped projects, one holding several repos (one still cloning),
+            // to see the merged Projects section and the row's own repos caret.
+            WireGroup(id: "flat", name: "__flat", color: "#fff", workspaces: [
+                WireWorkspace(id: "w-hobby", name: "HOBBY", path: "/Users/you/HOBBY", kind: "app",
+                              status: .idle, branch: nil, browserUrl: nil, subrepos: [
+                                WireSubrepo(name: "landing", path: "/Users/you/HOBBY/landing", branch: "main"),
+                                WireSubrepo(name: "big-repo", path: "/Users/you/HOBBY/big-repo", branch: nil, cloning: true)
+                              ])
+            ]),
             WireGroup(id: "g1", name: "Superagent", color: "#fff", workspaces: ws.map { id, name, kind in
                 WireWorkspace(id: id, name: name, path: "/Users/you/" + name, kind: kind,
                               status: .idle, branch: kind == "browser" ? nil : "main",
@@ -977,9 +995,12 @@ extension Connection {
             ("c4", "w-tab", "Read the pricing page back to me", "Three tiers, and the middle one is the only one with SSO.", now - 26_000_000, false),
             ("c5", "computer", "Rename the screenshots on my desktop", "All 34, by the date they were taken.", now - 90_000_000, false)
         ]
+        // c3 and c4 pinned, c4 first: the pin order, not last activity (c3 is newer).
+        let pinOrder: [String: Double] = ["c4": now, "c3": now - 1]
         c.chats = rows.map { id, wsId, title, preview, at, live in
-            WireChat(id: id, workspaceId: wsId, title: title, updatedAt: at, live: live, preview: preview,
-                     provider: id == "c2" ? "codex" : nil)
+            WireChat(id: id, workspaceId: wsId, title: title, updatedAt: at,
+                     pinned: pinOrder[id] != nil ? true : nil, pinnedAt: pinOrder[id],
+                     live: live, preview: preview, provider: id == "c2" ? "codex" : nil)
         }
         // Two of them have moved since this phone last looked.
         c.unread.note(c.chats.map { var x = $0; if x.id == "c1" || x.id == "c3" { x.updatedAt -= 600_000 }; return x })
