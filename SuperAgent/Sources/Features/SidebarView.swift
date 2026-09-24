@@ -782,6 +782,8 @@ struct SidebarView: View {
         Section {
             ForEach(hits) { hit in
                 Button { query = ""; app.openChatId = hit.chatId } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                    SearchHitGlyph(connection: connection, workspaceId: hit.workspaceId).padding(.top, 2)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
                             Text(hit.title ?? "New chat").superFont(13.5, weight: .medium).foregroundStyle(Theme.textPrimary).lineLimit(1)
@@ -790,6 +792,7 @@ struct SidebarView: View {
                                 .superFont(11).foregroundStyle(Theme.textTertiary)
                         }
                         Text(hit.snippet).superFont(12).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                    }
                     }
                     .padding(.horizontal, 8).padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
@@ -1134,7 +1137,8 @@ private func glyphSystemName(for kind: String) -> String {
     }
 }
 
-private struct ProjectGlyph: View {
+/// A project's icon, as the sidebar shows it — also used by search results.
+struct ProjectGlyph: View {
     @ScaledMetric(relativeTo: .footnote) private var box: CGFloat = 19
 
     let connection: Connection
@@ -1192,6 +1196,19 @@ private struct MachineSwitcher: ViewModifier {
             }
         } else {
             content
+        }
+    }
+}
+
+/// The icon of the project a search result is in, as the Mac's ⌘K shows it.
+struct SearchHitGlyph: View {
+    let connection: Connection
+    let workspaceId: String
+    var body: some View {
+        if let ws = connection.tree.flatMap(\.workspaces).first(where: { $0.id == workspaceId }) {
+            ProjectGlyph(connection: connection, workspace: ws)
+        } else {
+            Image(systemName: "bubble.left").superFont(13).foregroundStyle(Theme.textSecondary)
         }
     }
 }

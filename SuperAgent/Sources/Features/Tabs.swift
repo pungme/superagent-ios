@@ -49,6 +49,8 @@ struct SearchTabView: View {
             }
             ForEach(hits) { hit in
                 Button { open(hit) } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                    SearchHitGlyph(connection: connection, workspaceId: hit.workspaceId).padding(.top, 2)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
                             Text(hit.title ?? "New chat").superFont(13.5, weight: .medium)
@@ -58,6 +60,7 @@ struct SearchTabView: View {
                                 .superFont(11).foregroundStyle(Theme.textTertiary)
                         }
                         Text(hit.snippet).superFont(12).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                    }
                     }
                     .padding(.horizontal, 8).padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
