@@ -359,8 +359,8 @@ struct EventRow: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 6)
-        case let .approval(id, toolName, preview, _, _):
-            ApprovalCard(id: id, toolName: toolName, preview: preview, pending: pending, answer: answer)
+        case let .approval(id, toolName, preview, kind, _):
+            ApprovalCard(id: id, toolName: toolName, preview: preview, kind: kind, pending: pending, answer: answer)
         case let .approvalEnd(_, outcome, by):
             Text("\(outcome == .approved ? "Approved" : outcome == .denied ? "Denied" : "Expired") · \(by == .ios ? "from this phone" : "on the Mac")")
                 .superFont(11).foregroundStyle(Theme.textTertiary)
@@ -448,10 +448,36 @@ struct ApprovalCard: View {
     let id: String
     let toolName: String
     let preview: String
+    /// "handoff": the agent is stuck on something only a person can do (a
+    /// captcha, a login) and waits for Done — not a yes/no on an action.
+    var kind: String = "guardrail"
     let pending: Bool
     let answer: (String, Bool) -> Void
 
     var body: some View {
+        if kind == "handoff" { handoff } else { approval }
+    }
+
+    private var handoff: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("The agent needs you", systemImage: "hand.raised")
+                .superFont(14, weight: .semibold).foregroundStyle(Theme.textPrimary)
+            Text(preview).superFont(14).foregroundStyle(Theme.textPrimary)
+            if pending {
+                HStack(spacing: 8) {
+                    Button { answer(id, false) } label: { Text("Skip").frame(maxWidth: .infinity) }
+                        .buttonStyle(.bordered)
+                    Button { answer(id, true) } label: { Text("Done").frame(maxWidth: .infinity) }
+                        .buttonStyle(.borderedProminent).tint(Theme.accent).foregroundStyle(Theme.accentFg)
+                }
+            }
+        }
+        .padding(12)
+        .background(Theme.needsYou.opacity(pending ? 0.12 : 0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.needsYou.opacity(pending ? 0.5 : 0.15)))
+    }
+
+    private var approval: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(pending ? "Claude wants to \(verb)" : "Asked to \(verb)", systemImage: "hand.raised")
                 .superFont(14, weight: .semibold).foregroundStyle(Theme.textPrimary)
