@@ -157,12 +157,19 @@ struct ChatView: View {
                     sideDivider.frame(maxHeight: .infinity).offset(x: livePane)
                 }
             } else {
+                // Typing with a page up: the page takes the room and the messages
+                // step aside (see typingOverMirror), so you see what you're
+                // talking about while you write.
                 if simShown {
-                    mirrorSim.frame(height: pageHeight)
+                    mirrorSim
+                        .frame(height: typingOverMirror ? nil : pageHeight)
+                        .frame(maxHeight: typingOverMirror ? .infinity : nil)
                     dockDivider
                 }
                 if pageShown {
-                    mirrorPage.frame(height: pageHeight)
+                    mirrorPage
+                        .frame(height: typingOverMirror ? nil : pageHeight)
+                        .frame(maxHeight: typingOverMirror ? .infinity : nil)
                     dockDivider
                 }
                 conversation
@@ -323,13 +330,19 @@ struct ChatView: View {
             // release. The threshold is generous for the same reason; chrome
             // only really changes when the banner appears or the composer grows
             // a line, and neither needs to be caught to the point.
-            guard box > 0, pageShown, dragStart == nil else { return }
+            // Nor while typing over the page: the messages are folded away then,
+            // and the page is not at pageHeight, so the reading would be wrong
+            // and would stick.
+            guard box > 0, pageShown, dragStart == nil, !typingOverMirror else { return }
             let measured = containerHeight - pageHeight - box
             if measured > 0, abs(measured - chromeHeight) > 8 { chromeHeight = measured }
         }
         .onScrollGeometryChange(for: Bool.self) { geo in
             geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 40
         } action: { _, isAtEnd in
+            // Folded away while typing over the page, the list reads as "not at
+            // the end" and would stop following new messages once it's back.
+            guard !typingOverMirror else { return }
             if atBottom != isAtEnd { atBottom = isAtEnd }
         }
         .background(Theme.content)
@@ -541,15 +554,19 @@ struct ChatView: View {
             // the Mac is gone, and you need it least where you are reading. With
             // the sidebar on screen it already says so a few inches to the left,
             // so it is not repeated there.
+            // Collapsed rather than removed while typing over a page, so the
+            // scroll position is still there when the keyboard goes away.
             transcript(proxyless: true)
+                .frame(maxHeight: typingOverMirror ? 0 : .infinity)
+                .clipped()
                 .overlay(alignment: .bottom) {
-                    if connection.state != .connected, !wide {
+                    if connection.state != .connected, !wide, !typingOverMirror {
                         ConnectionFloat(connection: connection)
                             .padding(.bottom, 10)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-            if !backgroundTasks.isEmpty { backgroundStrip }
+            if !backgroundTasks.isEmpty, !typingOverMirror { backgroundStrip }
             Divider().overlay(Theme.border)
             composer
         }
@@ -558,6 +575,16 @@ struct ChatView: View {
         // keyboard that was never going to appear. Empty edges is a no-op,
         // so a real on-screen keyboard still gets its usual room.
         .ignoresSafeArea(.keyboard, edges: hardwareKeyboardAttached ? .bottom : [])
+        // With the messages out of the way, tapping them can't put the keyboard
+        // away — so the keyboard says how to get back to the chat.
+        .toolbar {
+            if typingOverMirror {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Show chat") { composerFocused = false }
+                }
+            }
+        }
         .onAppear { hardwareKeyboardAttached = GCKeyboard.coalesced != nil }
         .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidConnect)) { _ in
             hardwareKeyboardAttached = true
@@ -615,7 +642,7 @@ struct ChatView: View {
                       onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
                       onHide: { withAnimation(.easeOut(duration: 0.2)) { setPageHidden(true) } },
                       onExpand: { showBrowserSheet = true },
-                      paused: composerFocused && !wide)
+                      paused: false)
             .transition(.move(edge: wide ? .trailing : .top).combined(with: .opacity))
     }
 
@@ -624,7 +651,7 @@ struct ChatView: View {
         SimulatorMirror(connection: connection, chat: chat,
                         onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
                         onHide: { withAnimation(.easeOut(duration: 0.2)) { setSimHidden(true) } },
-                        paused: composerFocused && !wide)
+                        paused: false)
             .transition(.move(edge: wide ? .trailing : .top).combined(with: .opacity))
     }
 
@@ -808,9 +835,15 @@ struct ChatView: View {
     private var pageAttached: Bool { connection.browsers[chat.id]?.open == true }
 
     private var simAttached: Bool { connection.simulators[chat.id]?.open == true }
+
+    /// Typing on a phone with a page (or the simulator) up. The page stays and
+    /// takes the room; the messages step aside until the keyboard goes. It used
+    /// to be the other way round, which hid the very thing you were writing
+    /// about.
+    private var typingOverMirror: Bool { composerFocused && !wide && (pageShown || simShown) }
     /// The simulator gets the docked slot only when there is no page in it: two
     /// mirrors over one conversation on a phone leaves room for neither.
-    private var simShown: Bool { simAttached && !pageShown && !simHidden && (!composerFocused || wide) }
+    private var simShown: Bool { simAttached && !pageShown && !simHidden }
     private var simLabel: String { connection.simulators[chat.id]?.device ?? "Simulator" }
 
     /// The page's host, or its title when there is no useful host.
@@ -872,7 +905,7 @@ struct ChatView: View {
     }
 
     private var pageShown: Bool {
-        connection.browsers[chat.id]?.open == true && !pageHidden && (!composerFocused || wide)
+        connection.browsers[chat.id]?.open == true && !pageHidden
     }
 
     /// The compass shows or hides the page; with nothing open it opens the
