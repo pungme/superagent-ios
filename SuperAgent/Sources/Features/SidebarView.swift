@@ -501,8 +501,14 @@ struct SidebarView: View {
         let names = projectNames
         let pinned = pinnedChats
         if !pinned.isEmpty {
-            Section("Pinned") {
+            // Small caps, like PROJECTS under it and the Mac's own Pinned label.
+            Section {
                 ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId], pinned: pinned) }
+            } header: {
+                Text("Pinned").font(.footnote.weight(.semibold)).textCase(.uppercase).tracking(0.5)
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(minHeight: 36, alignment: .leading)
+                    .textCase(nil)
             }
         }
     }
