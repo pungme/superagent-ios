@@ -596,6 +596,12 @@ final class Connection {
         }
     }
 
+    /// A typed `/loop …`: the Mac starts, stops or explains it, and says so in
+    /// the conversation. The loop itself runs on the Mac.
+    func loopCommand(chatId: String, text: String) async throws {
+        _ = try await rpc("chat.loop", .object(["chatId": .string(chatId), "text": .string(text)]))
+    }
+
     func interrupt(chatId: String) async throws {
         _ = try await rpc("chat.interrupt", .object(["chatId": .string(chatId)]))
     }
@@ -1001,6 +1007,11 @@ extension Connection {
             WireChat(id: id, workspaceId: wsId, title: title, updatedAt: at,
                      pinned: pinOrder[id] != nil ? true : nil, pinnedAt: pinOrder[id],
                      live: live, preview: preview, provider: id == "c2" ? "codex" : nil)
+        }
+        // `-withLoop`: the first conversation has a /loop running, for its bar.
+        if ProcessInfo.processInfo.arguments.contains("-withLoop"), let i = c.chats.firstIndex(where: { $0.id == "c1" }) {
+            c.chats[i].loop = WireLoop(prompt: "Check the hero on a phone and tighten anything that wraps",
+                                       intervalMs: 300_000, count: 3, nextAt: now + 240_000)
         }
         // Two of them have moved since this phone last looked.
         c.unread.note(c.chats.map { var x = $0; if x.id == "c1" || x.id == "c3" { x.updatedAt -= 600_000 }; return x })

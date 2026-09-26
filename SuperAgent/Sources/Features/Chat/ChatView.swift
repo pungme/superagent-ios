@@ -566,6 +566,7 @@ struct ChatView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
+            if let loop = liveLoop, !typingOverMirror { loopBar(loop) }
             if !backgroundTasks.isEmpty, !typingOverMirror { backgroundStrip }
             Divider().overlay(Theme.border)
             composer
@@ -592,6 +593,62 @@ struct ChatView: View {
         .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidDisconnect)) { _ in
             hardwareKeyboardAttached = GCKeyboard.coalesced != nil
         }
+    }
+
+    /// The /loop the Mac is running in this conversation, as the chat list last said.
+    private var liveLoop: WireLoop? {
+        connection.chats.first { $0.id == chat.id }?.loop
+    }
+
+    /// The Mac's loop bar, here too: what repeats, how often, and a Stop.
+    private func loopBar(_ loop: WireLoop) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "repeat")
+                .superFont(12, weight: .semibold)
+                .foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                TimelineView(.periodic(from: .now, by: 10)) { context in
+                    Text(loopStatus(loop, now: context.date))
+                        .superFont(11.5, weight: .semibold)
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                }
+                Text("“\(loop.prompt)”")
+                    .superFont(11)
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            Button {
+                Haptics.tap()
+                Task {
+                    do { try await connection.loopCommand(chatId: chat.id, text: "/loop stop") }
+                    catch let e as RpcError { error = e.message }
+                    catch let e { error = e.localizedDescription }
+                }
+            } label: {
+                Text("Stop").superFont(12, weight: .semibold)
+                    .padding(.horizontal, 12).padding(.vertical, 5)
+                    .background(Theme.panel, in: Capsule())
+                    .overlay(Capsule().stroke(Theme.border))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Stop the loop")
+        }
+        .padding(.horizontal, 14).padding(.vertical, 7)
+        .background(Theme.content)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("loopBar")
+    }
+
+    /// "Looping every 5m · run 3 · next in 4m" — the Mac's words, plus the wait.
+    private func loopStatus(_ loop: WireLoop, now: Date) -> String {
+        var parts = [loop.every.map { "Looping every \($0)" } ?? "Looping", "run \(loop.count)"]
+        if let next = loop.nextAt {
+            let mins = Int(((next - now.timeIntervalSince1970 * 1000) / 60_000).rounded(.up))
+            parts.append(mins <= 1 ? "next in under a minute" : "next in \(mins)m")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var backgroundStrip: some View {
@@ -751,6 +808,18 @@ struct ChatView: View {
     private func send(text: String, fromComposer: Bool = true, filesHandled: Bool = false) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || (fromComposer && (!attachments.isEmpty || !files.isEmpty)) else { return }
+        // `/loop …` is Superagent's, not the agent's: the Mac runs the loop and
+        // answers in the conversation, the same as when it is typed there.
+        if text.range(of: #"^/loop(\s|$)"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            if fromComposer, dictation.listening { dictation.stop() }
+            Task {
+                do { try await connection.loopCommand(chatId: chat.id, text: text) }
+                catch let e as RpcError { error = e.message }
+                catch let e { error = e.localizedDescription }
+            }
+            Haptics.tap()
+            return
+        }
         // Files go to the Mac first, in slices, and the message carries their
         // paths as text — the same way the desktop hands the agent its own
         // attachments: the path travels as text, which nothing drops.

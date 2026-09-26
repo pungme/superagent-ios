@@ -284,11 +284,35 @@ struct WireChat: Codable, Hashable, Sendable, Identifiable {
     /// not be sent them: they are not a bad setting, they are a CLI that refuses
     /// to start. nil from a Mac too old to say.
     var provider: String?
+    /// The /loop repeating a prompt in this conversation. nil when none is
+    /// running, and from a Mac too old to say.
+    var loop: WireLoop?
     var isCodex: Bool { provider == "codex" }
     var isPinned: Bool { pinned == true }
     /// The conversation in the project folder — what the project row opens.
     /// The same test the Mac's sidebar makes: in the folder, and staying there.
     var isFolderChat: Bool { cwd == "" && pending != true }
+}
+
+/// A /loop running in a conversation on the Mac — it re-sends the prompt until stopped.
+struct WireLoop: Codable, Hashable, Sendable {
+    var prompt: String
+    /// Fixed gap between rounds; nil when the agent paces itself.
+    var intervalMs: Double?
+    /// Rounds sent so far, this one included.
+    var count: Int
+    /// When the next round is due, when one is scheduled (ms since 1970).
+    var nextAt: Double?
+
+    /// "every 5m", as the Mac's bar says it.
+    var every: String? {
+        guard let ms = intervalMs, ms > 0 else { return nil }
+        for (unit, size) in [("d", 86_400_000.0), ("h", 3_600_000.0), ("m", 60_000.0)]
+        where ms.truncatingRemainder(dividingBy: size) == 0 {
+            return "\(Int(ms / size))\(unit)"
+        }
+        return "\(Int((ms / 1000).rounded()))s"
+    }
 }
 
 struct WireMachine: Codable, Hashable, Sendable {
