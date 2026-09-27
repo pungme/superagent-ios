@@ -610,9 +610,9 @@ struct ChatView: View {
     /// The Mac's loop bar, here too: what repeats, how often, and a Stop.
     private func loopBar(_ loop: WireLoop) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "repeat")
+            Image(systemName: loop.isPaused ? "pause.fill" : "repeat")
                 .superFont(12, weight: .semibold)
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(loop.isPaused ? Theme.textTertiary : Theme.accent)
             VStack(alignment: .leading, spacing: 1) {
                 TimelineView(.periodic(from: .now, by: 10)) { context in
                     Text(loopStatus(loop, now: context.date))
@@ -626,6 +626,25 @@ struct ChatView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
+            // A Mac too old to pause says nothing about it: no button then.
+            if loop.paused != nil {
+                Button {
+                    Haptics.tap()
+                    let command = loop.isPaused ? "/loop resume" : "/loop pause"
+                    Task {
+                        do { try await connection.loopCommand(chatId: chat.id, text: command) }
+                        catch let e as RpcError { error = e.message }
+                        catch let e { error = e.localizedDescription }
+                    }
+                } label: {
+                    Text(loop.isPaused ? "Resume" : "Pause").superFont(12, weight: .semibold)
+                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .background(Theme.panel, in: Capsule())
+                        .overlay(Capsule().stroke(Theme.border))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(loop.isPaused ? "Resume the loop" : "Pause the loop")
+            }
             Button {
                 Haptics.tap()
                 Task {
@@ -650,8 +669,9 @@ struct ChatView: View {
 
     /// "Looping every 5m · run 3 · next in 4m" — the Mac's words, plus the wait.
     private func loopStatus(_ loop: WireLoop, now: Date) -> String {
-        var parts = [loop.every.map { "Looping every \($0)" } ?? "Looping", "run \(loop.count)"]
-        if let next = loop.nextAt {
+        let verb = loop.isPaused ? "Paused" : "Looping"
+        var parts = [loop.every.map { "\(verb) every \($0)" } ?? verb, "run \(loop.count)"]
+        if !loop.isPaused, let next = loop.nextAt {
             let mins = Int(((next - now.timeIntervalSince1970 * 1000) / 60_000).rounded(.up))
             parts.append(mins <= 1 ? "next in under a minute" : "next in \(mins)m")
         }

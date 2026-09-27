@@ -1010,8 +1010,10 @@ extension Connection {
         }
         // `-withLoop`: the first conversation has a /loop running, for its bar.
         if ProcessInfo.processInfo.arguments.contains("-withLoop"), let i = c.chats.firstIndex(where: { $0.id == "c1" }) {
+            let held = ProcessInfo.processInfo.arguments.contains("-loopPaused")
             c.chats[i].loop = WireLoop(prompt: "Check the hero on a phone and tighten anything that wraps",
-                                       intervalMs: 300_000, count: 3, nextAt: now + 240_000)
+                                       intervalMs: 300_000, count: 3,
+                                       nextAt: held ? nil : now + 240_000, paused: held)
         }
         // Two of them have moved since this phone last looked.
         c.unread.note(c.chats.map { var x = $0; if x.id == "c1" || x.id == "c3" { x.updatedAt -= 600_000 }; return x })

@@ -303,6 +303,10 @@ struct WireLoop: Codable, Hashable, Sendable {
     var count: Int
     /// When the next round is due, when one is scheduled (ms since 1970).
     var nextAt: Double?
+    /// Held: the round in flight finishes, no new one starts until resumed.
+    /// nil from a Mac too old to pause.
+    var paused: Bool?
+    var isPaused: Bool { paused == true }
 
     /// "every 5m", as the Mac's bar says it.
     var every: String? {

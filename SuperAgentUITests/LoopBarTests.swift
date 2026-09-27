@@ -15,8 +15,24 @@ final class LoopBarTests: XCTestCase {
         XCTAssertTrue(status.waitForExistence(timeout: 10), "the loop's bar says what it is doing")
         XCTAssertTrue(app.staticTexts["“Check the hero on a phone and tighten anything that wraps”"].exists, "and what it repeats")
         XCTAssertTrue(app.buttons["Stop the loop"].isHittable, "with a Stop within reach")
+        XCTAssertTrue(app.buttons["Pause the loop"].isHittable, "and a Pause")
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "loop-bar"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    func testAPausedLoopSaysSoAndOffersResume() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-sidebarHarness", "-withLoop", "-loopPaused", "-openChat", "c1", "-tab", "projects"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Paused every 5m · run 3"].waitForExistence(timeout: 10),
+                      "held, with no next round promised")
+        XCTAssertTrue(app.buttons["Resume the loop"].isHittable)
+        XCTAssertTrue(app.buttons["Stop the loop"].isHittable)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "loop-paused"
         shot.lifetime = .keepAlways
         add(shot)
     }
