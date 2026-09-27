@@ -14,6 +14,8 @@ struct BrowserMirror: View {
     var onAttach: ((Data) -> Void)?
     var onHide: (() -> Void)?
     var onExpand: (() -> Void)?
+    /// Full screen now: the expand button becomes the way out.
+    var expanded = false
     /// Paused while the keyboard is up (the pane is collapsed then) or the app is away.
     var paused = false
 
@@ -102,8 +104,10 @@ struct BrowserMirror: View {
             Button { nav("forward") } label: { Image(systemName: "chevron.right") }.disabled(!(shot?.canGoForward ?? false))
             Button { nav("reload") } label: { Image(systemName: "arrow.clockwise") }
             if let onExpand {
-                Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                    .accessibilityLabel("Open full screen")
+                Button(action: onExpand) {
+                    Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                }
+                .accessibilityLabel(expanded ? "Exit full screen" : "Open full screen")
             }
             Spacer()
             if let title = shot?.title, !title.isEmpty, !compact {
@@ -239,6 +243,10 @@ struct SimulatorMirror: View {
     let chat: WireChat
     var onAttach: ((Data) -> Void)?
     var onHide: (() -> Void)?
+    /// Full screen, with the conversation floating over it.
+    var onExpand: (() -> Void)?
+    /// Full screen now: the expand button becomes the way out.
+    var expanded = false
     /// Paused while the keyboard is up or the app is away.
     var paused = false
 
@@ -260,6 +268,14 @@ struct SimulatorMirror: View {
                 Text(device).superFont(13).lineLimit(1).foregroundStyle(Theme.textSecondary)
                 Spacer(minLength: 8)
                 if sending { ProgressView().controlSize(.mini) }
+                if let onExpand {
+                    Button(action: onExpand) {
+                        Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                            .superFont(13)
+                    }
+                    .buttonStyle(.plain).tint(Theme.textTertiary)
+                    .accessibilityLabel(expanded ? "Exit full screen" : "Open full screen")
+                }
                 // A close in the top-right, where the desktop puts it, so the
                 // pane is obviously dismissable — the chevron in the toolbar
                 // below was a hide nobody recognised. Reopenable via the Show bar.

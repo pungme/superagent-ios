@@ -69,6 +69,9 @@ struct ChatView: View {
     /// pull the page bigger, it goes bigger.
     @State private var pageResized = false
     @State private var showBrowserSheet = false
+    /// Full screen, like a stream: the page or simulator fills the phone, the
+    /// conversation floats over it (FloatingChat) and the composer stays.
+    @State private var theater = false
     @State private var showTasks = false
     /// The docked page above the chat. Defaults to shown when the Mac has one
     /// open; hidden again is remembered per conversation.
@@ -162,15 +165,17 @@ struct ChatView: View {
                 // talking about while you write.
                 if simShown {
                     mirrorSim
-                        .frame(height: typingOverMirror ? nil : pageHeight)
-                        .frame(maxHeight: typingOverMirror ? .infinity : nil)
-                    dockDivider
+                        .frame(height: chatFloats ? nil : pageHeight)
+                        .frame(maxHeight: chatFloats ? .infinity : nil)
+                        .overlay(alignment: .bottomTrailing) { if chatFloats { floatingChat } }
+                    if !theater { dockDivider }
                 }
                 if pageShown {
                     mirrorPage
-                        .frame(height: typingOverMirror ? nil : pageHeight)
-                        .frame(maxHeight: typingOverMirror ? .infinity : nil)
-                    dockDivider
+                        .frame(height: chatFloats ? nil : pageHeight)
+                        .frame(maxHeight: chatFloats ? .infinity : nil)
+                        .overlay(alignment: .bottomTrailing) { if chatFloats { floatingChat } }
+                    if !theater { dockDivider }
                 }
                 conversation
             }
@@ -190,6 +195,14 @@ struct ChatView: View {
             .navigationTitle(chat.title ?? "Conversation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { chatToolbar }
+            // Full screen owns the phone: no navigation or status bar over it.
+            .toolbar(theater ? .hidden : .automatic, for: .navigationBar)
+            .statusBarHidden(theater)
+            // Nothing left to watch (closed on the Mac, put away here, or the
+            // phone turned wide): back to the conversation.
+            .onChange(of: !wide && (pageShown || simShown)) { _, watching in
+                if !watching, theater { theater = false }
+            }
     }
 
     private func sheets(_ view: some View) -> some View {
@@ -333,7 +346,7 @@ struct ChatView: View {
             // Nor while typing over the page: the messages are folded away then,
             // and the page is not at pageHeight, so the reading would be wrong
             // and would stick.
-            guard box > 0, pageShown, dragStart == nil, !typingOverMirror else { return }
+            guard box > 0, pageShown, dragStart == nil, !chatFloats else { return }
             let measured = containerHeight - pageHeight - box
             if measured > 0, abs(measured - chromeHeight) > 8 { chromeHeight = measured }
         }
@@ -342,7 +355,7 @@ struct ChatView: View {
         } action: { _, isAtEnd in
             // Folded away while typing over the page, the list reads as "not at
             // the end" and would stop following new messages once it's back.
-            guard !typingOverMirror else { return }
+            guard !chatFloats else { return }
             if atBottom != isAtEnd { atBottom = isAtEnd }
         }
         .background(Theme.content)
@@ -444,6 +457,7 @@ struct ChatView: View {
             context: contextReading,
             model: modelBinding, mode: modeBinding,
             sessionModels: connection.transcripts[chat.id]?.models ?? [],
+            runningModel: connection.transcripts[chat.id]?.model,
             provider: connection.chats.first(where: { $0.id == chat.id })?.provider ?? "claude",
             onProvider: { p in
                 Task {
@@ -557,17 +571,20 @@ struct ChatView: View {
             // Collapsed rather than removed while typing over a page, so the
             // scroll position is still there when the keyboard goes away.
             transcript(proxyless: true)
-                .frame(maxHeight: typingOverMirror ? 0 : .infinity)
+                .frame(maxHeight: chatFloats ? 0 : .infinity)
                 .clipped()
+                // Folded away, it isn't there for VoiceOver either — the
+                // floating chat reads out instead.
+                .accessibilityHidden(chatFloats)
                 .overlay(alignment: .bottom) {
-                    if connection.state != .connected, !wide, !typingOverMirror {
+                    if connection.state != .connected, !wide, !chatFloats {
                         ConnectionFloat(connection: connection)
                             .padding(.bottom, 10)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-            if let loop = liveLoop, !typingOverMirror { loopBar(loop) }
-            if !backgroundTasks.isEmpty, !typingOverMirror { backgroundStrip }
+            if let loop = liveLoop, !chatFloats { loopBar(loop) }
+            if !backgroundTasks.isEmpty, !chatFloats { backgroundStrip }
             Divider().overlay(Theme.border)
             composer
         }
@@ -576,16 +593,6 @@ struct ChatView: View {
         // keyboard that was never going to appear. Empty edges is a no-op,
         // so a real on-screen keyboard still gets its usual room.
         .ignoresSafeArea(.keyboard, edges: hardwareKeyboardAttached ? .bottom : [])
-        // With the messages out of the way, tapping them can't put the keyboard
-        // away — so the keyboard says how to get back to the chat.
-        .toolbar {
-            if typingOverMirror {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Show chat") { composerFocused = false }
-                }
-            }
-        }
         .onAppear { hardwareKeyboardAttached = GCKeyboard.coalesced != nil }
         .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidConnect)) { _ in
             hardwareKeyboardAttached = true
@@ -698,7 +705,8 @@ struct ChatView: View {
         BrowserMirror(connection: connection, chat: chat, compact: true,
                       onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
                       onHide: { withAnimation(.easeOut(duration: 0.2)) { setPageHidden(true) } },
-                      onExpand: { showBrowserSheet = true },
+                      onExpand: { toggleTheater() },
+                      expanded: theater,
                       paused: false)
             .transition(.move(edge: wide ? .trailing : .top).combined(with: .opacity))
     }
@@ -708,6 +716,8 @@ struct ChatView: View {
         SimulatorMirror(connection: connection, chat: chat,
                         onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
                         onHide: { withAnimation(.easeOut(duration: 0.2)) { setSimHidden(true) } },
+                        onExpand: wide ? nil : { toggleTheater() },
+                        expanded: theater,
                         paused: false)
             .transition(.move(edge: wide ? .trailing : .top).combined(with: .opacity))
     }
@@ -910,6 +920,40 @@ struct ChatView: View {
     /// to be the other way round, which hid the very thing you were writing
     /// about.
     private var typingOverMirror: Bool { composerFocused && !wide && (pageShown || simShown) }
+    /// The transcript steps aside and the conversation floats over the mirror:
+    /// typing over it, or full screen.
+    private var chatFloats: Bool { !wide && (pageShown || simShown) && (composerFocused || theater) }
+
+    /// Tapping the floating messages is the way back to the conversation. It
+    /// replaced a "Show chat" button on the keyboard's toolbar, which removed
+    /// itself mid-tap as the keyboard went — and that crashed on devices.
+    private var floatingChat: some View {
+        let stream = connection.stream(chat.id)
+        return FloatingChat(lines: FloatingChat.lines(events: transcript.events, outbox: transcript.outbox),
+                            live: stream.active ? stream.text : nil,
+                            // Clear of the mirror's own button row.
+                            bottomInset: 58) {
+            withAnimation(.easeInOut(duration: 0.22)) {
+                theater = false
+                composerFocused = false
+            }
+        }
+    }
+
+    private func toggleTheater() {
+        if theater {
+            withAnimation(.easeInOut(duration: 0.22)) { theater = false }
+        } else {
+            enterTheater()
+        }
+    }
+
+    /// Full screen on a phone; the iPad's side column already has the room, so
+    /// there the page's own sheet opens as before.
+    private func enterTheater() {
+        if wide { showBrowserSheet = true; return }
+        withAnimation(.easeInOut(duration: 0.22)) { theater = true }
+    }
     /// The simulator gets the docked slot only when there is no page in it: two
     /// mirrors over one conversation on a phone leaves room for neither.
     private var simShown: Bool { simAttached && !pageShown && !simHidden }

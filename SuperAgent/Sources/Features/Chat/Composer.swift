@@ -37,6 +37,9 @@ struct Composer: View {
     /// Codex reports the models available to this account when its session
     /// starts. Claude uses the curated list below.
     let sessionModels: [WireModelOption]
+    /// The exact model the session is running ("claude-opus-5-5[1m]"), as the
+    /// Mac reported it — so the picker can say "Opus 5.5", not just "Opus".
+    var runningModel: String? = nil
     /// Which agent this conversation runs on, and how to move it. Codex exposes
     /// its account default here; permission modes are shared by both agents.
     let provider: String
@@ -167,6 +170,15 @@ struct Composer: View {
         guard let q = slashQuery else { return [] }
         return commands.filter { q.isEmpty || $0.localizedCaseInsensitiveContains(q) }.prefix(6).map { $0 }
     }
+    /// "Opus 5.5" when the session says which it's on and it's the family picked
+    /// (or Default); otherwise the picked entry's own label.
+    private var modelPillLabel: String {
+        let picked = availableModels.first { $0.id == model }?.label ?? "Default"
+        guard let running = runningModel, let short = ModelName.pretty(running, context: false) else { return picked }
+        if model.isEmpty || short.lowercased().hasPrefix(picked.lowercased()) { return short }
+        return picked
+    }
+
     private var availableModels: [WireModelOption] {
         if provider != "codex" && sessionModels.isEmpty { return Self.models }
         // Claude's list carries its own Default entry; Codex's doesn't.
@@ -399,13 +411,21 @@ struct Composer: View {
                     }
                 }
                 Menu {
+                    // What this conversation is actually on right now — the
+                    // family names below ("Opus") don't say which version.
+                    if let running = runningModel.flatMap(ModelName.pretty) {
+                        Section {
+                            Button {} label: { Label("Now running: \(running)", systemImage: "cpu") }
+                                .disabled(true)
+                        }
+                    }
                     ForEach(availableModels) { m in
                         Button { model = m.id } label: {
                             Label { Text(m.label); Text(m.hint) } icon: { if model == m.id { Image(systemName: "checkmark") } }
                         }
                     }
                 } label: {
-                    ControlPill { HStack(spacing: 4) { Text("Model").foregroundStyle(Theme.textTertiary); Text(availableModels.first { $0.id == model }?.label ?? "Default"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                    ControlPill { HStack(spacing: 4) { Text("Model").foregroundStyle(Theme.textTertiary); Text(modelPillLabel); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
                 Menu {
                     ForEach(Composer.modes, id: \.id) { m in

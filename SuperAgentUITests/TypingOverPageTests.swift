@@ -4,8 +4,9 @@ import XCTest
 ///
 /// It used to hide the page when the keyboard came up and keep the messages,
 /// which hid the very thing you were writing about. Now the page stays and
-/// takes the room; the messages step aside until you're done, and the
-/// keyboard's toolbar offers the way back.
+/// takes the room; the messages float over it, stream-chat style, and tapping
+/// them brings the conversation back. (That used to be a "Show chat" button on
+/// the keyboard's toolbar, which crashed on devices when tapped.)
 final class TypingOverPageTests: XCTestCase {
     func testThePageStaysWhileYouType() {
         let app = XCUIApplication()
@@ -25,11 +26,24 @@ final class TypingOverPageTests: XCTestCase {
             : app.textViews.firstMatch
         field.tap()
 
-        XCTAssertTrue(app.buttons["Show chat"].waitForExistence(timeout: 5), "the keyboard offers the way back")
+        let floating = app.buttons["floatingChat"]
+        XCTAssertTrue(floating.waitForExistence(timeout: 5), "the conversation floats over the page")
+        XCTAssertEqual(floating.label, "Show chat", "and says what tapping it does")
         XCTAssertTrue(closePage.exists, "the page stays while typing")
-        XCTAssertFalse(message.isHittable, "the messages step aside")
+        // The transcript's copy of the message, not the floating chat's.
+        let inTranscript = app.staticTexts
+            .matching(NSPredicate(format: "label BEGINSWITH 'Narrow, the headline holds'"))
+            .allElementsBoundByIndex
+            .filter { !floating.frame.contains($0.frame) && $0.isHittable }
+        XCTAssertTrue(inTranscript.isEmpty, "the messages step aside")
+        XCTAssertTrue((floating.value as? String ?? "").hasPrefix("Narrow, the headline holds"),
+                      "with the newest message in it")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "typing-over-page"
+        shot.lifetime = .keepAlways
+        add(shot)
 
-        app.buttons["Show chat"].tap()
+        floating.tap()
         XCTAssertTrue(message.waitForExistence(timeout: 5))
         XCTAssertTrue(message.isHittable, "the messages come back")
         XCTAssertTrue(closePage.exists)
