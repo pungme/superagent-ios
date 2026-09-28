@@ -77,6 +77,7 @@ asked what exists rather than the app trusting what it recorded).
 | Streaming reply, Markdown, code blocks with Copy | ✅ | |
 | Collapsed tool steps, results, diffs | ✅ | |
 | A tool result's own picture (screenshot, a Read on an image) shown inline | ✅ | `images` on `tool_result`, fetched over `chat.image` like a sent message's own pictures |
+| An image file the agent hands over shown inline, not as a card | ✅ | `FileImagePreview` pulls it over `files.read` (the Mac's phone-sized JPEG); tap for full screen, long-press to open the file; the plain card stands in until it loads |
 | Ask-block choices | ✅ | |
 | "Working Ns" while a turn runs | ✅ | the desktop shows no per-turn tokens or cost, and neither do we |
 | Context meter (used / window, model) | ❌ | the desktop's bar under the composer |

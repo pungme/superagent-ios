@@ -162,7 +162,7 @@ struct StepRow: View {
                 }
             }
         case let .file(_, path, name, workspaceId, size, mediaType):
-            FileHandoffCard(path: path, name: name, workspaceId: workspaceId,
+            FileHandoffCard(connection: connection, path: path, name: name, workspaceId: workspaceId,
                             chatId: event.chatId, size: size, mediaType: mediaType)
         case let .diff(_, file, hunks):
             DiffCard(file: file, hunks: hunks)
@@ -352,7 +352,7 @@ struct EventRow: View {
                 if let choices { ChoicesView(choices: choices, choose: choose) }
             }
         case let .file(_, path, name, workspaceId, size, mediaType):
-            FileHandoffCard(path: path, name: name, workspaceId: workspaceId,
+            FileHandoffCard(connection: connection, path: path, name: name, workspaceId: workspaceId,
                             chatId: event.chatId, size: size, mediaType: mediaType)
         case let .notice(text):
             Text(text).superFont(12.5).foregroundStyle(Theme.textSecondary)
@@ -776,6 +776,7 @@ struct SentImagesRow: View {
 }
 
 struct FileHandoffCard: View {
+    let connection: Connection
     let path: String
     let name: String
     let workspaceId: String?
@@ -849,15 +850,100 @@ struct FileHandoffCard: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
     }
 
+    /// A picture is worth showing rather than naming. Older events carry no
+    /// media type, so fall back on the extension.
+    private var isImage: Bool {
+        if let mediaType { return mediaType.hasPrefix("image/") }
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp"].contains(ext)
+    }
+
     @ViewBuilder
     var body: some View {
-        if let workspaceId {
+        if isImage, let workspaceId {
+            FileImagePreview(connection: connection, workspaceId: workspaceId, path: path,
+                             chatId: chatId, name: name) { card }
+        } else if let workspaceId {
             NavigationLink(value: FileRef(workspaceId: workspaceId, path: path, chatId: chatId)) {
                 card
             }
             .buttonStyle(.plain)
         } else {
             card
+        }
+    }
+}
+
+/// The transcript is lazy: scrolling a picture off and back on would pull it
+/// from the Mac again without this. Lives outside FileImagePreview because a
+/// generic type cannot hold a static stored property.
+@MainActor private enum FileImageCache {
+    static var images: [String: UIImage] = [:]
+}
+
+/// An image the agent handed over, shown in the transcript itself instead of
+/// behind a card you have to tap. The Mac's files.read already shrinks it to a
+/// phone-sized JPEG, so this is the same bytes the file viewer would pull.
+/// Until it arrives — or if it never does — the plain card stands in.
+private struct FileImagePreview<Fallback: View>: View {
+    let connection: Connection
+    let workspaceId: String
+    let path: String
+    let chatId: String
+    let name: String
+    @ViewBuilder let fallback: () -> Fallback
+    @State private var image: UIImage?
+    @State private var viewing = false
+
+    private var key: String { "\(workspaceId)|\(chatId)|\(path)" }
+
+    var body: some View {
+        Group {
+            if let image {
+                VStack(alignment: .leading, spacing: 4) {
+                    Image(uiImage: image)
+                        .resizable().scaledToFit()
+                        .frame(maxWidth: 280, maxHeight: 360, alignment: .leading)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Theme.border, lineWidth: 1)
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .onTapGesture { viewing = true }
+                        .contextMenu {
+                            NavigationLink(value: FileRef(workspaceId: workspaceId, path: path, chatId: chatId)) {
+                                Label("Open file", systemImage: "doc")
+                            }
+                            Button { UIPasteboard.general.string = path } label: {
+                                Label("Copy path", systemImage: "doc.on.doc")
+                            }
+                        }
+                        .accessibilityLabel(name)
+                    Text(name)
+                        .superFont(11).foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1).truncationMode(.middle)
+                        .padding(.horizontal, 4)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fullScreenCover(isPresented: $viewing) {
+                    ImageViewerSheet(images: [image], index: 0)
+                }
+            } else {
+                NavigationLink(value: FileRef(workspaceId: workspaceId, path: path, chatId: chatId)) {
+                    fallback()
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .task(id: key) {
+            if let hit = FileImageCache.images[key] { image = hit; return }
+            guard case let .image(_, _, _, b64)? = try? await connection.readFile(
+                      workspaceId: workspaceId, path: path, chatId: chatId),
+                  let data = Data(base64Encoded: b64),
+                  let ui = UIImage(data: data) else { return }
+            FileImageCache.images[key] = ui
+            image = ui
         }
     }
 }
