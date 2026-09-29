@@ -18,7 +18,21 @@ enum MarkdownBlock: Equatable {
 }
 
 enum MarkdownParser {
+    /// Parsed once per distinct text. A transcript re-renders far more often
+    /// than its messages change, and each render of a reply parsed it again.
+    // NSCache is thread-safe; the compiler cannot see that.
+    nonisolated(unsafe) private static let cache = NSCache<NSString, ParsedBlocks>()
+    private final class ParsedBlocks: Sendable { let blocks: [MarkdownBlock]; init(_ b: [MarkdownBlock]) { blocks = b } }
+
     static func parse(_ source: String) -> [MarkdownBlock] {
+        let key = source as NSString
+        if let hit = cache.object(forKey: key) { return hit.blocks }
+        let blocks = parseUncached(source)
+        cache.setObject(ParsedBlocks(blocks), forKey: key, cost: source.utf8.count)
+        return blocks
+    }
+
+    private static func parseUncached(_ source: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
         var lines = source.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")[...]
         var paragraph: [String] = []

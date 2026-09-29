@@ -186,8 +186,49 @@ final class Connection {
         return s
     }
     @ObservationIgnored private var deltaFlush: Task<Void, Never>?
+    @ObservationIgnored private var pendingEvents: [WireEvent] = []
+    @ObservationIgnored private var eventFlush: Task<Void, Never>?
 
     /// Show streamed text collected since the last frame — one chat's, or all.
+    /// Apply the events held since the last tick, in order.
+    private func flushEvents() {
+        eventFlush?.cancel()
+        eventFlush = nil
+        let batch = pendingEvents
+        pendingEvents.removeAll()
+        var touched = Set<String>()
+        for e in batch {
+            apply(event: e)
+            touched.insert(e.chatId)
+        }
+        for id in touched { scheduleTranscriptSave(id) }
+    }
+
+    private func apply(event e: WireEvent) {
+        if case let .session(_, _, cmds, _) = e.data, !cmds.isEmpty { commands[e.chatId] = cmds }
+        // Text streamed before this event belongs before it: an assistant
+        // message clears `streaming`, and a delta flushed after that would
+        // put the finished reply's tail back on screen as if still typing.
+        flushDeltas(for: e.chatId)
+        // Mutated in place. Copying the transcript out, appending and
+        // writing it back copied its whole events array on every event —
+        // the dictionary still held the old buffer — which made catching
+        // up on a long conversation quadratic.
+        if transcripts[e.chatId] == nil { transcripts[e.chatId] = Transcript() }
+        let isNext = e.seq == transcripts[e.chatId]!.lastSeq + 1
+        if !transcripts[e.chatId]!.apply(e), watching.contains(e.chatId) {
+            // Gap: ask again from what we have.
+            send(.subscribe(chatId: e.chatId, afterSeq: transcripts[e.chatId]!.lastSeq))
+        }
+        // The finished message replaces what was typing it out.
+        if isNext {
+            switch e.data {
+            case .assistant, .notice, .turnEnd: streams[e.chatId]?.clear()
+            default: break
+            }
+        }
+    }
+
     private func flushDeltas(for chatId: String? = nil) {
         if let chatId {
             guard let text = pendingDeltas.removeValue(forKey: chatId) else { return }
@@ -314,6 +355,9 @@ final class Connection {
         ))
     }
 
+    /// Tests: a frame as if it had arrived from the Mac.
+    func _applyForTests(_ frame: ServerFrame) { apply(frame) }
+
     private func apply(_ frame: ServerFrame) {
         switch frame {
         case let .welcome(machineInfo, tree, chats):
@@ -347,31 +391,22 @@ final class Connection {
             state = .failed(reason)
             wantConnected = reason == "version" ? false : wantConnected
         case .event(let e):
-            if case let .session(_, _, cmds, _) = e.data, !cmds.isEmpty { commands[e.chatId] = cmds }
-            // Text streamed before this event belongs before it: an assistant
-            // message clears `streaming`, and a delta flushed after that would
-            // put the finished reply's tail back on screen as if still typing.
-            flushDeltas(for: e.chatId)
-            // Mutated in place. Copying the transcript out, appending and
-            // writing it back copied its whole events array on every event —
-            // the dictionary still held the old buffer — which made catching
-            // up on a long conversation quadratic.
-            if transcripts[e.chatId] == nil { transcripts[e.chatId] = Transcript() }
-            let isNext = e.seq == transcripts[e.chatId]!.lastSeq + 1
-            if !transcripts[e.chatId]!.apply(e), watching.contains(e.chatId) {
-                // Gap: ask again from what we have.
-                send(.subscribe(chatId: e.chatId, afterSeq: transcripts[e.chatId]!.lastSeq))
-            }
-            // The finished message replaces what was typing it out.
-            if isNext {
-                switch e.data {
-                case .assistant, .notice, .turnEnd: streams[e.chatId]?.clear()
-                default: break
+            // Not applied one by one. A catch-up arrives as one frame per event
+            // — hundreds of them for a long conversation — and every apply is a
+            // mutation the chat view lays itself out again for. Held for a
+            // tick and applied together, the view sees one change, not four
+            // hundred. A delta arriving meanwhile applies what is held first
+            // (see below), so the order on screen is the order on the wire.
+            pendingEvents.append(e)
+            if eventFlush == nil {
+                eventFlush = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(30))
+                    self?.flushEvents()
                 }
             }
-            scheduleTranscriptSave(e.chatId)
         case let .delta(chatId, text):
             guard watching.contains(chatId) else { break }
+            flushEvents()
             pendingDeltas[chatId, default: ""] += text
             if deltaFlush == nil {
                 deltaFlush = Task { @MainActor [weak self] in
@@ -1032,6 +1067,40 @@ extension Connection {
             t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at,
                                       data: mine ? .user(id: "u\(seq)", text: text, images: [], from: .ios, replyTo: nil)
                                                  : .assistant(id: "a\(seq)", text: text)))
+        }
+        // `-longTranscript`: the Mac's 400-event cap worth of turns, tool steps
+        // and Markdown, to measure what opening a real conversation costs.
+        if ProcessInfo.processInfo.arguments.contains("-longTranscript") {
+            let reply = """
+            Done. Three things changed:
+
+            - **Header**: the nav collapses at 640pt, not 720pt
+            - **Hero**: the headline holds at two lines down to 320pt
+            - **Buttons**: they stack instead of shrinking
+
+            ```swift
+            let width = geo.size.width
+            if width < 640 { collapsed = true }
+            ```
+
+            Have a look in the pane; the old layout is in `git stash` if you want it back.
+            """
+            while seq < 400 {
+                seq += 1
+                t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                          data: .user(id: "u\(seq)", text: "Round \(seq): check the layout again and fix anything that wraps.", images: [], from: .ios, replyTo: nil)))
+                for step in 0..<4 where seq < 400 {
+                    seq += 1
+                    t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                              data: .tool(id: "t\(seq)", name: step % 2 == 0 ? "Read" : "Edit",
+                                                          detail: "Sources/Features/Home/Hero.swift", task: nil)))
+                }
+                if seq < 400 {
+                    seq += 1
+                    t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                              data: .assistant(id: "a\(seq)", text: "Round \(seq). " + reply)))
+                }
+            }
         }
         t.lastSeq = seq
         // Claude's line-up as the Mac sends it: the current versions, then the

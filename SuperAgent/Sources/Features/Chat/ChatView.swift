@@ -105,6 +105,13 @@ struct ChatView: View {
     /// SwiftUI evaluates `body` constantly (a keystroke, a streamed word, a
     /// scroll); regrouping every event each time froze long conversations.
     @State private var turns: [Turn] = []
+    /// The whole conversation, once asked for; the newest turns otherwise.
+    @State private var showAllTurns = false
+    private static let initialTurns = 40
+    private var visibleTurns: ArraySlice<Turn> {
+        showAllTurns ? turns[...] : turns.suffix(Self.initialTurns)
+    }
+    private var hiddenTurns: Int { turns.count - visibleTurns.count }
     @State private var tasks: [TaskItem] = []
     /// WireEvent.id of every message that should show its own timestamp —
     /// see MessageTimeGroups.
@@ -297,7 +304,23 @@ struct ChatView: View {
                 if transcript.events.isEmpty, !connection.stream(chat.id).active {
                     emptyState
                 }
-                ForEach(turns) { turn in
+                // Only the newest turns are laid out to begin with — every row
+                // in this stack is measured up front (see above), and a long
+                // conversation was paying for hundreds of rows to show its
+                // last few. The rest are one tap away.
+                if hiddenTurns > 0 {
+                    Button {
+                        showAllTurns = true
+                    } label: {
+                        Text("Show \(hiddenTurns) earlier \(hiddenTurns == 1 ? "message" : "messages")")
+                            .font(.footnote.weight(.medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("show-earlier")
+                }
+                ForEach(visibleTurns) { turn in
                     TurnView(connection: connection, turn: turn, pendingApprovals: pendingApprovals,
                              timeIds: timeIds, answer: answer,
                              choose: { send(text: $0, fromComposer: false) },
