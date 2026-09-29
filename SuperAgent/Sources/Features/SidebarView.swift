@@ -36,6 +36,9 @@ struct SidebarView: View {
     /// Collapsed groups, remembered on this phone (the caret is a real button
     /// here — on the desktop it's a 16 px glyph you can hit with a mouse).
     @AppStorage("sidebar.collapsedGroups") private var collapsedRaw = ""
+    /// The Chats section folded away, remembered like the Mac's.
+    @AppStorage("sidebar.chatsCollapsed") private var chatsCollapsed = false
+    private static let chatsShown = 6
 
     @State private var selectedRepo: String?
     @State private var addingTo: WireGroup?
@@ -87,6 +90,7 @@ struct SidebarView: View {
                 } else {
                     machineSection
                     pinnedShortcutsSection
+                    chatsSection
                     projectsSection
                     ForEach(groups) { group in groupSection(group) }
                     newGroupSection
@@ -320,7 +324,7 @@ struct SidebarView: View {
         }
     }
 
-    /// Computer and Chats: the two rows that are not projects.
+    /// Computer: the one row that is not a project or a conversation.
     ///
     /// This file's `body` was 704ms to type-check, five times the next worst in
     /// the app, and that is what kept failing on Xcode Cloud: the limit is a
@@ -332,10 +336,81 @@ struct SidebarView: View {
             dashRow("Computer", icon: "desktopcomputer", status: computer?.status) {
                 if let c = computer { openProject(c) }
             }
-            dashRow("Chats", icon: "bubble.left", status: nil) {
-                if let c = computer { path.append(WorkspacePanel(kind: .chats, workspace: c)) }
-            }
         }
+    }
+
+    /// The conversations that belong to no project, listed where the Mac lists
+    /// them: above Projects, newest first. It used to be one "Chats" row that
+    /// opened a list — a tap to find out whether the chat you wanted was there.
+    /// Pinned ones are already under Pinned.
+    private var looseChats: [WireChat] {
+        guard let c = computer else { return [] }
+        return connection.chats
+            .filter { $0.workspaceId == c.id && !$0.isPinned }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    @ViewBuilder
+    private var chatsSection: some View {
+        let chats = looseChats
+        Section {
+            if !chatsCollapsed {
+                ForEach(chats.prefix(Self.chatsShown)) { chat in activityRow(chat, project: nil, compact: true) }
+                if chats.count > Self.chatsShown, let c = computer {
+                    Button {
+                        path.append(WorkspacePanel(kind: .chats, workspace: c))
+                    } label: {
+                        Text("Show all \(chats.count)")
+                            .superFont(13).foregroundStyle(Theme.textSecondary)
+                            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Theme.card)
+                }
+                if chats.isEmpty {
+                    Text("No chats yet.").superFont(13).foregroundStyle(Theme.textTertiary)
+                        .listRowBackground(Theme.card)
+                }
+            }
+        } header: {
+            chatsHeader(count: chats.count)
+        }
+    }
+
+    private func chatsHeader(count: Int) -> some View {
+        HStack(spacing: 0) {
+            // The header is the fold: tap it to put the list away, and it
+            // says how many are in there while it is.
+            Button { chatsCollapsed.toggle() } label: {
+                HStack(spacing: 6) {
+                    Text("Chats").font(.footnote.weight(.semibold)).textCase(.uppercase).tracking(0.5)
+                        .foregroundStyle(Theme.textSecondary)
+                    if chatsCollapsed, count > 0 {
+                        Text("\(count)").font(.footnote).foregroundStyle(Theme.textTertiary)
+                    }
+                    Image(systemName: "chevron.right").superFont(10, weight: .semibold)
+                        .foregroundStyle(Theme.textTertiary)
+                        .rotationEffect(.degrees(chatsCollapsed ? 0 : 90))
+                }
+                .frame(minHeight: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(chatsCollapsed ? "Show chats" : "Hide chats")
+            Spacer(minLength: 0)
+            Button {
+                if let c = computer { newChat(in: c) }
+            } label: {
+                Image(systemName: "square.and.pencil").superFont(15, weight: .medium).foregroundStyle(Theme.textSecondary)
+                    .frame(width: 44, height: addTarget).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(computer == nil || connection.state != .connected || busy)
+            .accessibilityLabel("New chat in Chats")
+        }
+        .textCase(nil)
+        .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 4))
     }
 
     /// One project group. Extracted for the same reason as `groupMenu`: the
@@ -552,7 +627,7 @@ struct SidebarView: View {
     /// One conversation, the way a message thread reads: who it is with (the
     /// project), what was last said, when, and whether you have read it.
     @ViewBuilder
-    private func activityRow(_ chat: WireChat, project: String?, pinned: [WireChat] = []) -> some View {
+    private func activityRow(_ chat: WireChat, project: String?, pinned: [WireChat] = [], compact: Bool = false) -> some View {
         Button { open(chat) } label: {
             HStack(alignment: .top, spacing: 8) {
                 UnreadDot(on: connection.unread.isUnread(chat)).padding(.top, 5)
@@ -570,12 +645,14 @@ struct SidebarView: View {
                     if let p = project, !p.isEmpty {
                         Text(p).superFont(11.5).foregroundStyle(Theme.textTertiary).lineLimit(1)
                     }
-                    if let preview = chat.preview, !preview.isEmpty {
+                    // Compact: the title alone, for a list that sits above other
+                    // sections and must not push them off the screen.
+                    if !compact, let preview = chat.preview, !preview.isEmpty {
                         Text(preview).superFont(12.5).foregroundStyle(Theme.textSecondary).lineLimit(2)
                     }
                 }
             }
-            .frame(minHeight: 40)
+            .frame(minHeight: compact ? 30 : 40)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -1036,9 +1036,17 @@ extension Connection {
             ("c4", "w-tab", "Read the pricing page back to me", "Three tiers, and the middle one is the only one with SSO.", now - 26_000_000, false),
             ("c5", "computer", "Rename the screenshots on my desktop", "All 34, by the date they were taken.", now - 90_000_000, false)
         ]
+        // `-manyChats`: more loose conversations than the sidebar lists, for "Show all".
+        var allRows = rows
+        if ProcessInfo.processInfo.arguments.contains("-manyChats") {
+            for i in 1...8 {
+                allRows.append(("cc\(i)", "computer", "Loose chat \(i)", "About nothing in particular.",
+                                now - Double(i) * 3_600_000, false))
+            }
+        }
         // c3 and c4 pinned, c4 first: the pin order, not last activity (c3 is newer).
         let pinOrder: [String: Double] = ["c4": now, "c3": now - 1]
-        c.chats = rows.map { id, wsId, title, preview, at, live in
+        c.chats = allRows.map { id, wsId, title, preview, at, live in
             WireChat(id: id, workspaceId: wsId, title: title, updatedAt: at,
                      pinned: pinOrder[id] != nil ? true : nil, pinnedAt: pinOrder[id],
                      live: live, preview: preview, provider: id == "c2" ? "codex" : nil)
