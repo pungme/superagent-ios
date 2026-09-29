@@ -187,6 +187,12 @@ struct Composer: View {
     }
     private var providerName: String { provider == "codex" ? "Codex" : "Claude" }
 
+    private func modelButton(_ m: WireModelOption) -> some View {
+        Button { model = m.id } label: {
+            Label { Text(m.label); Text(m.hint) } icon: { if model == m.id { Image(systemName: "checkmark") } }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             if !heldSends.isEmpty {
@@ -419,9 +425,15 @@ struct Composer: View {
                                 .disabled(true)
                         }
                     }
-                    ForEach(availableModels) { m in
-                        Button { model = m.id } label: {
-                            Label { Text(m.label); Text(m.hint) } icon: { if model == m.id { Image(systemName: "checkmark") } }
+                    ForEach(availableModels.filter { $0.older != true }) { m in
+                        modelButton(m)
+                    }
+                    // The Mac lists every version still available; the earlier
+                    // ones sit one level down so the current five stay in view.
+                    let older = availableModels.filter { $0.older == true }
+                    if !older.isEmpty {
+                        Menu("Older models") {
+                            ForEach(older) { m in modelButton(m) }
                         }
                     }
                 } label: {

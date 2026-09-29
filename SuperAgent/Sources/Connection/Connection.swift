@@ -1034,6 +1034,16 @@ extension Connection {
                                                  : .assistant(id: "a\(seq)", text: text)))
         }
         t.lastSeq = seq
+        // Claude's line-up as the Mac sends it: the current versions, then the
+        // older ones the CLI still offers, marked for the picker to fold away.
+        t.models = [
+            .init(id: "", label: "Default", hint: "Opus 5.5 · Best for everyday, complex tasks"),
+            .init(id: "opus", label: "Opus 5.5", hint: "For complex work and everyday tasks"),
+            .init(id: "claude-fable-5-1", label: "Fable 5.1", hint: "For your toughest challenges"),
+            .init(id: "sonnet", label: "Sonnet 5", hint: "Efficient for routine tasks"),
+            .init(id: "claude-opus-5", label: "Opus 5", hint: "Best for everyday, complex tasks", older: true),
+            .init(id: "claude-opus-4-6", label: "Opus 4.6", hint: "Best for everyday, complex tasks", older: true)
+        ]
         c.transcripts["c1"] = t
         c.transcripts["c2"] = Transcript(models: [
             .init(id: "gpt-5.6-codex", label: "GPT-5.6 Codex", hint: "Best coding model"),

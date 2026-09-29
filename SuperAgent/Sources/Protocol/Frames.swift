@@ -21,6 +21,13 @@ struct WireModelOption: Codable, Hashable, Sendable, Identifiable {
     var id: String
     var label: String
     var hint: String
+    /// An earlier version of a family the list also carries current (Opus 4.8
+    /// beside Opus 5.5); the picker keeps these behind "Older models".
+    var older: Bool?
+
+    init(id: String, label: String, hint: String, older: Bool? = nil) {
+        self.id = id; self.label = label; self.hint = hint; self.older = older
+    }
 }
 
 enum ApprovalOutcome: String, Codable, Sendable { case approved, denied, expired }
