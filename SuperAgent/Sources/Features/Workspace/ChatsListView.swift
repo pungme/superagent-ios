@@ -33,6 +33,10 @@ struct ChatsListView: View {
     @ViewBuilder
     private func chatRow(_ chat: WireChat) -> some View {
         Button { open(chat) } label: {
+            HStack(alignment: .top, spacing: 8) {
+            // Its project's icon, as the sidebar's rows show it.
+            SearchHitGlyph(connection: connection, workspaceId: chat.workspaceId)
+                .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(chat.title ?? "New chat")
@@ -53,6 +57,7 @@ struct ChatsListView: View {
                         .foregroundStyle(Theme.textSecondary)
                         .lineLimit(2)
                 }
+            }
             }
             .contentShape(Rectangle())
         }

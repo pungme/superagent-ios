@@ -631,6 +631,10 @@ struct SidebarView: View {
         Button { open(chat) } label: {
             HStack(alignment: .top, spacing: 8) {
                 UnreadDot(on: connection.unread.isUnread(chat)).padding(.top, 5)
+                // Its project's icon, as the Mac's sidebar shows it: which app
+                // or site a conversation belongs to, at a glance.
+                SearchHitGlyph(connection: connection, workspaceId: chat.workspaceId)
+                    .padding(.top, compact ? 0 : 1)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(chat.title ?? "New chat")
