@@ -23,6 +23,32 @@ struct Transcript: Sendable {
     /// retired by the same `user` echo. See `Connection.queueSend`.
     var heldSends: [HeldSend] = []
 
+    /// The time of the newest event held, sent along when catching up.
+    var lastTs: Double? { lastSeq > 0 ? events.last?.ts : nil }
+
+    /// Whether an event numbered at or below `lastSeq` is one already held.
+    /// The alternative is that the Mac emptied the conversation and started
+    /// numbering again: then every new event looks like an old one, and
+    /// dropping them as repeats is how sent messages vanished from the phone
+    /// while the old conversation stayed on screen.
+    ///
+    /// A real repeat is always among the events held (the Mac only resends
+    /// what comes after `lastSeq`), and says the same thing. Its time can be
+    /// off by a moment: a live event is stamped just after its stored copy.
+    func holds(_ e: WireEvent) -> Bool {
+        let i = events.count - 1 - (lastSeq - e.seq)
+        guard events.indices.contains(i), events[i].seq == e.seq else { return false }
+        return events[i].data == e.data || abs(events[i].ts - e.ts) <= 2000
+    }
+
+    /// Forget what was said, keeping what is still waiting to be sent — from
+    /// this phone, or held on the Mac for the end of a turn.
+    mutating func reset() {
+        events = []
+        lastSeq = 0
+        contextTokens = nil
+    }
+
     mutating func apply(_ e: WireEvent) -> Bool {
         // Gaps mean we missed something; the caller re-subscribes from lastSeq.
         guard e.seq == lastSeq + 1 else { return e.seq <= lastSeq }
@@ -215,10 +241,16 @@ final class Connection {
         // the dictionary still held the old buffer — which made catching
         // up on a long conversation quadratic.
         if transcripts[e.chatId] == nil { transcripts[e.chatId] = Transcript() }
+        // Numbered like something we have, but not it: the conversation was
+        // cleared on a Mac too old to say so. Start over; the gap below asks
+        // for the new one from the beginning.
+        if e.seq <= transcripts[e.chatId]!.lastSeq, !transcripts[e.chatId]!.holds(e) {
+            resetTranscript(e.chatId)
+        }
         let isNext = e.seq == transcripts[e.chatId]!.lastSeq + 1
         if !transcripts[e.chatId]!.apply(e), watching.contains(e.chatId) {
             // Gap: ask again from what we have.
-            send(.subscribe(chatId: e.chatId, afterSeq: transcripts[e.chatId]!.lastSeq))
+            resubscribe(e.chatId)
         }
         // The finished message replaces what was typing it out.
         if isNext {
@@ -227,6 +259,22 @@ final class Connection {
             default: break
             }
         }
+    }
+
+    /// Ask the Mac for everything after what is held for this chat.
+    private func resubscribe(_ chatId: String) {
+        guard let t = transcripts[chatId] else { return }
+        send(.subscribe(chatId: chatId, afterSeq: t.lastSeq, afterTs: t.lastTs))
+    }
+
+    /// The conversation was emptied on the Mac: drop this phone's copy of it,
+    /// in memory and on disk. What is still waiting to be sent stays.
+    private func resetTranscript(_ chatId: String) {
+        transcriptSaves[chatId]?.cancel()
+        OfflineCache.removeTranscript(machine.id, chatId: chatId)
+        pendingDeltas[chatId] = nil
+        streams[chatId]?.clear()
+        transcripts[chatId]?.reset()
     }
 
     private func flushDeltas(for chatId: String? = nil) {
@@ -379,7 +427,7 @@ final class Connection {
             // Resubscribe to whatever we were watching, from where we left off.
             for chatId in watching {
                 guard let t = transcripts[chatId], !t.subscribed else { continue }
-                send(.subscribe(chatId: chatId, afterSeq: t.lastSeq))
+                resubscribe(chatId)
                 transcripts[chatId]?.subscribed = true
             }
             startPing()
@@ -404,6 +452,11 @@ final class Connection {
                     self?.flushEvents()
                 }
             }
+        case .reset(let chatId):
+            // Whatever is held for it arrived before this did and belongs to
+            // the conversation that is gone.
+            pendingEvents.removeAll { $0.chatId == chatId }
+            resetTranscript(chatId)
         case let .delta(chatId, text):
             guard watching.contains(chatId) else { break }
             flushEvents()
@@ -480,11 +533,10 @@ final class Connection {
     func subscribe(chatId: String) {
         watching.insert(chatId)
         var t = transcripts[chatId] ?? cachedTranscript(chatId) ?? Transcript()
-        if state == .connected, !t.subscribed {
-            send(.subscribe(chatId: chatId, afterSeq: t.lastSeq))
-            t.subscribed = true
-        }
+        let catchUp = state == .connected && !t.subscribed
+        if catchUp { t.subscribed = true }
         transcripts[chatId] = t
+        if catchUp { resubscribe(chatId) }
     }
 
     /// Nothing is showing this chat any more: stop the Mac streaming it here.
@@ -614,7 +666,11 @@ final class Connection {
         }
         do {
             _ = try await rpc("chat.send", .object(params))
-            // The echo normally retires it before the response lands; make sure.
+            // The echo normally retires it before the response lands; make
+            // sure. Events are held for a tick before they are applied, so
+            // apply them first: otherwise the bubble goes a moment before the
+            // message that replaces it is there.
+            flushEvents()
             discard(chatId: chatId, id: id)
         } catch {
             // The Mac may or may not have taken it if the link dropped mid-flight,

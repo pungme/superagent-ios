@@ -348,6 +348,8 @@ enum ServerFrame: Sendable {
     case bye(reason: String)
     case event(WireEvent)
     case delta(chatId: String, text: String)
+    /// The conversation was emptied on the Mac; its events start again at 1.
+    case reset(chatId: String)
     case status(workspaceId: String, status: WorkspaceStatus)
     case chats([WireChat])
     case browser(WireBrowser)
@@ -379,6 +381,8 @@ extension ServerFrame: Decodable {
             self = .event(try c.decode(WireEvent.self, forKey: .event))
         case "delta":
             self = .delta(chatId: try c.decode(String.self, forKey: .chatId), text: try c.decode(String.self, forKey: .text))
+        case "reset":
+            self = .reset(chatId: try c.decode(String.self, forKey: .chatId))
         case "status":
             self = .status(workspaceId: try c.decode(String.self, forKey: .workspaceId), status: try c.decode(WorkspaceStatus.self, forKey: .status))
         case "browser":
@@ -419,12 +423,15 @@ struct DeviceInfo: Codable, Sendable {
 enum ClientFrame: Encodable, Sendable {
     case hello(device: String, token: String, app: String)
     case pair(device: DeviceInfo)
-    case subscribe(chatId: String, afterSeq: Int)
+    /// `afterTs` is the time of the event numbered `afterSeq`: a cleared chat
+    /// numbers its events from 1 again, so the number alone does not say
+    /// which conversation it counts in.
+    case subscribe(chatId: String, afterSeq: Int, afterTs: Double? = nil)
     case unsubscribe(chatId: String)
     case req(id: String, method: String, params: JSONValue?)
     case ping
 
-    private enum K: String, CodingKey { case t, v, device, token, app, chatId, afterSeq, id, method, params }
+    private enum K: String, CodingKey { case t, v, device, token, app, chatId, afterSeq, afterTs, id, method, params }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: K.self)
@@ -434,8 +441,9 @@ enum ClientFrame: Encodable, Sendable {
             try c.encode(device, forKey: .device); try c.encode(token, forKey: .token); try c.encode(app, forKey: .app)
         case let .pair(device):
             try c.encode("pair", forKey: .t); try c.encode(device, forKey: .device)
-        case let .subscribe(chatId, afterSeq):
+        case let .subscribe(chatId, afterSeq, afterTs):
             try c.encode("subscribe", forKey: .t); try c.encode(chatId, forKey: .chatId); try c.encode(afterSeq, forKey: .afterSeq)
+            try c.encodeIfPresent(afterTs, forKey: .afterTs)
         case let .unsubscribe(chatId):
             try c.encode("unsubscribe", forKey: .t); try c.encode(chatId, forKey: .chatId)
         case let .req(id, method, params):
