@@ -5,7 +5,9 @@ import XCTest
 final class SidebarChatsTests: XCTestCase {
     private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-sidebarHarness", "-tab", "projects"] + extra
+        // On an iPad the sidebar remembers whether it was showing Activity or
+        // Projects; another test's choice must not decide what this one sees.
+        app.launchArguments = ["-sidebarHarness", "-tab", "projects", "-sidebar.mode", "projects"] + extra
         app.launch()
         // The fold is remembered between launches; start from open.
         let show = app.buttons["Show chats"]

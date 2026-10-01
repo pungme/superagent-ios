@@ -15,7 +15,10 @@ final class FullScreenMirrorTests: XCTestCase {
         let floating = app.buttons["floatingChat"]
         XCTAssertTrue(floating.waitForExistence(timeout: 5), "the conversation floats over the page")
         XCTAssertTrue((floating.value as? String ?? "").hasPrefix("Narrow, the headline holds"))
-        XCTAssertFalse(app.navigationBars.firstMatch.exists, "no navigation bar over it")
+        // An iPad's sidebar keeps its own bar beside the page; nothing sits over it.
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            XCTAssertFalse(app.navigationBars.firstMatch.exists, "no navigation bar over it")
+        }
         let field = app.textFields["Message Claude…"].exists
             ? app.textFields["Message Claude…"]
             : app.textViews.firstMatch

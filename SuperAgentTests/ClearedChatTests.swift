@@ -94,3 +94,44 @@ struct ClearedChatTests {
         if case let .reset(chatId) = reset { #expect(chatId == "c1") } else { Issue.record("reset did not decode") }
     }
 }
+
+/// A phone holding nothing of a chat asks for its tail, and starts wherever
+/// the Mac starts it.
+@MainActor
+struct TailTests {
+    private func ev(_ seq: Int) -> WireEvent {
+        WireEvent(chatId: "c", seq: seq, ts: Double(seq) * 1000, data: .assistant(id: "a\(seq)", text: "\(seq)"))
+    }
+
+    @Test func aFreshCopyStartsWhereTheTailDoes() {
+        var t = Transcript()
+        t.startsAnywhere = true
+        let r1 = t.apply(ev(5748))
+        #expect(r1)
+        let r2 = t.apply(ev(5749))
+        #expect(r2)
+        #expect(t.lastSeq == 5749)
+        #expect(t.events.count == 2)
+        // After the first event a jump is a gap again, not a new start.
+        let r3 = t.apply(ev(5800))
+        #expect(!r3)
+        #expect(t.lastSeq == 5749)
+    }
+
+    @Test func withoutAskingForATailTheStartIsStillOne() {
+        var t = Transcript()
+        let r4 = t.apply(ev(25))
+        #expect(!r4)
+        #expect(t.events.isEmpty)
+        let r5 = t.apply(ev(1))
+        #expect(r5)
+    }
+
+    @Test func theSubscribeFrameCarriesTheTail() throws {
+        let frame = ClientFrame.subscribe(chatId: "c1", afterSeq: 0, tail: 400)
+        let sub = try JSONSerialization.jsonObject(with: JSONEncoder().encode(frame)) as? [String: Any]
+        #expect(sub?["tail"] as? Int == 400)
+        let caughtUp = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ClientFrame.subscribe(chatId: "c1", afterSeq: 9))) as? [String: Any]
+        #expect(caughtUp?["tail"] == nil)
+    }
+}

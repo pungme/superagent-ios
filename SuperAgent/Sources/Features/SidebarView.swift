@@ -33,6 +33,10 @@ struct SidebarView: View {
     /// Projects whose repos are unfolded — remembered, as on the Mac.
     @AppStorage("sidebar.reposOpen") private var reposOpenRaw = ""
     private var reposOpen: Set<String> { Set(reposOpenRaw.split(separator: "\u{1}").map(String.init)) }
+    /// Projects whose list (conversations, branches, routines, repos) is folded
+    /// away — the caret on the project's row, as on the Mac.
+    @AppStorage("sidebar.foldedProjects") private var foldedRaw = ""
+    private var folded: Set<String> { Set(foldedRaw.split(separator: "\u{1}").map(String.init)) }
     /// Collapsed groups, remembered on this phone (the caret is a real button
     /// here — on the desktop it's a 16 px glyph you can hit with a mouse).
     @AppStorage("sidebar.collapsedGroups") private var collapsedRaw = ""
@@ -579,14 +583,11 @@ struct SidebarView: View {
             // Small caps, like PROJECTS under it and the Mac's own Pinned label.
             Section {
                 ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId], pinned: pinned) }
-            } header: {
-                Text("Pinned").font(.footnote.weight(.semibold)).textCase(.uppercase).tracking(0.5)
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(minHeight: 36, alignment: .leading)
-                    .textCase(nil)
-            }
+            } header: { smallCapsHeader("Pinned") }
         }
     }
+
+    private func smallCapsHeader(_ title: String) -> some View { SmallCapsHeader(title: title) }
 
     /// Every conversation on this Mac, newest first — no groups, no projects,
     /// no branches. Where it lives is a subtitle here, not the structure.
@@ -605,14 +606,14 @@ struct SidebarView: View {
         // top changed by nothing but a small glyph, which read as pinning
         // having done nothing at all. A real section makes it visible.
         if !pinned.isEmpty {
-            Section("Pinned") {
+            Section {
                 ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId], pinned: pinned) }
-            }
+            } header: { smallCapsHeader("Pinned") }
         }
         if !rest.isEmpty {
-            Section(pinned.isEmpty ? "" : "Chats") {
+            Section {
                 ForEach(rest) { chat in activityRow(chat, project: names[chat.workspaceId]) }
-            }
+            } header: { if !pinned.isEmpty { smallCapsHeader("Chats") } }
         }
     }
 
@@ -742,8 +743,9 @@ struct SidebarView: View {
         let hasTree = !repos.isEmpty || extras > 0 || !mine.isEmpty
 
         // .sidebar-item: status dot, kind icon, 13.5/500 name, branch chip; 7/8 padding, radius 8.
-        // The caret folds the project's repos from the row itself, as on the
-        // Mac — not a separate "N repos" row under every project.
+        // The caret folds everything listed under the project. Its repos are
+        // a row of their own in that list ("3 repos"), closed until asked for:
+        // one caret for both put seventeen repos in among the conversations.
         HStack(spacing: 0) {
         Button { openProject(ws) } label: {
             HStack(spacing: 8) {
@@ -765,15 +767,15 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        if !repos.isEmpty {
-            Button { toggle(ws.id) } label: {
+        if hasTree {
+            Button { toggleFold(ws.id) } label: {
                 Image(systemName: "chevron.right").superFont(11, weight: .semibold)
                     .foregroundStyle(Theme.textTertiary)
-                    .rotationEffect(.degrees(reposOpen.contains(ws.id) ? 90 : 0))
+                    .rotationEffect(.degrees(folded.contains(ws.id) ? 0 : 90))
                     .frame(width: 32, height: 40).contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .accessibilityLabel(reposOpen.contains(ws.id) ? "Hide repos" : "Show \(repos.count) repos")
+            .accessibilityLabel(folded.contains(ws.id) ? "Expand \(ws.name)" : "Collapse \(ws.name)")
         }
         }
         .listRowBackground(chats.contains { $0.id == openId } ? Theme.hover : Theme.card)
@@ -792,7 +794,7 @@ struct SidebarView: View {
 
         // .routine-tree: one spine down the left, an elbow into every row.
         // Each row is a real List row — see TreeRow for why.
-        if hasTree {
+        if hasTree, !folded.contains(ws.id) {
             // Whose elbow the spine stops at.
             let nonMain = (worktrees[ws.id] ?? []).filter { !$0.main }
             let loose: [WireChat] = {
@@ -801,9 +803,24 @@ struct SidebarView: View {
             }()
             let treeEndsInRepos = mine.isEmpty && loose.isEmpty && nonMain.isEmpty
             Group {
+                if !repos.isEmpty {
+                    TreeRow(last: treeEndsInRepos && !reposOpen.contains(ws.id)) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.right").superFont(9, weight: .semibold)
+                                .foregroundStyle(Theme.textTertiary)
+                                .rotationEffect(.degrees(reposOpen.contains(ws.id) ? 90 : 0))
+                            Text("\(repos.count) \(repos.count == 1 ? "repo" : "repos")").lineLimit(1)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { toggle(ws.id) }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel(reposOpen.contains(ws.id) ? "Hide repos" : "Show \(repos.count) repos")
+                    }
+                }
                 if !repos.isEmpty && reposOpen.contains(ws.id) {
                         ForEach(repos) { r in
-                            TreeRow(last: treeEndsInRepos && r.path == repos.last?.path) {
+                            TreeRow(depth: 2, last: treeEndsInRepos && r.path == repos.last?.path) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "chevron.left.forwardslash.chevron.right").superFont(10).foregroundStyle(Theme.textTertiary)
                                     Text(r.name).lineLimit(1)
@@ -1044,6 +1061,12 @@ struct SidebarView: View {
 
     private func groupId(of ws: WireWorkspace) -> String {
         connection.tree.first { $0.workspaces.contains { $0.id == ws.id } }?.id ?? groups.first?.id ?? ""
+    }
+
+    private func toggleFold(_ id: String) {
+        var next = folded
+        if next.contains(id) { next.remove(id) } else { next.insert(id) }
+        withAnimation(.easeOut(duration: 0.18)) { foldedRaw = next.joined(separator: "\u{1}") }
     }
 
     private func toggle(_ id: String) {
@@ -1288,6 +1311,19 @@ private struct MachineSwitcher: ViewModifier {
 }
 
 /// The icon of the project a search result is in, as the Mac's ⌘K shows it.
+/// The one section label every list uses. Activity and the Chat tab said
+/// "Pinned" and "Chats" in the system's larger grey, beside Projects' small
+/// caps — three screens of the same rows with two kinds of heading.
+struct SmallCapsHeader: View {
+    let title: String
+    var body: some View {
+        Text(title).font(.footnote.weight(.semibold)).textCase(.uppercase).tracking(0.5)
+            .foregroundStyle(Theme.textSecondary)
+            .frame(minHeight: 36, alignment: .leading)
+            .textCase(nil)
+    }
+}
+
 struct SearchHitGlyph: View {
     let connection: Connection
     let workspaceId: String

@@ -79,8 +79,14 @@ struct ChatsListView: View {
     var body: some View {
         List {
             Button { newChat() } label: {
-                Text("+ New chat").superFont(13.5, weight: .medium).foregroundStyle(Theme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                // A row like the ones under it: an icon where theirs is, and
+                // ink, not grey — grey read as switched off.
+                HStack(spacing: 8) {
+                    Image(systemName: "square.and.pencil").superFont(14).foregroundStyle(Theme.textSecondary)
+                        .frame(width: 22)
+                    Text("New chat").superFont(14.5, weight: .medium).foregroundStyle(Theme.textPrimary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(creating || connection.state != .connected)
@@ -91,13 +97,20 @@ struct ChatsListView: View {
                     .listRowBackground(Theme.card)
             }
             if !pinnedChats.isEmpty {
-                Section("Pinned") {
+                Section {
                     ForEach(pinnedChats) { chat in chatRow(chat) }
-                }
+                } header: { SmallCapsHeader(title: "Pinned") }
             }
             if !unpinnedChats.isEmpty {
-                Section(pinnedChats.isEmpty ? "" : "Chats") {
+                // With nothing pinned there is one list, and it starts right
+                // under "New chat": an untitled section left an empty band
+                // between the two.
+                if pinnedChats.isEmpty {
                     ForEach(unpinnedChats) { chat in chatRow(chat) }
+                } else {
+                    Section {
+                        ForEach(unpinnedChats) { chat in chatRow(chat) }
+                    } header: { SmallCapsHeader(title: "Chats") }
                 }
             }
         }

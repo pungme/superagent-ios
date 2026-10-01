@@ -49,6 +49,10 @@ struct Composer: View {
     /// its account default here; permission modes are shared by both agents.
     let provider: String
     let onProvider: (String) -> Void
+    /// The Mac's browsers and the one this conversation uses; nil (or a
+    /// single entry) when there is nothing to choose between.
+    var browserChoices: BrowserChoices? = nil
+    var onBrowser: (String) -> Void = { _ in }
     /// The composer clears itself and hands the text up; ChatView does the rest
     /// (attachments, reply quote, delivery) and never touches the draft.
     let onSend: (String) -> Void
@@ -158,6 +162,7 @@ struct Composer: View {
     /// never eat something typed in between.
     private func submit() {
         let text = draft
+        let wasTyping = focused.wrappedValue
         dictationSpent = true
         draft = ""
         saveDraft()
@@ -167,12 +172,21 @@ struct Composer: View {
         // after `.onKeyPress` already marked the key `.handled`, so it's not
         // something that guard prevents. Re-assert focus once that's had its
         // turn, or every hardware-keyboard send left the field needing a tap.
+        //
+        // More than once, and only when it has actually been lost: UIKit can
+        // let go a beat later than one turn, and setting focus while it still
+        // reads as held does nothing — which is how the cursor still went
+        // missing after Return. Never for a send made without the keyboard up.
         Task { @MainActor in
             if !draft.isEmpty {
                 draft = ""
                 saveDraft()
             }
-            focused.wrappedValue = true
+            guard wasTyping else { return }
+            for wait in [0, 60, 200, 450] {
+                if wait > 0 { try? await Task.sleep(for: .milliseconds(wait)) }
+                if !focused.wrappedValue { focused.wrappedValue = true }
+            }
         }
     }
 
@@ -221,7 +235,7 @@ struct Composer: View {
         if sessionModels.contains(where: { $0.id.isEmpty }) { return sessionModels }
         return [.init(id: "", label: "Default", hint: "Whatever your account uses")] + sessionModels
     }
-    private var providerName: String { provider == "codex" ? "Codex" : "Claude" }
+    private var providerName: String { provider == "codex" ? "Codex" : provider == "antigravity" ? "Antigravity" : "Claude" }
 
     private func modelButton(_ m: WireModelOption) -> some View {
         Button { model = m.id } label: {
@@ -435,7 +449,7 @@ struct Composer: View {
                 Menu {
                     Button { onProvider("claude") } label: {
                         Label {
-                            Text(provider != "codex" ? "✓ Claude Code" : "Claude Code")
+                            Text(provider != "codex" && provider != "antigravity" ? "✓ Claude Code" : "Claude Code")
                         } icon: { Image("ClaudeMark").renderingMode(.original) }
                     }
                     Button { onProvider("codex") } label: {
@@ -447,7 +461,9 @@ struct Composer: View {
                     ControlPill {
                         HStack(spacing: 4) {
                             ProviderMark(provider: provider, size: 13)
-                            Text(provider == "codex" ? "Codex" : "Claude Code")
+                            // A conversation the Mac put on Antigravity says
+                            // so, rather than passing for Claude Code.
+                            Text(provider == "codex" ? "Codex" : provider == "antigravity" ? "Antigravity" : "Claude Code")
                             Image(systemName: "chevron.down").superFont(9, weight: .bold)
                         }
                     }
@@ -483,6 +499,21 @@ struct Composer: View {
                     }
                 } label: {
                     ControlPill { HStack(spacing: 4) { Text("Mode").foregroundStyle(Theme.textTertiary); Text(Composer.modes.first { $0.id == mode }?.label ?? "Full"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                }
+                if let b = browserChoices, b.browsers.count > 1 {
+                    Menu {
+                        ForEach(b.browsers) { option in
+                            Button { onBrowser(option.id) } label: {
+                                Label {
+                                    Text(option.name)
+                                    Text(option.id == "builtin" ? "The browser inside Superagent" : "On your Mac, with its sign-ins")
+                                } icon: { if b.current == option.id { Image(systemName: "checkmark") } }
+                            }
+                        }
+                    } label: {
+                        ControlPill { HStack(spacing: 4) { Text("Browser").foregroundStyle(Theme.textTertiary); Text(b.currentName); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                    }
+                    .accessibilityIdentifier("browser-pill")
                 }
                 if let context {
                     let pct = min(100, Int((Double(context.used) / Double(max(1, context.window)) * 100).rounded()))
@@ -562,6 +593,9 @@ struct ProviderMark: View {
     var body: some View {
         if provider == "codex" {
             Image("CodexMark").renderingMode(.template).resizable().scaledToFit()
+                .frame(width: size, height: size).foregroundStyle(Theme.textSecondary)
+        } else if provider == "antigravity" {
+            Image(systemName: "sparkle").resizable().scaledToFit()
                 .frame(width: size, height: size).foregroundStyle(Theme.textSecondary)
         } else {
             Image("ClaudeMark").renderingMode(.original).resizable().scaledToFit()

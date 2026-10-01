@@ -8,6 +8,10 @@ struct Transcript: Sendable {
     var events: [WireEvent] = []
     var lastSeq: Int = 0
     var subscribed = false
+    /// Nothing is held and only the chat's tail was asked for: the first event
+    /// to arrive is where this copy starts, whatever its number. Off again as
+    /// soon as one lands, so a real gap is still a gap.
+    var startsAnywhere = false
     /// The live context after the last finished turn, and the model the session
     /// actually resolved to — what the meter under the composer draws.
     var contextTokens: Int?
@@ -51,7 +55,9 @@ struct Transcript: Sendable {
 
     mutating func apply(_ e: WireEvent) -> Bool {
         // Gaps mean we missed something; the caller re-subscribes from lastSeq.
-        guard e.seq == lastSeq + 1 else { return e.seq <= lastSeq }
+        guard e.seq == lastSeq + 1 || (startsAnywhere && events.isEmpty && lastSeq == 0)
+        else { return e.seq <= lastSeq }
+        startsAnywhere = false
         events.append(e)
         lastSeq = e.seq
         switch e.data {
@@ -152,6 +158,8 @@ final class Connection {
     private(set) var commands: [String: [String]] = [:]
     /// What each conversation has open in the Mac's browser pane.
     private(set) var browsers: [String: WireBrowser] = [:]
+    /// Which browser each conversation's agent drives, and the Mac's others.
+    private(set) var browserChoices: [String: BrowserChoices] = [:]
     /// The unsent text in each conversation's composer, as the Mac last said.
     /// `n` rises with every report, so hearing the same words twice (after a
     /// reconnect) still counts as hearing them.
@@ -252,7 +260,8 @@ final class Connection {
         if e.seq <= transcripts[e.chatId]!.lastSeq, !transcripts[e.chatId]!.holds(e) {
             resetTranscript(e.chatId)
         }
-        let isNext = e.seq == transcripts[e.chatId]!.lastSeq + 1
+        let t = transcripts[e.chatId]!
+        let isNext = e.seq == t.lastSeq + 1 || (t.startsAnywhere && t.events.isEmpty && t.lastSeq == 0)
         if !transcripts[e.chatId]!.apply(e), watching.contains(e.chatId) {
             // Gap: ask again from what we have.
             resubscribe(e.chatId)
@@ -269,7 +278,12 @@ final class Connection {
     /// Ask the Mac for everything after what is held for this chat.
     private func resubscribe(_ chatId: String) {
         guard let t = transcripts[chatId] else { return }
-        send(.subscribe(chatId: chatId, afterSeq: t.lastSeq, afterTs: t.lastTs))
+        // Nothing held: ask for the end of the conversation, not all of it.
+        // What is kept between launches is the same length (OfflineCache).
+        let fresh = t.lastSeq == 0 && t.events.isEmpty
+        if fresh { transcripts[chatId]?.startsAnywhere = true }
+        send(.subscribe(chatId: chatId, afterSeq: t.lastSeq, afterTs: t.lastTs,
+                        tail: fresh ? OfflineCache.transcriptLimit : nil))
     }
 
     /// The conversation was emptied on the Mac: drop this phone's copy of it,
@@ -280,6 +294,7 @@ final class Connection {
         pendingDeltas[chatId] = nil
         streams[chatId]?.clear()
         transcripts[chatId]?.reset()
+        transcripts[chatId]?.startsAnywhere = false
     }
 
     private func flushDeltas(for chatId: String? = nil) {
@@ -607,7 +622,7 @@ final class Connection {
     /// transcript's outbox and is delivered now or as soon as the link is back.
     func sendMessage(chatId: String, text: String, images: [(mediaType: String, data: Data)] = [],
                      model: String? = nil, mode: String? = nil, replyTo: ReplyQuote? = nil) {
-        let msg = Outgoing(id: "L-" + UUID().uuidString.prefix(8), chatId: chatId, text: text,
+        let msg = Outgoing(id: MessageOrigin.newId(), chatId: chatId, text: text,
                            images: images.map { Outgoing.Image(mediaType: $0.mediaType, data: $0.data) },
                            ts: Date().timeIntervalSince1970 * 1000, model: model, mode: mode,
                            replyTo: replyTo)
@@ -752,6 +767,22 @@ final class Connection {
     func renameChat(chatId: String, title: String) async throws {
         _ = try await rpc("chat.rename", .object(["chatId": .string(chatId), "title": .string(title)]))
         chats = chats.map { var c = $0; if c.id == chatId { c.title = title }; return c }
+    }
+
+    /// Ask which browser this conversation's agent drives and which the Mac
+    /// could offer. Quiet on failure: an older Mac has no such choice, and the
+    /// pill simply is not shown.
+    func loadBrowserChoices(chatId: String) async {
+        guard let c = try? await rpc("browser.choices", .object(["chatId": .string(chatId)]), as: BrowserChoices.self)
+        else { return }
+        if browserChoices[chatId] != c { browserChoices[chatId] = c }
+    }
+
+    /// Move this conversation's agent to another browser on the Mac. It is
+    /// started there on the agent's next step, not now.
+    func setBrowser(chatId: String, id: String) async throws {
+        _ = try await rpc("browser.set", .object(["chatId": .string(chatId), "id": .string(id)]))
+        browserChoices[chatId]?.current = id
     }
 
     /// Tell the Mac what is typed and unsent here. False when it did not get
@@ -1205,11 +1236,18 @@ extension Connection {
             c.browsers["c1"] = WireBrowser(chatId: "c1", open: true, url: "https://stripe.com/en-us",
                                            title: "Stripe", canGoBack: false, canGoForward: false, loading: false)
         }
+        // What a Mac with Brave installed answers, so the pill has something to show.
+        c.browserChoices["c1"] = BrowserChoices(current: "builtin", browsers: [
+            .init(id: "builtin", name: "Superagent"), .init(id: "brave", name: "Brave"), .init(id: "chrome", name: "Chrome")
+        ])
         // `-macDraft`: the Mac reports words in its composer a moment after
         // the chat opens, and different ones a while later — to see the field
         // take the first and, once typed in, refuse the second.
+        // The harness starts with empty composers: a draft left by the last
+        // run would otherwise still be in the field (drafts are kept), and
+        // tests that look for the empty field by its placeholder miss it.
+        for key in ["draft:c1", "draftSynced:c1"] { UserDefaults.standard.removeObject(forKey: key) }
         if ProcessInfo.processInfo.arguments.contains("-macDraft") {
-            for key in ["draft:c1", "draftSynced:c1"] { UserDefaults.standard.removeObject(forKey: key) }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
                 c.apply(.draft(chatId: "c1", text: "started on the Mac"))

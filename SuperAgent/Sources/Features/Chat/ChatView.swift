@@ -95,6 +95,9 @@ struct ChatView: View {
     @State private var dragBy: CGFloat = 0
     @State private var containerHeight: CGFloat = 600
     @State private var containerWidth: CGFloat = 0
+    /// The transcript's width once it has stopped changing; see transcript().
+    @State private var settledWidth: CGFloat = 0
+    @State private var widthSettle: Task<Void, Never>?
     @Environment(\.horizontalSizeClass) private var width
     @State private var showBranches = false
     @State private var creating = false
@@ -139,11 +142,13 @@ struct ChatView: View {
                        pageAttached: pageAttached,
                        onBrowser: togglePage, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating,
                        boardOpen: boardShown,
-                       onBoard: wide ? { withAnimation(.easeInOut(duration: 0.2)) { boardShown.toggle() } } : nil)
+                       onBoard: regular ? { withAnimation(.easeInOut(duration: 0.2)) { boardShown.toggle() } } : nil)
             // With the room, the page goes BESIDE the conversation, which is
             // what the Mac does. On a phone there is no room, so it docks above
             // and the keyboard takes it back.
-            if wide, simShown || pageShown || boardShown {
+            if regular, !wide, boardShown {
+                boardSide.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if wide, simShown || pageShown || boardShown {
                 // The thing being built sits between the sidebar and the
                 // conversation, as it does on the Mac: what you are looking at
                 // in the middle, what you say about it down the right.
@@ -263,6 +268,11 @@ struct ChatView: View {
             // pass over every event in the conversation — twice per event.
             .onChange(of: [transcript.lastSeq, transcript.events.count]) { _, _ in scheduleRebuild() }
             .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
+            // Which browser this conversation uses can change on the Mac while
+            // the phone is away, so it is asked for each time the chat opens.
+            .task(id: connection.state == .connected) {
+                if connection.state == .connected { await connection.loadBrowserChoices(chatId: chat.id) }
+            }
             .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
             .onChange(of: pickerItems) { _, items in loadPicked(items) }
             // Dictation now writes into the composer's own draft; see Composer.
@@ -284,6 +294,18 @@ struct ChatView: View {
         guard let req, req.chatId == nil || req.chatId == chat.id else { return }
         connection.openFileRequest = nil
         push?(FileRef(workspaceId: req.workspaceId, path: req.path, chatId: chat.id))
+    }
+
+    /// Take a new transcript width at once the first time, and otherwise only
+    /// after it has held still for a moment.
+    private func settle(width w: CGFloat) {
+        widthSettle?.cancel()
+        guard w > 0, w != settledWidth else { return }
+        if settledWidth == 0 { settledWidth = w; return }
+        widthSettle = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            if !Task.isCancelled { settledWidth = w }
+        }
     }
 
     /// Extracted from `body`: with the composer's focus binding threaded
@@ -338,6 +360,17 @@ struct ChatView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
+            // Laid out at the last width the column SETTLED at, not the one
+            // it has this frame. Dragging the sidebar wider (or the window's
+            // edge) changes the width sixty times a second, and re-wrapping
+            // every line of the conversation at each of them is what made
+            // the drag stutter. It keeps its width while the edge moves and
+            // re-wraps once, when the edge stops.
+            .frame(width: settledWidth > 0 ? settledWidth : nil, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.width.rounded() } action: { _, w in
+            settle(width: w)
         }
         // The scroll view keeps itself at the newest message. Nothing here
         // scrolls by hand, which is the whole point: driving the offset with
@@ -494,6 +527,16 @@ struct ChatView: View {
                     catch { self.error = error.localizedDescription }
                 }
             },
+            browserChoices: connection.browserChoices[chat.id],
+            onBrowser: { id in
+                Task {
+                    do {
+                        try await connection.setBrowser(chatId: chat.id, id: id)
+                        Haptics.tap()
+                    }
+                    catch { self.error = error.localizedDescription }
+                }
+            },
             onSend: { text in send(text: text) },
             onStop: { Task { try? await connection.interrupt(chatId: chat.id) } },
             heldSends: connection.transcripts[chat.id]?.heldSends ?? [],
@@ -503,7 +546,8 @@ struct ChatView: View {
     }
 
     private var emptyState: some View {
-        let providerName = connection.chats.first(where: { $0.id == chat.id })?.isCodex == true ? "Codex" : "Claude"
+        let provider = connection.chats.first(where: { $0.id == chat.id })?.provider
+        let providerName = provider == "codex" ? "Codex" : provider == "antigravity" ? "Antigravity" : "Claude"
         return VStack(spacing: 8) {
             Image(systemName: "sparkles").superFont(28).foregroundStyle(Theme.textTertiary)
             Text("Message \(providerName) about \(workspace.name)")
@@ -1017,7 +1061,18 @@ struct ChatView: View {
     /// rather than on top of it, and it stays put while you type — the reason
     /// it gets out of the way on a phone is the keyboard, and here there is
     /// room for both.
-    private var wide: Bool { width == .regular }
+    ///
+    /// Room, not just a regular size class: an iPad held upright with the
+    /// sidebar showing reports regular too, and leaves the conversation about
+    /// 500pt. Two columns there overflowed it — the page and the chat were
+    /// both clipped at the edges and the composer shrank to its mic. Below
+    /// what the two need (see paneWidth) the page goes on top, as on a phone.
+    private var wide: Bool { regular && (containerWidth == 0 || containerWidth >= 700) }
+    /// An iPad's kind of window, whatever room this column has in it. Todo
+    /// keeps its panel here (it must not be a pushed screen on an iPad: that
+    /// push-then-Back was a crash); without room for two columns the panel
+    /// takes the whole column until it is closed.
+    private var regular: Bool { width == .regular }
 
     /// The mirror's share of the width, held between a fifth and two thirds so
     /// neither column becomes a stripe.

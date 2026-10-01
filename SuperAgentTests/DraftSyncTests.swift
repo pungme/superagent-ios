@@ -48,3 +48,23 @@ struct DraftSyncTests {
         #expect(DraftSync.synced(chat) == "")
     }
 }
+
+/// A message says which device it came from.
+@MainActor
+struct MessageOriginTests {
+    @Test func aMessageSentHereSaysThisDevice() {
+        let id = MessageOrigin.newId()
+        #expect(id.hasPrefix("Li-") || id.hasPrefix("Lp-"))
+        #expect(MessageOrigin.label(forMessage: id) == "from \(thisDevice)")
+    }
+
+    @Test func aMessageFromAnotherDeviceNamesItsKind() {
+        #expect(MessageOrigin.label(forMessage: "Lp-zzzz-5E2AF2D5") == "from iPad")
+        #expect(MessageOrigin.label(forMessage: "Li-zzzz-5E2AF2D5") == "from iPhone")
+    }
+
+    /// Sent by a build from before ids said where they came from.
+    @Test func anOlderMessageKeepsTheOldWording() {
+        #expect(MessageOrigin.label(forMessage: "L-5E2AF2D5") == "from \(thisDevice)")
+    }
+}

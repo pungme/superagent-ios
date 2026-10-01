@@ -430,12 +430,15 @@ enum ClientFrame: Encodable, Sendable {
     /// `afterTs` is the time of the event numbered `afterSeq`: a cleared chat
     /// numbers its events from 1 again, so the number alone does not say
     /// which conversation it counts in.
-    case subscribe(chatId: String, afterSeq: Int, afterTs: Double? = nil)
+    ///
+    /// `tail`, sent when nothing of the chat is held: only its last that many
+    /// events are wanted, not the thousands a long conversation has.
+    case subscribe(chatId: String, afterSeq: Int, afterTs: Double? = nil, tail: Int? = nil)
     case unsubscribe(chatId: String)
     case req(id: String, method: String, params: JSONValue?)
     case ping
 
-    private enum K: String, CodingKey { case t, v, device, token, app, chatId, afterSeq, afterTs, id, method, params }
+    private enum K: String, CodingKey { case t, v, device, token, app, chatId, afterSeq, afterTs, tail, id, method, params }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: K.self)
@@ -445,9 +448,10 @@ enum ClientFrame: Encodable, Sendable {
             try c.encode(device, forKey: .device); try c.encode(token, forKey: .token); try c.encode(app, forKey: .app)
         case let .pair(device):
             try c.encode("pair", forKey: .t); try c.encode(device, forKey: .device)
-        case let .subscribe(chatId, afterSeq, afterTs):
+        case let .subscribe(chatId, afterSeq, afterTs, tail):
             try c.encode("subscribe", forKey: .t); try c.encode(chatId, forKey: .chatId); try c.encode(afterSeq, forKey: .afterSeq)
             try c.encodeIfPresent(afterTs, forKey: .afterTs)
+            try c.encodeIfPresent(tail, forKey: .tail)
         case let .unsubscribe(chatId):
             try c.encode("unsubscribe", forKey: .t); try c.encode(chatId, forKey: .chatId)
         case let .req(id, method, params):
@@ -748,4 +752,17 @@ struct WireRoutine: Codable, Hashable, Sendable, Identifiable {
     var runCount: Int?
     var lastRunTokens: Int?
     var isEnabled: Bool { enabled != 0 }
+}
+
+/// Which browser a conversation's agent drives on the Mac, and what else the
+/// Mac has: its built-in pane, or Brave, Chrome or Edge with their sign-ins.
+struct BrowserChoices: Codable, Hashable, Sendable {
+    struct Option: Codable, Hashable, Sendable, Identifiable {
+        var id: String
+        var name: String
+    }
+    var current: String
+    var browsers: [Option]
+    /// The name on the pill. The built-in one is "Superagent" on the Mac too.
+    var currentName: String { browsers.first { $0.id == current }?.name ?? "Superagent" }
 }

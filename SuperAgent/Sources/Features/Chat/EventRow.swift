@@ -330,7 +330,7 @@ struct EventRow: View {
                         }
                     }
                     if from == .ios {
-                        Text("from this phone")
+                        Text(MessageOrigin.label(forMessage: messageId))
                             .superFont(11).foregroundStyle(Theme.textTertiary)
                     }
                     if showTime {
@@ -371,7 +371,7 @@ struct EventRow: View {
         case let .approval(id, toolName, preview, kind, _):
             ApprovalCard(id: id, toolName: toolName, preview: preview, kind: kind, pending: pending, answer: answer)
         case let .approvalEnd(_, outcome, by):
-            Text("\(outcome == .approved ? "Approved" : outcome == .denied ? "Denied" : "Expired") · \(by == .ios ? "from this phone" : "on the Mac")")
+            Text("\(outcome == .approved ? "Approved" : outcome == .denied ? "Denied" : "Expired") · \(by == .ios ? "from \(thisDevice)" : "on the Mac")")
                 .superFont(11).foregroundStyle(Theme.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .center)
         default:
