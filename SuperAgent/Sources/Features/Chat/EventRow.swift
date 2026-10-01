@@ -307,6 +307,12 @@ struct EventRow: View {
                                 .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
                                 .textSelection(.enabled)
                                 .contextMenu {
+                                    // Copy first: it is what a long press on a
+                                    // message is for, and the menu takes the
+                                    // press that text selection would have had.
+                                    Button { UIPasteboard.general.string = mainText } label: {
+                                        Label("Copy", systemImage: "doc.on.doc")
+                                    }
                                     Button { reply(ReplyQuote(role: .user, text: text)) } label: {
                                         Label("Reply", systemImage: "arrowshape.turn.up.left")
                                     }
@@ -340,6 +346,9 @@ struct EventRow: View {
                     AssistantBubble(text: body, streaming: false)
                         .environment(\.markdownImageLoader, imageLoader)
                         .contextMenu {
+                            Button { UIPasteboard.general.string = body } label: {
+                                Label("Copy", systemImage: "doc.on.doc")
+                            }
                             Button { reply(ReplyQuote(role: .assistant, text: body)) } label: {
                                 Label("Reply", systemImage: "arrowshape.turn.up.left")
                             }
