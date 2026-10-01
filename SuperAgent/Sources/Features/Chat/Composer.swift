@@ -26,6 +26,11 @@ struct Composer: View {
     @Binding var pickerItems: [PhotosPickerItem]
     /// Files on their way to the agent — anything, not just pictures.
     @Binding var files: [PickedFile]
+    /// What the Mac's composer holds for this chat, and how to tell the Mac
+    /// what this one does. See `DraftSync`.
+    var remoteDraft: Connection.RemoteDraft? = nil
+    var pushDraft: (String) async -> Bool = { _ in false }
+    @State private var draftPush: Task<Void, Never>?
     let dictation: Dictation
     let connected: Bool
     let working: Bool
@@ -101,6 +106,37 @@ struct Composer: View {
             UserDefaults.standard.removeObject(forKey: key)
         } else {
             UserDefaults.standard.set(draft, forKey: key)
+        }
+    }
+
+    /// Send the Mac what is typed, a moment after the typing pauses — at once
+    /// when the field was emptied, so a message that has been sent is not
+    /// still sitting in the Mac's composer.
+    private func scheduleDraftPush() {
+        draftPush?.cancel()
+        let chat = chatID
+        guard DraftSync.normalized(draft) != DraftSync.synced(chat) else { return }
+        draftPush = Task { @MainActor in
+            if !DraftSync.normalized(draft).isEmpty { try? await Task.sleep(for: .milliseconds(500)) }
+            guard !Task.isCancelled, chat == chatID else { return }
+            let text = DraftSync.normalized(draft)
+            if await pushDraft(text) { DraftSync.setSynced(text, chatID: chat) }
+        }
+    }
+
+    /// The Mac said what its composer holds.
+    private func applyRemoteDraft(_ remote: Connection.RemoteDraft?) {
+        guard let remote else { return }
+        switch DraftSync.incoming(remote.text, local: draft, synced: DraftSync.synced(chatID)) {
+        case .agree:
+            DraftSync.setSynced(remote.text, chatID: chatID)
+        case .take(let text):
+            // Marked as agreed first: assigning the field runs its own change
+            // handler, which would otherwise send these words straight back.
+            DraftSync.setSynced(text, chatID: chatID)
+            draft = text
+        case .keepAndPush:
+            scheduleDraftPush()
         }
     }
 
@@ -484,7 +520,9 @@ struct Composer: View {
         .onDisappear { saveDraft() }
         // Reused across a chat switch: keep the old chat's words, load the new
         // chat's. (id is set on ChatView today, so this is belt-and-braces.)
+        .onChange(of: remoteDraft) { _, r in applyRemoteDraft(r) }
         .onChange(of: chatID) { old, _ in
+            draftPush?.cancel()
             let key = Self.draftKey(old)
             if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 UserDefaults.standard.removeObject(forKey: key)
@@ -493,7 +531,10 @@ struct Composer: View {
             }
             draft = UserDefaults.standard.string(forKey: Self.draftKey(chatID)) ?? ""
         }
-        .onChange(of: draft) { _, _ in saveDraft() }
+        .onChange(of: draft) { _, _ in
+            saveDraft()
+            scheduleDraftPush()
+        }
         .onChange(of: dictation.transcript) { _, t in
             guard !dictationSpent else { return }
             if !t.isEmpty { draft = t }

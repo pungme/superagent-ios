@@ -475,6 +475,8 @@ struct ChatView: View {
     private var composerBar: some View {
         Composer(
             chatID: chat.id, attachments: $attachments, pickerItems: $pickerItems, files: $files,
+            remoteDraft: connection.remoteDrafts[chat.id],
+            pushDraft: { [connection, id = chat.id] text in await connection.pushDraft(chatId: id, text: text) },
             dictation: dictation, connected: connection.state == .connected,
             working: isWorking, commands: connection.commands[chat.id] ?? [],
             context: contextReading,

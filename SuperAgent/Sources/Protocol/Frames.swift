@@ -350,6 +350,8 @@ enum ServerFrame: Sendable {
     case delta(chatId: String, text: String)
     /// The conversation was emptied on the Mac; its events start again at 1.
     case reset(chatId: String)
+    /// What is typed and unsent in a chat's composer on the Mac ("" for none).
+    case draft(chatId: String, text: String)
     case status(workspaceId: String, status: WorkspaceStatus)
     case chats([WireChat])
     case browser(WireBrowser)
@@ -383,6 +385,8 @@ extension ServerFrame: Decodable {
             self = .delta(chatId: try c.decode(String.self, forKey: .chatId), text: try c.decode(String.self, forKey: .text))
         case "reset":
             self = .reset(chatId: try c.decode(String.self, forKey: .chatId))
+        case "draft":
+            self = .draft(chatId: try c.decode(String.self, forKey: .chatId), text: try c.decodeIfPresent(String.self, forKey: .text) ?? "")
         case "status":
             self = .status(workspaceId: try c.decode(String.self, forKey: .workspaceId), status: try c.decode(WorkspaceStatus.self, forKey: .status))
         case "browser":

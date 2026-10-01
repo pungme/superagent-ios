@@ -152,6 +152,11 @@ final class Connection {
     private(set) var commands: [String: [String]] = [:]
     /// What each conversation has open in the Mac's browser pane.
     private(set) var browsers: [String: WireBrowser] = [:]
+    /// The unsent text in each conversation's composer, as the Mac last said.
+    /// `n` rises with every report, so hearing the same words twice (after a
+    /// reconnect) still counts as hearing them.
+    struct RemoteDraft: Equatable, Sendable { var text: String; var n: Int }
+    private(set) var remoteDrafts: [String: RemoteDraft] = [:]
     /// What each conversation has open in the Mac's simulator pane.
     private(set) var simulators: [String: WireSimulator] = [:]
 
@@ -457,6 +462,8 @@ final class Connection {
             // the conversation that is gone.
             pendingEvents.removeAll { $0.chatId == chatId }
             resetTranscript(chatId)
+        case let .draft(chatId, text):
+            remoteDrafts[chatId] = RemoteDraft(text: text, n: (remoteDrafts[chatId]?.n ?? 0) + 1)
         case let .delta(chatId, text):
             guard watching.contains(chatId) else { break }
             flushEvents()
@@ -745,6 +752,13 @@ final class Connection {
     func renameChat(chatId: String, title: String) async throws {
         _ = try await rpc("chat.rename", .object(["chatId": .string(chatId), "title": .string(title)]))
         chats = chats.map { var c = $0; if c.id == chatId { c.title = title }; return c }
+    }
+
+    /// Tell the Mac what is typed and unsent here. False when it did not get
+    /// there (offline, or a Mac too old to keep drafts) — the words stay on
+    /// this phone either way.
+    func pushDraft(chatId: String, text: String) async -> Bool {
+        (try? await rpc("chat.draft", .object(["chatId": .string(chatId), "text": .string(text)]))) != nil
     }
 
     func pinChat(chatId: String, pinned: Bool) async throws {
@@ -1190,6 +1204,18 @@ extension Connection {
         if ProcessInfo.processInfo.arguments.contains("-withPage") {
             c.browsers["c1"] = WireBrowser(chatId: "c1", open: true, url: "https://stripe.com/en-us",
                                            title: "Stripe", canGoBack: false, canGoForward: false, loading: false)
+        }
+        // `-macDraft`: the Mac reports words in its composer a moment after
+        // the chat opens, and different ones a while later — to see the field
+        // take the first and, once typed in, refuse the second.
+        if ProcessInfo.processInfo.arguments.contains("-macDraft") {
+            for key in ["draft:c1", "draftSynced:c1"] { UserDefaults.standard.removeObject(forKey: key) }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                c.apply(.draft(chatId: "c1", text: "started on the Mac"))
+                try? await Task.sleep(for: .seconds(10))
+                c.apply(.draft(chatId: "c1", text: "older words from the Mac"))
+            }
         }
         return c
     }
