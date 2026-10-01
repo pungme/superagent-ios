@@ -279,6 +279,14 @@ struct EventRow: View {
         return Data(base64Encoded: b64)
     }
 
+    /// What you have said in this conversation, oldest first.
+    private var userTexts: [String] {
+        (connection.transcripts[event.chatId]?.events ?? []).compactMap {
+            if case let .user(_, text, _, _, _) = $0.data { return text }
+            return nil
+        }
+    }
+
     var body: some View {
         switch event.data {
         case let .user(messageId, text, images, from, replyTo):
@@ -340,8 +348,20 @@ struct EventRow: View {
                 }
             }
         case let .assistant(_, text):
-            let (body, choices) = MarkdownParser.extractChoices(text)
+            // A reply that opens by quoting one of your messages is an answer
+            // to that message: the quote goes in a chip above it, as a
+            // messaging app shows a reply. What you have said is only looked
+            // up for a reply that opens with a quote at all, so an ordinary
+            // one does not come to depend on the whole transcript.
+            let answering = text.drop(while: { $0 == " " || $0 == "\n" }).hasPrefix(">")
+                ? AgentReply.replyingTo(text, userTexts: userTexts)
+                : nil
+            let (body, choices) = MarkdownParser.extractChoices(answering?.rest ?? text)
             VStack(alignment: .leading, spacing: 8) {
+                if let answering {
+                    ReplyQuoteChip(quote: ReplyQuote(role: .user, text: answering.quote))
+                        .accessibilityIdentifier("answering-quote")
+                }
                 if !body.isEmpty {
                     AssistantBubble(text: body, streaming: false)
                         .environment(\.markdownImageLoader, imageLoader)

@@ -1236,6 +1236,17 @@ extension Connection {
             c.browsers["c1"] = WireBrowser(chatId: "c1", open: true, url: "https://stripe.com/en-us",
                                            title: "Stripe", canGoBack: false, canGoForward: false, loading: false)
         }
+        // `-agentReplies`: the agent answers the two messages one at a time,
+        // each under a quote of the one it answers.
+        if ProcessInfo.processInfo.arguments.contains("-agentReplies"), var t = c.transcripts["c1"] {
+            let at = Date().timeIntervalSince1970 * 1000
+            for text in ["> Make the headline shorter\n\nTwo lines now, same tone.",
+                         "> error: ENOENT\n\nThat line is the cause."] {
+                t.lastSeq += 1
+                t.events.append(WireEvent(chatId: "c1", seq: t.lastSeq, ts: at, data: .assistant(id: "r\(t.lastSeq)", text: text)))
+            }
+            c.transcripts["c1"] = t
+        }
         // What a Mac with Brave installed answers, so the pill has something to show.
         c.browserChoices["c1"] = BrowserChoices(current: "builtin", browsers: [
             .init(id: "builtin", name: "Superagent"), .init(id: "brave", name: "Brave"), .init(id: "chrome", name: "Chrome")
