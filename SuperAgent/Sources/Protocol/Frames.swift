@@ -286,7 +286,8 @@ struct WireChat: Codable, Hashable, Sendable, Identifiable {
     /// Waiting for its first message to cut its branch. It has no cwd yet,
     /// exactly like the folder's own chat, so this is what tells them apart.
     var pending: Bool?
-    /// Which agent this conversation runs on — "claude" or "codex". The phone's
+    /// Which agent this conversation runs on — "claude", "codex" or
+    /// "antigravity". The phone's
     /// model and mode pickers are Claude Code's, so a conversation on Codex must
     /// not be sent them: they are not a bad setting, they are a CLI that refuses
     /// to start. nil from a Mac too old to say.

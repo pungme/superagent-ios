@@ -230,7 +230,9 @@ struct Composer: View {
     }
 
     private var availableModels: [WireModelOption] {
-        if provider != "codex" && sessionModels.isEmpty { return Self.models }
+        // Claude's models are only Claude's: Codex and Antigravity list their
+        // own once a session has reported them, and offer Default until then.
+        if provider != "codex" && provider != "antigravity" && sessionModels.isEmpty { return Self.models }
         // Claude's list carries its own Default entry; Codex's doesn't.
         if sessionModels.contains(where: { $0.id.isEmpty }) { return sessionModels }
         return [.init(id: "", label: "Default", hint: "Whatever your account uses")] + sessionModels
@@ -457,6 +459,14 @@ struct Composer: View {
                             Text(provider == "codex" ? "✓ Codex" : "Codex")
                         } icon: { Image("CodexMark").renderingMode(.template) }
                     }
+                    // Google's agent (Gemini), the Mac's third. It was shown
+                    // when the Mac had put a conversation on it, and could
+                    // not be picked from here.
+                    Button { onProvider("antigravity") } label: {
+                        Label {
+                            Text(provider == "antigravity" ? "✓ Antigravity" : "Antigravity")
+                        } icon: { Image("AntigravityMark").renderingMode(.template) }
+                    }
                 } label: {
                     ControlPill {
                         HStack(spacing: 4) {
@@ -583,10 +593,11 @@ struct PickedFile: Identifiable, Equatable {
 }
 
 /// The agent's brand mark — Claude's spark (its own orange) for Claude, Codex's
-/// own mark (OpenAI's blossom as a cloud with a >_ prompt, tinted) for Codex —
-/// so which backend a chat runs on is legible at a glance, in the Agent pill
-/// and its menu. Assets are the real vector paths (Simple Icons / LobeHub) in
-/// the catalog (ClaudeMark / CodexMark), not redrawn.
+/// own mark (OpenAI's blossom as a cloud with a >_ prompt, tinted) for Codex,
+/// Antigravity's arch (tinted) for Antigravity — so which backend a chat runs
+/// on is legible at a glance, in the Agent pill and its menu. Assets are the
+/// real vector paths (Simple Icons / LobeHub) in the catalog (ClaudeMark /
+/// CodexMark / AntigravityMark), not redrawn.
 struct ProviderMark: View {
     let provider: String
     var size: CGFloat = 14
@@ -595,7 +606,7 @@ struct ProviderMark: View {
             Image("CodexMark").renderingMode(.template).resizable().scaledToFit()
                 .frame(width: size, height: size).foregroundStyle(Theme.textSecondary)
         } else if provider == "antigravity" {
-            Image(systemName: "sparkle").resizable().scaledToFit()
+            Image("AntigravityMark").renderingMode(.template).resizable().scaledToFit()
                 .frame(width: size, height: size).foregroundStyle(Theme.textSecondary)
         } else {
             Image("ClaudeMark").renderingMode(.original).resizable().scaledToFit()
