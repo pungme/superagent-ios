@@ -36,7 +36,10 @@ struct ChatView: View {
     /// so focusing the composer shoved the whole conversation upward for
     /// nothing. Tracked here so `conversation` can turn that avoidance off
     /// exactly when it would otherwise lie.
-    @State private var hardwareKeyboardAttached = GCKeyboard.coalesced != nil
+    @State private var hardwareKeyboardAttached = KeyboardRoom.hardwareAttached
+    /// A real keyboard is on screen, whatever GameController says is attached
+    /// — see KeyboardRoom. The conversation always makes room for that one.
+    @State private var keyboardOnScreen = false
     /// The dictated text that has already been dealt with. Speech results are
     /// asynchronous, and the last one — often the final, tidied-up version —
     /// lands AFTER you have tapped send. That put the message you just sent
@@ -660,14 +663,23 @@ struct ChatView: View {
         // See hardwareKeyboardAttached: with one connected, ignoring the
         // keyboard's safe area stops SwiftUI reserving room for a software
         // keyboard that was never going to appear. Empty edges is a no-op,
-        // so a real on-screen keyboard still gets its usual room.
-        .ignoresSafeArea(.keyboard, edges: hardwareKeyboardAttached ? .bottom : [])
-        .onAppear { hardwareKeyboardAttached = GCKeyboard.coalesced != nil }
+        // so a real on-screen keyboard still gets its usual room — and one
+        // that comes up despite an attached keyboard gets it too.
+        .ignoresSafeArea(.keyboard,
+                         edges: KeyboardRoom.ignoresKeyboard(hardwareAttached: hardwareKeyboardAttached,
+                                                             onScreen: keyboardOnScreen) ? .bottom : [])
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            let screen = (note.object as? UIScreen)?.bounds.height ?? UIScreen.main.bounds.height
+            let up = KeyboardRoom.onScreen(frame: frame, screenHeight: screen)
+            if up != keyboardOnScreen { keyboardOnScreen = up }
+        }
+        .onAppear { hardwareKeyboardAttached = KeyboardRoom.hardwareAttached }
         .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidConnect)) { _ in
             hardwareKeyboardAttached = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidDisconnect)) { _ in
-            hardwareKeyboardAttached = GCKeyboard.coalesced != nil
+            hardwareKeyboardAttached = KeyboardRoom.hardwareAttached
         }
     }
 
