@@ -772,6 +772,30 @@ final class Connection {
     /// Ask which browser this conversation's agent drives and which the Mac
     /// could offer. Quiet on failure: an older Mac has no such choice, and the
     /// pill simply is not shown.
+    /// Every agent's accounts on the Mac with their usage, keyed by chat ("" for
+    /// none). Quiet on failure: an older Mac has no accounts to show.
+    private(set) var accounts: [String: WireAccounts] = [:]
+
+    func loadAccounts(chatId: String? = nil) async {
+        #if DEBUG
+        if machine.id == "harness" { accounts[chatId ?? ""] = Self.harnessAccounts(current: accounts[chatId ?? ""]?.current); return }
+        #endif
+        let params: JSONValue = chatId.map { .object(["chatId": .string($0)]) } ?? .object([:])
+        guard let a = try? await rpc("accounts.list", params, as: WireAccounts.self) else { return }
+        let key = chatId ?? ""
+        if accounts[key] != a { accounts[key] = a }
+    }
+
+    /// Move a conversation to another account. A Mac with it open restarts its
+    /// agent on it when idle; otherwise its next start uses it.
+    func pickAccount(chatId: String, accountId: String) async throws {
+        #if DEBUG
+        if machine.id == "harness" { accounts[chatId]?.current = accountId; return }
+        #endif
+        _ = try await rpc("accounts.pick", .object(["chatId": .string(chatId), "accountId": .string(accountId)]))
+        accounts[chatId]?.current = accountId
+    }
+
     func loadBrowserChoices(chatId: String) async {
         guard let c = try? await rpc("browser.choices", .object(["chatId": .string(chatId)]), as: BrowserChoices.self)
         else { return }
@@ -848,13 +872,49 @@ extension Connection {
     /// writes there and nowhere else, so asking for the project's files would
     /// show main and none of what the agent just made.
     func listFiles(workspaceId: String, chatId: String? = nil) async throws -> WireFileList {
-        try await rpc("files.list", fileParams(workspaceId, chatId), as: WireFileList.self)
+        #if DEBUG
+        if machine.id == "harness" { return WireFileList(root: "/harness", files: [Self.harnessFile]) }
+        #endif
+        return try await rpc("files.list", fileParams(workspaceId, chatId), as: WireFileList.self)
     }
 
     func readFile(workspaceId: String, path: String, chatId: String? = nil) async throws -> WireFileContent {
+        #if DEBUG
+        // One small file, so the viewer and its Save can be driven without a Mac.
+        if machine.id == "harness" {
+            return .text(path: path, size: Self.harnessFileText.utf8.count, text: Self.harnessFileText, truncated: false)
+        }
+        #endif
         let p = fileParams(workspaceId, chatId, extra: ["path": .string(path)])
         return try await rpc("files.read", p, as: WireFileContent.self)
     }
+
+    #if DEBUG
+    /// Three Claude accounts and a Codex login, one of them nearly out.
+    static func harnessAccounts(current: String?) -> WireAccounts {
+        let soon = (Date.now.timeIntervalSince1970 + 2 * 3600) * 1000
+        func usage(_ a: Int, _ b: Int) -> WireAccount.Usage {
+            .init(windows: [.init(label: "5-hour", percent: a, resetsAt: soon),
+                            .init(label: "Weekly", percent: b, resetsAt: soon + 3 * 86_400_000)],
+                  at: Date.now.timeIntervalSince1970 * 1000)
+        }
+        func account(_ id: String, _ provider: String, _ name: String, _ kind: String, _ detail: String,
+                     _ u: WireAccount.Usage?) -> WireAccount {
+            .init(id: id, provider: provider, name: name, kind: kind, detail: detail,
+                  limitedUntil: nil, needsAuth: nil, usage: u)
+        }
+        return WireAccounts(
+            claude: [account("claude:login", "claude", "Your Claude login", "login", "you@example.com · Max plan", usage(13, 99)),
+                     account("a1", "claude", "campaigns@", "token", "Token", usage(41, 22)),
+                     account("a2", "claude", "admin@", "token", "Token", usage(0, 7))],
+            codex: [account("codex:login", "codex", "Your Codex login", "login", "ChatGPT", usage(27, 14))],
+            antigravity: [],
+            current: current ?? "claude:login")
+    }
+
+    static let harnessFile = "notes.md"
+    static let harnessFileText = "# Notes\n\nThe headline holds at two lines down to 320pt.\n"
+    #endif
 
     /// Send a file to the Mac for the agent, in relay-sized slices. Returns the
     /// absolute path the Mac wrote — which travels to the agent as text, the
@@ -906,6 +966,12 @@ extension Connection {
 
     /// One slice of a file's bytes. `files.read` says how many there are.
     func readFileChunk(workspaceId: String, path: String, index: Int, chatId: String? = nil) async throws -> WireFileChunk {
+        #if DEBUG
+        if machine.id == "harness" {
+            return WireFileChunk(path: path, index: 0, chunks: 1,
+                                 data: Data(Self.harnessFileText.utf8).base64EncodedString())
+        }
+        #endif
         let p = fileParams(workspaceId, chatId,
                            extra: ["path": .string(path), "index": .number(Double(index))])
         return try await rpc("files.chunk", p, as: WireFileChunk.self)

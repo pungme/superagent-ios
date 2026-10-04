@@ -51,6 +51,10 @@ struct Composer: View {
     let onProvider: (String) -> Void
     /// The Mac's browsers and the one this conversation uses; nil (or a
     /// single entry) when there is nothing to choose between.
+    /// This agent's accounts and the one the chat is on, with their usage.
+    var accounts: [WireAccount] = []
+    var currentAccount: String? = nil
+    var onAccount: (String) -> Void = { _ in }
     var browserChoices: BrowserChoices? = nil
     var onBrowser: (String) -> Void = { _ in }
     /// The composer clears itself and hands the text up; ChatView does the rest
@@ -477,6 +481,36 @@ struct Composer: View {
                             Image(systemName: "chevron.down").superFont(9, weight: .bold)
                         }
                     }
+                }
+                // Which subscription this chat spends, once there is more than
+                // one: the Mac's Account pill, with each account's usage.
+                if accounts.count > 1, let current = accounts.first(where: { $0.id == currentAccount }) ?? accounts.first {
+                    Menu {
+                        ForEach(accounts) { a in
+                            // Title and subtitle straight in the label: inside a
+                            // Label with a conditional icon, iOS showed the name
+                            // and dropped the usage line under it.
+                            Button { onAccount(a.id) } label: {
+                                Text(a.id == current.id ? "✓ \(a.name)" : a.name)
+                                Text(a.needsAuth != nil ? "Needs sign-in on the Mac"
+                                     : a.liveWindows().isEmpty ? "Usage not read yet"
+                                     : a.liveWindows().map { "\($0.label) \($0.percent)%" }.joined(separator: " · "))
+                            }
+                            .disabled(a.needsAuth != nil)
+                        }
+                    } label: {
+                        ControlPill {
+                            HStack(spacing: 4) {
+                                Text("Account").foregroundStyle(Theme.textTertiary)
+                                Text(current.shortName)
+                                if let pct = current.fullest() {
+                                    Text("\(pct)%").foregroundStyle(usageColour(pct)).monospacedDigit()
+                                }
+                                Image(systemName: "chevron.down").superFont(9, weight: .bold)
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("account-pill")
                 }
                 Menu {
                     // What this conversation is actually on right now — the

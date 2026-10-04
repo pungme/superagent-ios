@@ -755,6 +755,63 @@ struct WireRoutine: Codable, Hashable, Sendable, Identifiable {
     var isEnabled: Bool { enabled != 0 }
 }
 
+/// A subscription an agent on the Mac can run on, and how much of its allowance
+/// is used (the Mac's Settings → Agents). Same shape as the desktop's Account.
+struct WireAccount: Codable, Hashable, Sendable, Identifiable {
+    struct Window: Codable, Hashable, Sendable {
+        var label: String
+        var percent: Int
+        var resetsAt: Double?
+    }
+    struct Usage: Codable, Hashable, Sendable {
+        var windows: [Window]
+        var at: Double
+    }
+    var id: String
+    var provider: String
+    var name: String
+    var kind: String
+    var detail: String
+    var limitedUntil: Double?
+    var needsAuth: String?
+    var usage: Usage?
+
+    /// "Your Claude login" reads as "Claude" where space is short.
+    var shortName: String {
+        if name.hasPrefix("Your "), name.hasSuffix(" login") {
+            return String(name.dropFirst(5).dropLast(6))
+        }
+        return name
+    }
+
+    /// The windows that have not started over since they were read.
+    func liveWindows(now: Date = .now) -> [Window] {
+        (usage?.windows ?? []).map { w in
+            guard let r = w.resetsAt, r / 1000 <= now.timeIntervalSince1970 else { return w }
+            return Window(label: w.label, percent: 0, resetsAt: nil)
+        }
+    }
+
+    /// The fullest window, 0–100, or nil when nothing has been read.
+    func fullest(now: Date = .now) -> Int? { liveWindows(now: now).map(\.percent).max() }
+}
+
+/// Every agent's accounts, and the one the chat asked about is on.
+struct WireAccounts: Codable, Hashable, Sendable {
+    var claude: [WireAccount]
+    var codex: [WireAccount]
+    var antigravity: [WireAccount]
+    var current: String?
+
+    func accounts(for provider: String) -> [WireAccount] {
+        switch provider {
+        case "codex": codex
+        case "antigravity": antigravity
+        default: claude
+        }
+    }
+}
+
 /// Which browser a conversation's agent drives on the Mac, and what else the
 /// Mac has: its built-in pane, or Brave, Chrome or Edge with their sign-ins.
 struct BrowserChoices: Codable, Hashable, Sendable {

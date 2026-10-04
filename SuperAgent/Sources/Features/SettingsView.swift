@@ -63,6 +63,9 @@ struct SettingsView: View {
                     }
                     Button { onPair() } label: { Label("Pair another Mac", systemImage: "plus") }
                 }
+                if let c = app.connections[app.selectedMachineId ?? ""] {
+                    AccountsUsageSection(connection: c)
+                }
                 // What today has cost on the relay. It has a daily ceiling per Mac,
                 // and when it runs out everything simply stops reaching the Mac —
                 // worth being able to watch rather than meet as an outage.

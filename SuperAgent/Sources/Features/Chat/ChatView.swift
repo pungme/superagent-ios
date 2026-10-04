@@ -270,11 +270,26 @@ struct ChatView: View {
             // Both move on every appended event, so this ran rebuild — a full
             // pass over every event in the conversation — twice per event.
             .onChange(of: [transcript.lastSeq, transcript.events.count]) { _, _ in scheduleRebuild() }
+            // Another agent has other accounts.
+            .onChange(of: connection.chats.first(where: { $0.id == chat.id })?.provider) { _, _ in
+                if connection.state == .connected { Task { await connection.loadAccounts(chatId: chat.id) } }
+            }
+            // A turn spends allowance: read the accounts again when it ends.
+            .onChange(of: isWorking) { _, working in
+                if !working, connection.state == .connected {
+                    Task { await connection.loadAccounts(chatId: chat.id) }
+                }
+            }
             .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
             // Which browser this conversation uses can change on the Mac while
             // the phone is away, so it is asked for each time the chat opens.
             .task(id: connection.state == .connected) {
-                if connection.state == .connected { await connection.loadBrowserChoices(chatId: chat.id) }
+                if connection.state == .connected {
+                    // Side by side: either can take a while on a slow relay.
+                    async let browsers: Void = connection.loadBrowserChoices(chatId: chat.id)
+                    async let accounts: Void = connection.loadAccounts(chatId: chat.id)
+                    _ = await (browsers, accounts)
+                }
             }
             .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
             .onChange(of: pickerItems) { _, items in loadPicked(items) }
@@ -525,6 +540,18 @@ struct ChatView: View {
                     do {
                         app.preferredModel = ""
                         try await connection.setAgent(chatId: chat.id, provider: p)
+                        Haptics.tap()
+                    }
+                    catch { self.error = error.localizedDescription }
+                }
+            },
+            accounts: connection.accounts[chat.id]?.accounts(
+                for: connection.chats.first(where: { $0.id == chat.id })?.provider ?? "claude") ?? [],
+            currentAccount: connection.accounts[chat.id]?.current,
+            onAccount: { id in
+                Task {
+                    do {
+                        try await connection.pickAccount(chatId: chat.id, accountId: id)
                         Haptics.tap()
                     }
                     catch { self.error = error.localizedDescription }
@@ -1363,7 +1390,7 @@ private struct StreamingReply: View {
     let onGrow: () -> Void
 
     var body: some View {
-        AssistantBubble(text: stream.text, streaming: true)
+        AssistantBubble(text: AgentNudge.strip(stream.text), streaming: true)
             .onChange(of: stream.text) { _, _ in onGrow() }
     }
 }

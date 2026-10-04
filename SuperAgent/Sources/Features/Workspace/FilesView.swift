@@ -156,6 +156,16 @@ struct FileView: View {
     let ref: FileRef
     @State private var content: WireFileContent?
     @State private var error: String?
+    /// The whole file, fetched for the share sheet: Save to Files, Save Image,
+    /// AirDrop, another app. Nil until Save is tapped.
+    @State private var saving: SaveState = .idle
+
+    private enum SaveState: Equatable {
+        case idle
+        case fetching(done: Int, of: Int)
+        case ready(URL)
+        case failed(String)
+    }
 
     private var isMarkdown: Bool { ["md", "markdown"].contains((ref.path as NSString).pathExtension.lowercased()) }
 
@@ -210,16 +220,92 @@ struct FileView: View {
         .navigationTitle((ref.path as NSString).lastPathComponent)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 Button { UIPasteboard.general.string = ref.path; Haptics.tap() } label: { Image(systemName: "doc.on.doc") }
                     .accessibilityLabel("Copy path")
+                if case let .fetching(done, of) = saving {
+                    ProgressView(value: Double(done), total: Double(max(of, 1)))
+                        .progressViewStyle(.circular)
+                        .accessibilityLabel("Getting the file")
+                } else {
+                    Button { Task { await save() } } label: { Image(systemName: "square.and.arrow.up") }
+                        .accessibilityLabel("Save or share")
+                        .accessibilityIdentifier("save-file")
+                }
             }
+        }
+        .sheet(isPresented: Binding(
+            get: { if case .ready = saving { return true } else { return false } },
+            set: { if !$0 { saving = .idle } }
+        )) {
+            if case let .ready(url) = saving { ShareSheet(items: [url]) }
+        }
+        .alert("Couldn't get the file", isPresented: Binding(
+            get: { if case .failed = saving { return true } else { return false } },
+            set: { if !$0 { saving = .idle } }
+        )) {
+            Button("OK") {}
+        } message: {
+            if case let .failed(why) = saving { Text(why) }
         }
         .task {
             do { content = try await connection.readFile(workspaceId: ref.workspaceId, path: ref.path, chatId: ref.chatId) }
             catch { self.error = error.localizedDescription }
         }
     }
+}
+
+extension FileView {
+    /// The file's own bytes, in the relay-sized slices the Mac already serves
+    /// PDFs in (any file up to its 25 MB cap), written to a temporary file under
+    /// the file's own name so the share sheet saves it as itself.
+    fileprivate func save() async {
+        Haptics.tap()
+        saving = .fetching(done: 0, of: 1)
+        var bytes = Data()
+        var total = 1
+        var index = 0
+        do {
+            while index < total {
+                let slice = try await connection.readFileChunk(workspaceId: ref.workspaceId, path: ref.path,
+                                                               index: index, chatId: ref.chatId)
+                guard let d = Data(base64Encoded: slice.data) else {
+                    saving = .failed("A slice of the file didn't decode.")
+                    return
+                }
+                bytes.append(d)
+                total = max(slice.chunks, 1)
+                index += 1
+                saving = .fetching(done: index, of: total)
+            }
+        } catch let e as RpcError {
+            saving = .failed(e.code == "not-found"
+                ? "The Mac couldn't send it. Files larger than 25 MB stay on the Mac."
+                : e.message)
+            return
+        } catch let e {
+            saving = .failed(e.localizedDescription)
+            return
+        }
+        do {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("save-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent((ref.path as NSString).lastPathComponent)
+            try bytes.write(to: url)
+            saving = .ready(url)
+        } catch {
+            saving = .failed(error.localizedDescription)
+        }
+    }
+}
+
+/// The system share sheet: Save to Files, Save Image, AirDrop, Mail, other apps.
+private struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
 
 /// Title + project name in the bar, as the desktop's header names the project.

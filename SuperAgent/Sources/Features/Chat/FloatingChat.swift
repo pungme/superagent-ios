@@ -43,8 +43,8 @@ struct FloatingChat: View {
                 bubble(line.text, mine: line.mine)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            if let live, !live.isEmpty {
-                bubble(live, mine: false)
+            if let live, !AgentNudge.strip(live).isEmpty {
+                bubble(AgentNudge.strip(live), mine: false)
                     .transition(.opacity)
             }
         }
