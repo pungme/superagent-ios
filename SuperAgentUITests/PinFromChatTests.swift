@@ -25,4 +25,18 @@ final class PinFromChatTests: XCTestCase {
         }
         XCTAssertTrue(back, "and back again")
     }
+
+    /// A project's own row is its conversation: holding it offers Pin.
+    func testAProjectRowPins() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-sidebarHarness", "-tab", "projects", "-sidebar.mode", "projects",
+                               "-sidebar.collapsedGroups", ""]
+        app.launch()
+        let row = app.staticTexts["api"]
+        for _ in 0..<6 where !row.waitForExistence(timeout: 1.5) { app.swipeUp() }
+        XCTAssertTrue(row.exists, "the api project is listed")
+        row.press(forDuration: 1.2)
+        let pin = app.buttons.matching(NSPredicate(format: "label == 'Pin' OR label == 'Unpin'")).firstMatch
+        XCTAssertTrue(pin.waitForExistence(timeout: 5), "holding the project offers Pin")
+    }
 }

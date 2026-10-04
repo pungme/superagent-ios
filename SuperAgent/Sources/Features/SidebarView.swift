@@ -790,6 +790,13 @@ struct SidebarView: View {
         }
         .contextMenu {
             Button { openProject(ws) } label: { Label("Open", systemImage: "arrow.right") }
+            // The row is the project's own conversation, so it pins like one —
+            // the Mac pins it from the same row.
+            if let root = folderChat(of: ws) {
+                Button { togglePin(root) } label: {
+                    Label(root.isPinned ? "Unpin" : "Pin", systemImage: root.isPinned ? "pin.slash" : "pin")
+                }
+            }
             // Starting a conversation was reachable only by opening the project
             // and finding "+ New chat" inside it, so the menu you get by holding
             // a project offered no way to do the main thing you hold it for.
@@ -941,6 +948,15 @@ struct SidebarView: View {
     /// swallowed every other tap for the thirty seconds it took that request to
     /// time out. It looked exactly like the app had frozen, and on an iPad,
     /// where the sidebar never goes away, it looked like it had frozen for good.
+    /// The conversation a project's own row is — the one in the folder itself —
+    /// by the same rule openProject uses. Nil when there is none to name.
+    private func folderChat(of ws: WireWorkspace) -> WireChat? {
+        let chats = connection.chats.filter { $0.workspaceId == ws.id }
+        if chats.contains(where: { $0.cwd != nil }) { return chats.first(where: { $0.isFolderChat }) }
+        if let id = worktrees[ws.id]?.first(where: { $0.main })?.chatId { return chats.first { $0.id == id } }
+        return chats.count == 1 ? chats.first : nil
+    }
+
     private func openProject(_ ws: WireWorkspace) {
         let chats = connection.chats.filter { $0.workspaceId == ws.id }.sorted {
             $0.isPinned == $1.isPinned ? $0.updatedAt > $1.updatedAt : $0.isPinned
