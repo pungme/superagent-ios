@@ -545,6 +545,11 @@ struct SidebarView: View {
             .disabled(chat == nil)
             .contextMenu {
                 if let chat {
+                    // A conversation on a branch is still a conversation: it
+                    // pins like any other. Its menu offered only Delete.
+                    Button { togglePin(chat) } label: {
+                        Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
+                    }
                     Button(role: .destructive) {
                         deletingChat = chat
                     } label: {

@@ -486,6 +486,18 @@ struct ChatView: View {
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Pin from inside the conversation, not only by holding its row.
+                let pinned = connection.chats.first { $0.id == chat.id }?.isPinned ?? false
+                Button {
+                    Task {
+                        do { try await connection.pinChat(chatId: chat.id, pinned: !pinned); Haptics.tap() }
+                        catch { self.error = error.localizedDescription }
+                    }
+                } label: {
+                    Image(systemName: pinned ? "pin.fill" : "pin")
+                }
+                .accessibilityLabel(pinned ? "Unpin" : "Pin")
+                .accessibilityIdentifier("pin-chat")
                 if !tasks.isEmpty {
                     Button { showTasks = true } label: {
                         Image(systemName: "checklist")

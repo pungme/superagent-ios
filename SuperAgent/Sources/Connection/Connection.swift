@@ -817,6 +817,12 @@ final class Connection {
     }
 
     func pinChat(chatId: String, pinned: Bool) async throws {
+        #if DEBUG
+        if machine.id == "harness" {
+            chats = chats.map { var c = $0; if c.id == chatId { c.pinned = pinned }; return c }
+            return
+        }
+        #endif
         _ = try await rpc("chat.pin", .object(["chatId": .string(chatId), "pinned": .bool(pinned)]))
         chats = chats.map { var c = $0; if c.id == chatId { c.pinned = pinned }; return c }
     }
