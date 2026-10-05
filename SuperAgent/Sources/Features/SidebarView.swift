@@ -120,11 +120,17 @@ struct SidebarView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
         .navigationTitle(connection.machine.name)
-        .modifier(MachineSwitcher(current: connection.machine.id))
         // A large title needs a phone's width to breathe; in an iPad's sidebar
-        // column it truncates the Mac's name to make room for itself.
-        .navigationBarTitleDisplayMode(width == .regular ? .inline : .large)
+        // column it truncates the Mac's name to make room for itself. Keep the
+        // multi-Mac title inline on phones too: a large title's menu only becomes
+        // reachable after scrolling, while this toolbar control is always there.
+        .navigationBarTitleDisplayMode(app.machines.count > 1 || width == .regular ? .inline : .large)
         .toolbar {
+            if app.machines.count > 1 {
+                ToolbarItem(placement: .principal) {
+                    machineMenu
+                }
+            }
             // iOS 26 gives every toolbar item its own glass capsule and squeezes
             // it to a minimum width, which turned this pill into a white circle
             // with a single letter in it — "L" for Live. The pill draws its own
@@ -172,6 +178,33 @@ struct SidebarView: View {
                 .disabled(computer == nil || connection.state != .connected || busy)
             }
         }
+    }
+
+    private var machineMenu: some View {
+        Menu {
+            ForEach(app.machines) { machine in
+                Button {
+                    app.switchTo(machine.id)
+                } label: {
+                    if machine.id == connection.machine.id {
+                        Label(machine.name, systemImage: "checkmark")
+                    } else {
+                        Text(machine.name)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "laptopcomputer")
+                Text(connection.machine.name)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Theme.textPrimary)
+        }
+        .accessibilityLabel("Switch Mac, currently \(connection.machine.name)")
     }
 
     @ViewBuilder
@@ -1299,34 +1332,6 @@ struct ProjectGlyph: View {
         .task(id: workspace.id) {
             guard !workspace.isBrowser, !workspace.isComputer else { return }
             icon = try? await connection.projectIcon(workspaceId: workspace.id, path: workspace.path)
-        }
-    }
-}
-
-/// With more than one Mac paired, the name at the top switches between them —
-/// no trip to Settings to look at a different Mac's projects. Attached only
-/// then: an empty title menu would still draw a chevron that opens nothing.
-private struct MachineSwitcher: ViewModifier {
-    @Environment(AppState.self) private var app
-    let current: String
-
-    func body(content: Content) -> some View {
-        if app.machines.count > 1 {
-            content.toolbarTitleMenu {
-                ForEach(app.machines) { m in
-                    Button {
-                        app.switchTo(m.id)
-                    } label: {
-                        if m.id == current {
-                            Label(m.name, systemImage: "checkmark")
-                        } else {
-                            Text(m.name)
-                        }
-                    }
-                }
-            }
-        } else {
-            content
         }
     }
 }
