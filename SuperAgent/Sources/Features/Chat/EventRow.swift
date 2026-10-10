@@ -454,7 +454,7 @@ struct ChoicesView: View {
                         }
                         Spacer()
                         Image(systemName: choices.multiple ? (picked.contains(opt.label) ? "checkmark.circle.fill" : "circle") : "arrow.right")
-                            .foregroundStyle(Theme.textTertiary)
+                            .foregroundStyle(picked.contains(opt.label) ? Theme.accent : Theme.textTertiary)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -463,10 +463,18 @@ struct ChoicesView: View {
                 .buttonStyle(.plain)
             }
             if choices.multiple {
-                Button("Send \(picked.count) choice\(picked.count == 1 ? "" : "s")") { choose(picked.sorted().joined(separator: ", ")) }
-                    .disabled(picked.isEmpty)
-                    .superFont(13, weight: .semibold)
-                    .tint(Theme.textPrimary)
+                // The one thing left to do once the boxes are ticked, so it
+                // looks like it: as plain text under the options it read as a
+                // caption and was missed.
+                Button { choose(picked.sorted().joined(separator: ", ")) } label: {
+                    Text(picked.isEmpty ? "Pick one or more" : "Send \(picked.count) choice\(picked.count == 1 ? "" : "s")")
+                        .superFont(15, weight: .semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.borderedProminent).tint(Theme.accent).foregroundStyle(Theme.accentFg)
+                .disabled(picked.isEmpty)
+                .padding(.top, 2)
             }
         }
         .padding(.leading, 4)

@@ -1439,8 +1439,7 @@ extension Connection {
             seq += 1
             // Deliberately uneven heights: a LazyVStack estimating uniform rows
             // is exactly what made the old scrollTo land on blank space.
-            var body = String(repeating: "Reply \(i + 1) line. ", count: 3 + (i % 9) * 7)
-            if i == turns - 1 { body = "Which?\n\n```ask\n{\"question\": \"What should I ship?\", \"multiple\": true, \"options\": [{\"label\": \"Mac 1.9.7 with the picture fix\", \"hint\": \"Stable; needs a Superagent restart\"}, {\"label\": \"Push the iOS connection fix\"}, {\"label\": \"Nothing yet\"}]}\n```" }
+            let body = String(repeating: "Reply \(i + 1) line. ", count: 3 + (i % 9) * 7)
             t.events.append(WireEvent(chatId: chatId, seq: seq, ts: now,
                                       data: .assistant(id: "a\(i)", text: body)))
             seq += 1
