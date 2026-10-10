@@ -1336,6 +1336,15 @@ extension Connection {
                                       data: mine ? .user(id: "u\(seq)", text: text, images: [], from: .ios, replyTo: nil)
                                                  : .assistant(id: "a\(seq)", text: text)))
         }
+        // `-withLoop`: and a round the loop sent, with the instructions that
+        // go to the agent on the end of it, as the Mac records one.
+        if ProcessInfo.processInfo.arguments.contains("-withLoop") {
+            seq += 1
+            t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at, data: .user(
+                id: "u\(seq)",
+                text: "Check the hero on a phone and tighten anything that wraps\n\n(/loop 5m: this repeats on a timer until it is stopped. Each round, do the next useful thing.)",
+                images: [], from: .desktop, replyTo: nil)))
+        }
         // `-longTranscript`: the Mac's 400-event cap worth of turns, tool steps
         // and Markdown, to measure what opening a real conversation costs.
         if ProcessInfo.processInfo.arguments.contains("-longTranscript") {

@@ -45,4 +45,17 @@ final class LoopBarTests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Narrow, the headline holds'")).firstMatch.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["Stop the loop"].exists, "no loop, no bar")
     }
+
+    /// A round the loop sent is shown as one: marked Loop, what was asked,
+    /// and none of the instructions that went to the agent with it.
+    func testALoopRoundIsShownWithoutItsInstructions() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-sidebarHarness", "-withLoop", "-openChat", "c1", "-tab", "projects"]
+        app.launch()
+        let round = app.descendants(matching: .any)["loop-round"].firstMatch
+        XCTAssertTrue(round.waitForExistence(timeout: 15))
+        XCTAssertTrue(round.label.contains("LOOP · EVERY 5M"), round.label)
+        XCTAssertTrue(round.label.contains("Check the hero on a phone"), round.label)
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'repeats on a timer'")).firstMatch.exists)
+    }
 }

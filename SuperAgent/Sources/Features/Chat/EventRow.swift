@@ -1,6 +1,43 @@
 import Foundation
 import SwiftUI
 
+/// What a round of a loop is called where its instructions used to be shown:
+/// "Loop", with the interval when it has one.
+func loopLabel(_ note: String) -> String {
+    guard let r = note.range(of: #"^\(/loop\s+\d+\s*[smhd]\b"#, options: .regularExpression) else { return "Loop" }
+    let every = note[r].dropFirst("(/loop".count).filter { !$0.isWhitespace }
+    return "Loop · every \(every)"
+}
+
+/// A round a loop sent. Not a message typed just now, so not the solid bubble
+/// of one: an outline, quieter, marked as a loop, and without the paragraph of
+/// instructions that goes to the agent with it.
+struct LoopRoundBubble: View {
+    let text: String
+    let note: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(loopLabel(note).uppercased(), systemImage: "arrow.clockwise")
+                .labelStyle(.titleAndIcon)
+                .superFont(10, weight: .semibold)
+                .foregroundStyle(Theme.textTertiary)
+            if !text.isEmpty {
+                Text(text)
+                    .superFont(14)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .padding(.horizontal, 13).padding(.vertical, 8)
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous)
+                .strokeBorder(Theme.borderStrong, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("loop-round")
+    }
+}
+
 /// The `/loop` skill's own mechanical reminder, appended verbatim to every
 /// round's user message — "(/loop, self-paced: …)" or "(/loop 5m: …)". Split
 /// off the trailing parenthetical so it renders as a note, not as part of
@@ -307,7 +344,14 @@ struct EventRow: View {
                     SentImagesRow(connection: connection, messageId: messageId, count: images.count)
                     if !text.isEmpty {
                         let (mainText, loopNote) = splitLoopNote(text)
-                        if !mainText.isEmpty {
+                        if let loopNote {
+                            LoopRoundBubble(text: mainText, note: loopNote)
+                                .contextMenu {
+                                    Button { UIPasteboard.general.string = mainText } label: {
+                                        Label("Copy", systemImage: "doc.on.doc")
+                                    }
+                                }
+                        } else if !mainText.isEmpty {
                             Text(mainText)
                                 .superFont(15.5)
                                 .foregroundStyle(Theme.accentFg)
@@ -325,16 +369,6 @@ struct EventRow: View {
                                         Label("Reply", systemImage: "arrowshape.turn.up.left")
                                     }
                                 }
-                        }
-                        // The /loop skill appends this mechanical reminder to every
-                        // round's prompt, in the same plain text as whatever the
-                        // user actually asked for — split it into its own quiet
-                        // note so the request doesn't read as one run-on sentence.
-                        if let loopNote {
-                            Text(loopNote)
-                                .superFont(11).italic()
-                                .foregroundStyle(Theme.textTertiary)
-                                .padding(.horizontal, 4)
                         }
                     }
                     if from == .ios {
@@ -600,19 +634,15 @@ struct OutgoingRow: View {
                 }
                 if !message.text.isEmpty {
                     let (mainText, loopNote) = splitLoopNote(message.text)
-                    if !mainText.isEmpty {
+                    if let loopNote {
+                        LoopRoundBubble(text: mainText, note: loopNote)
+                            .opacity(failed ? 0.55 : 1)
+                    } else if !mainText.isEmpty {
                         Text(mainText)
                             .superFont(15.5)
                             .foregroundStyle(Theme.accentFg)
                             .padding(.horizontal, 14).padding(.vertical, 9)
                             .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
-                            .opacity(failed ? 0.55 : 1)
-                    }
-                    if let loopNote {
-                        Text(loopNote)
-                            .superFont(11).italic()
-                            .foregroundStyle(Theme.textTertiary)
-                            .padding(.horizontal, 4)
                             .opacity(failed ? 0.55 : 1)
                     }
                 }
