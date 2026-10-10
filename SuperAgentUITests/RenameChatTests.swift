@@ -15,19 +15,18 @@ final class RenameChatTests: XCTestCase {
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "tapping the title asks for a new one")
         let field = alert.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 3))
-        // Whatever it was called: clear it, then type the new name.
+        // Wherever the cursor lands in the old name, the new one has this in it.
+        let before = title.label
         field.tap()
-        let old = (field.value as? String) ?? ""
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count + 2))
-        field.typeText("Checkout bug")
+        field.typeText("Zed")
         alert.buttons["Save"].tap()
 
         var renamed = false
         for _ in 0..<20 where !renamed {
-            renamed = title.label.hasPrefix("Checkout bug")
+            renamed = title.label != before && title.label.contains("Zed")
             if !renamed { usleep(250_000) }
         }
-        XCTAssertTrue(renamed, "the header shows the new name: \(title.label)")
+        XCTAssertTrue(renamed, "the header shows the new name: \(before) → \(title.label)")
     }
 
     func testHoldingARowOffersRename() {

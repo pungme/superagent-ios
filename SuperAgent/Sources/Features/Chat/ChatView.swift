@@ -212,6 +212,20 @@ struct ChatView: View {
             .navigationTitle(chat.title ?? "Conversation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { chatToolbar }
+            // Here, not on the title itself: an alert hung on a toolbar item does not
+            // reliably run its buttons.
+            .alert("Rename conversation", isPresented: $renaming) {
+                TextField("Title", text: $newTitle)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") {
+                    let wanted = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !wanted.isEmpty else { return }
+                    Task {
+                        do { try await connection.renameChat(chatId: chat.id, title: wanted) }
+                        catch { self.error = error.localizedDescription }
+                    }
+                }
+            }
             // Full screen owns the phone: no navigation or status bar over it.
             .toolbar(theater ? .hidden : .automatic, for: .navigationBar)
             .statusBarHidden(theater)
@@ -498,18 +512,6 @@ struct ChatView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("chat-title")
                 .accessibilityLabel("\(title ?? "Conversation"), rename")
-                .alert("Rename conversation", isPresented: $renaming) {
-                    TextField("Title", text: $newTitle)
-                    Button("Cancel", role: .cancel) {}
-                    Button("Save") {
-                        let wanted = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !wanted.isEmpty else { return }
-                        Task {
-                            do { try await connection.renameChat(chatId: chat.id, title: wanted) }
-                            catch { self.error = error.localizedDescription }
-                        }
-                    }
-                }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 // Pin from inside the conversation, not only by holding its row.
