@@ -846,6 +846,12 @@ final class Connection {
     }
 
     func renameChat(chatId: String, title: String) async throws {
+        #if DEBUG
+        if machine.id == "harness" {
+            chats = chats.map { var c = $0; if c.id == chatId { c.title = title }; return c }
+            return
+        }
+        #endif
         _ = try await rpc("chat.rename", .object(["chatId": .string(chatId), "title": .string(title)]))
         chats = chats.map { var c = $0; if c.id == chatId { c.title = title }; return c }
     }

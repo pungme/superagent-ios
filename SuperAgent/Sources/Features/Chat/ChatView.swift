@@ -76,6 +76,8 @@ struct ChatView: View {
     /// conversation floats over it (FloatingChat) and the composer stays.
     @State private var theater = false
     @State private var showTasks = false
+    @State private var renaming = false
+    @State private var newTitle = ""
     /// The docked page above the chat. Defaults to shown when the Mac has one
     /// open; hidden again is remembered per conversation.
     /// Hidden by hand, remembered per conversation. It used to be plain view
@@ -479,10 +481,34 @@ struct ChatView: View {
     @ToolbarContentBuilder
     private var chatToolbar: some ToolbarContent {
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 1) {
-                    Text(chat.title ?? "Conversation").superFont(15, weight: .semibold).lineLimit(1)
-                    Text(workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name)
-                        .superFont(11).foregroundStyle(Theme.textSecondary)
+                // The title is how you rename it: tap, type, Save. It reads the
+                // live list, so a rename from here or the Mac shows at once.
+                let title = connection.chats.first { $0.id == chat.id }?.title ?? chat.title
+                Button {
+                    newTitle = title ?? ""
+                    renaming = true
+                } label: {
+                    VStack(spacing: 1) {
+                        Text(title ?? "Conversation").superFont(15, weight: .semibold).lineLimit(1)
+                            .foregroundStyle(Theme.textPrimary)
+                        Text(workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name)
+                            .superFont(11).foregroundStyle(Theme.textSecondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("chat-title")
+                .accessibilityLabel("\(title ?? "Conversation"), rename")
+                .alert("Rename conversation", isPresented: $renaming) {
+                    TextField("Title", text: $newTitle)
+                    Button("Cancel", role: .cancel) {}
+                    Button("Save") {
+                        let wanted = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !wanted.isEmpty else { return }
+                        Task {
+                            do { try await connection.renameChat(chatId: chat.id, title: wanted) }
+                            catch { self.error = error.localizedDescription }
+                        }
+                    }
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {

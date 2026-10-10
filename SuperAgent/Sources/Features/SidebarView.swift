@@ -51,6 +51,8 @@ struct SidebarView: View {
     @State private var removing: WireWorkspace?
     /// The conversation a context menu asked to delete, held until confirmed.
     @State private var deletingChat: WireChat?
+    @State private var renamingChat: WireChat?
+    @State private var chatTitle = ""
     @State private var busy = false
     @State private var error: String?
     @Environment(\.horizontalSizeClass) private var width
@@ -254,6 +256,17 @@ struct SidebarView: View {
                         try await startFirstChat(in: id)
                     }
                 }
+            }
+        }
+        .alert("Rename conversation", isPresented: Binding(get: { renamingChat != nil }, set: { if !$0 { renamingChat = nil } })) {
+            TextField("Title", text: $chatTitle)
+            Button("Cancel", role: .cancel) { renamingChat = nil }
+            Button("Save") {
+                let title = chatTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let chat = renamingChat, !title.isEmpty {
+                    Task { await run { try await connection.renameChat(chatId: chat.id, title: title) } }
+                }
+                renamingChat = nil
             }
         }
         .alert("Rename group", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
@@ -706,6 +719,9 @@ struct SidebarView: View {
             Button { togglePin(chat) } label: {
                 Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
             }
+            Button { chatTitle = chat.title ?? ""; renamingChat = chat } label: {
+                Label("Rename", systemImage: "pencil")
+            }
             // The Mac drags pins into order; a hold menu is the phone's way.
             if let i = pinned.firstIndex(where: { $0.id == chat.id }) {
                 if i > 0 {
@@ -742,6 +758,9 @@ struct SidebarView: View {
             .contextMenu {
                 Button { togglePin(chat) } label: {
                     Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
+                }
+                Button { chatTitle = chat.title ?? ""; renamingChat = chat } label: {
+                    Label("Rename", systemImage: "pencil")
                 }
                 Button(role: .destructive) {
                     deletingChat = chat
