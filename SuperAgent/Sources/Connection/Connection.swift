@@ -1406,6 +1406,21 @@ extension Connection {
             }
             c.transcripts["c1"] = t
         }
+        // `-macApproval` / `-toolApproval`: the agent is waiting on a yes, to see
+        // the card: one only the Mac can allow (using the Mac itself), and an
+        // ordinary one the phone can answer.
+        for (flag, tool, preview) in [
+            ("-macApproval", "mcp__cove-browser__computer_use", "Use this Mac: see the screen, move the pointer, click and type in your apps, for this task."),
+            ("-toolApproval", "Bash", "rm -rf build")
+        ] where ProcessInfo.processInfo.arguments.contains(flag) {
+            guard var t = c.transcripts["c1"] else { continue }
+            let at = Date().timeIntervalSince1970 * 1000
+            t.lastSeq += 1
+            t.events.append(WireEvent(chatId: "c1", seq: t.lastSeq, ts: at,
+                                      data: .approval(id: "gate-\(t.lastSeq)", toolName: tool, preview: preview,
+                                                      approvalKind: "permission", expiresAt: at + 600_000)))
+            c.transcripts["c1"] = t
+        }
         // What a Mac with Brave installed answers, so the pill has something to show.
         c.browserChoices["c1"] = BrowserChoices(current: "builtin", browsers: [
             .init(id: "builtin", name: "Superagent"), .init(id: "brave", name: "Brave"), .init(id: "chrome", name: "Chrome")
