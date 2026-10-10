@@ -1345,6 +1345,18 @@ extension Connection {
                 text: "Check the hero on a phone and tighten anything that wraps\n\n(/loop 5m: this repeats on a timer until it is stopped. Each round, do the next useful thing.)",
                 images: [], from: .desktop, replyTo: nil)))
         }
+        // `-withAsk`: the agent's last word is a question with options, and it
+        // is waiting on the answer. `-askLate`: it is at work on something
+        // else by now, so an answer arrives out of place.
+        if ProcessInfo.processInfo.arguments.contains("-withAsk") {
+            seq += 1
+            t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at, data: .assistant(
+                id: "a\(seq)",
+                text: "It is narrow enough now.\n\n```ask\n{\"question\":\"Ship the hero tonight?\",\"multiple\":false,\"options\":[{\"label\":\"Ship it\"},{\"label\":\"Wait\"}]}\n```")))
+            if let i = c.chats.firstIndex(where: { $0.id == "c1" }) {
+                c.chats[i].live = ProcessInfo.processInfo.arguments.contains("-askLate")
+            }
+        }
         // `-longTranscript`: the Mac's 400-event cap worth of turns, tool steps
         // and Markdown, to measure what opening a real conversation costs.
         if ProcessInfo.processInfo.arguments.contains("-longTranscript") {

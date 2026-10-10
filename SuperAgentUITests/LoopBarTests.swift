@@ -58,4 +58,26 @@ final class LoopBarTests: XCTestCase {
         XCTAssertTrue(round.label.contains("Check the hero on a phone"), round.label)
         XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'repeats on a timer'")).firstMatch.exists)
     }
+
+    /// An option picked while the agent waits on its question goes bare; picked
+    /// once the agent is at work on something else, it goes with the question,
+    /// so it does not read as an answer to whatever came last.
+    func testAnOptionCarriesItsQuestionOnlyWhenItIsAnsweredLate() {
+        for late in [false, true] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-sidebarHarness", "-withAsk", "-openChat", "c1", "-tab", "projects"]
+                + (late ? ["-askLate"] : [])
+            app.launch()
+            let option = app.buttons["Ship it"].firstMatch
+            XCTAssertTrue(option.waitForExistence(timeout: 15), "late=\(late)")
+            option.tap()
+            // What went out waits for the Mac, which a harness has none of.
+            XCTAssertTrue(app.staticTexts["Waiting for the Mac"].firstMatch.waitForExistence(timeout: 10)
+                          || app.staticTexts["Sending"].firstMatch.waitForExistence(timeout: 2), "late=\(late)")
+            let quoted = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Ship the hero tonight?'"))
+            // The question is on screen once in its own card; a second time only as the quote.
+            XCTAssertEqual(quoted.count, late ? 2 : 1, "late=\(late)")
+            app.terminate()
+        }
+    }
 }
