@@ -176,7 +176,18 @@ final class Connection {
     /// screen for that chat picks it up and pushes the viewer, then clears it.
     var openFileRequest: OpenFileRequest?
 
-    private var transport: RelayTransport?
+    private var transport: (any Transport)?
+    /// Which socket is the current one. An event from an earlier one is
+    /// ignored: see `open()`.
+    private var generation = 0
+    private var eventTask: Task<Void, Never>?
+    private var handshakeTask: Task<Void, Never>?
+    /// Tests: a made-up socket in place of the one to the relay.
+    var _makeTransport: (@Sendable (@escaping @Sendable (RelayTransport.Event) -> Void) -> any Transport)?
+    /// How long the Mac has to answer the hello, and a ping sent to check a
+    /// link that may have died while the app was not in front.
+    var _handshakeTimeout: Duration = .seconds(12)
+    var _aliveTimeout: Duration = .seconds(8)
     private var sealer: Sealer
     private var opener: Opener
     private var pending: [String: CheckedContinuation<Data, Error>] = [:]
@@ -321,8 +332,21 @@ final class Connection {
 
     // MARK: Lifecycle
 
+    /// Be connected. Called every time the app comes to the front, by Retry
+    /// and by pull-to-refresh, so it is called often while a socket is already
+    /// up or on its way — and it used to open another one each time, without
+    /// closing the first. The two then undid each other: a frame from the old
+    /// socket fixed the wrong salt, so the new one's welcome never opened and
+    /// the phone sat on "Connecting" for good; the old one closing dropped the
+    /// new; and the leftovers counted against the relay's eight phones a Mac.
+    /// Now a socket that is up is kept (and checked), and one on its way is
+    /// left to arrive.
     func connect() {
         wantConnected = true
+        if transport != nil {
+            if state == .connected { checkAlive() }
+            if state == .connected || state == .connecting { return }
+        }
         reconnectTask?.cancel()
         open()
     }
@@ -332,9 +356,7 @@ final class Connection {
         simulators.removeAll()
         wantConnected = false
         reconnectTask?.cancel()
-        pingTask?.cancel()
-        transport?.close()
-        transport = nil
+        closeTransport()
         state = .idle
         for (_, c) in pending { c.resume(throwing: RpcError(code: "closed", message: "connection closed")) }
         pending.removeAll()
@@ -347,11 +369,71 @@ final class Connection {
         sealer = Sealer(key: keys.p2m, aad: aad(machineId: machine.id, direction: .p2m))
         opener = Opener(key: keys.m2p, aad: aad(machineId: machine.id, direction: .m2p))
         for k in transcripts.keys { transcripts[k]?.subscribed = false }
-        let t = RelayTransport { [weak self] event in
-            Task { @MainActor in self?.handle(event) }
-        }
+        // One socket at a time, and only its events count.
+        closeTransport()
+        let gen = generation
+        // Through one stream, read by one task: a task per event did not
+        // promise their order, and a frame handled ahead of the one before it
+        // is refused as a replay, which reads as a gap in the chat.
+        let (events, feed) = AsyncStream<RelayTransport.Event>.makeStream()
+        let handler: @Sendable (RelayTransport.Event) -> Void = { feed.yield($0) }
+        let t: any Transport = _makeTransport?(handler) ?? RelayTransport(handler: handler)
         transport = t
+        eventTask = Task { [weak self] in
+            for await event in events {
+                guard let self, self.generation == gen else { return }
+                self.handle(event)
+            }
+        }
+        // The socket opening proves the relay is there, not the Mac. With no
+        // limit on the wait for its welcome, a hello that got no answer left
+        // the phone on "Connecting" until the app was closed.
+        let limit = _handshakeTimeout
+        handshakeTask = Task { [weak self] in
+            try? await Task.sleep(for: limit)
+            guard !Task.isCancelled, let self, self.generation == gen, self.transport != nil,
+                  self.state != .connected else { return }
+            self.dropAndRetry("the Mac did not answer")
+        }
         t.connect(relay: machine.relay, machineId: machine.id)
+    }
+
+    /// Let go of the socket in use, if any, and stop listening to it.
+    private func closeTransport() {
+        generation += 1
+        eventTask?.cancel()
+        eventTask = nil
+        handshakeTask?.cancel()
+        handshakeTask = nil
+        pingTask?.cancel()
+        transport?.close()
+        transport = nil
+    }
+
+    /// The socket is no good (silent, or never answered): drop it and try again.
+    private func dropAndRetry(_ reason: String) {
+        closeTransport()
+        lastError = reason
+        if state != .machineOffline && state != .quotaExhausted {
+            state = wantConnected ? .connecting : .idle
+        }
+        scheduleReconnect()
+    }
+
+    /// A link that was up before the app left the front may have died since,
+    /// and says nothing until something is sent: ask now and give it a moment,
+    /// instead of showing "connected" for a minute to a Mac that cannot hear.
+    private func checkAlive() {
+        let asked = Date()
+        let gen = generation
+        let limit = _aliveTimeout
+        send(.ping)
+        Task { [weak self] in
+            try? await Task.sleep(for: limit)
+            guard let self, self.generation == gen, self.state == .connected,
+                  self.lastPong < asked else { return }
+            self.dropAndRetry("the relay stopped answering")
+        }
     }
 
     private func handle(_ event: RelayTransport.Event) {
@@ -382,8 +464,7 @@ final class Connection {
             guard let data = plain.data(using: .utf8), let frame = try? JSONDecoder().decode(ServerFrame.self, from: data) else { return }
             apply(frame)
         case .closed(let code, let reason):
-            transport = nil
-            pingTask?.cancel()
+            closeTransport()
             if state != .machineOffline && state != .quotaExhausted {
                 state = wantConnected ? .connecting : .idle
             }
@@ -444,6 +525,7 @@ final class Connection {
             onChatsChanged?()
             state = .connected
             lastError = nil
+            handshakeTask?.cancel()
             // Resubscribe to whatever we were watching, from where we left off.
             for chatId in watching {
                 guard let t = transcripts[chatId], !t.subscribed else { continue }
@@ -535,8 +617,7 @@ final class Connection {
                 // Two unanswered pings: the socket is half-open (relay restarted,
                 // network changed). Drop it and reconnect instead of waiting forever.
                 if Date().timeIntervalSince(self.lastPong) > 60 {
-                    self.lastError = "the relay stopped answering"
-                    self.transport?.close()
+                    self.dropAndRetry("the relay stopped answering")
                     return
                 }
                 self.send(.ping)
@@ -1358,7 +1439,8 @@ extension Connection {
             seq += 1
             // Deliberately uneven heights: a LazyVStack estimating uniform rows
             // is exactly what made the old scrollTo land on blank space.
-            let body = String(repeating: "Reply \(i + 1) line. ", count: 3 + (i % 9) * 7)
+            var body = String(repeating: "Reply \(i + 1) line. ", count: 3 + (i % 9) * 7)
+            if i == turns - 1 { body = "Which?\n\n```ask\n{\"question\": \"What should I ship?\", \"multiple\": true, \"options\": [{\"label\": \"Mac 1.9.7 with the picture fix\", \"hint\": \"Stable; needs a Superagent restart\"}, {\"label\": \"Push the iOS connection fix\"}, {\"label\": \"Nothing yet\"}]}\n```" }
             t.events.append(WireEvent(chatId: chatId, seq: seq, ts: now,
                                       data: .assistant(id: "a\(i)", text: body)))
             seq += 1

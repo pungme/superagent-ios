@@ -3,9 +3,17 @@ import os
 
 private let log = Logger(subsystem: "dev.superagent.ios", category: "transport")
 
+/// What a Connection needs of a socket to the relay. A protocol so that tests
+/// can stand a made-up one in its place.
+protocol Transport: AnyObject, Sendable {
+    func connect(relay: String, machineId: String)
+    func send(_ text: String)
+    func close()
+}
+
 /// One WebSocket to the relay's client endpoint for a machine. Delivers raw text
 /// frames (ciphertext, or the relay's own `{"t":"offline"}`) and a close reason.
-final class RelayTransport: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
+final class RelayTransport: NSObject, Transport, URLSessionWebSocketDelegate, @unchecked Sendable {
     enum Event: Sendable {
         case opened
         case text(String)
@@ -66,6 +74,9 @@ final class RelayTransport: NSObject, URLSessionWebSocketDelegate, @unchecked Se
         if closedOnce { return }
         log.info("closed code=\(code) reason=\(reason, privacy: .public)")
         closedOnce = true
+        // The session holds on to its delegate (this object) until it is told
+        // it is finished with; without this every socket ever opened stayed.
+        session.finishTasksAndInvalidate()
         handler(.closed(code: code, reason: reason))
     }
 
