@@ -529,8 +529,17 @@ struct ApprovalCard: View {
                 HStack(spacing: 8) {
                     Button { answer(id, false) } label: { Text("Deny").frame(maxWidth: .infinity) }
                         .buttonStyle(.bordered).tint(Theme.danger)
-                    Button { answer(id, true) } label: { Text("Approve").frame(maxWidth: .infinity) }
-                        .buttonStyle(.borderedProminent).tint(Theme.accent).foregroundStyle(Theme.accentFg)
+                    if !Self.isMacOnly(toolName) {
+                        Button { answer(id, true) } label: { Text("Approve").frame(maxWidth: .infinity) }
+                            .buttonStyle(.borderedProminent).tint(Theme.accent).foregroundStyle(Theme.accentFg)
+                    }
+                }
+                // The Mac takes this yes only from someone at it, who can see
+                // the screen and stop the agent; the phone can still say no.
+                if Self.isMacOnly(toolName) {
+                    Text("Allow this on your Mac.")
+                        .superFont(12).foregroundStyle(Theme.textSecondary)
+                        .accessibilityIdentifier("approval-mac-only")
                 }
             }
         }
@@ -539,8 +548,15 @@ struct ApprovalCard: View {
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.needsYou.opacity(pending ? 0.5 : 0.15)))
     }
 
+    /// Requests the Mac will only take a yes for at the Mac itself: letting an
+    /// agent work its mouse and keyboard.
+    static func isMacOnly(_ toolName: String) -> Bool {
+        toolName == "mcp__cove-browser__computer_use"
+    }
+
     private var verb: String {
         switch toolName {
+        case "mcp__cove-browser__computer_use": "use your Mac"
         case "Bash": "run a command"
         case "Write": "write a file"
         case "Edit", "MultiEdit", "NotebookEdit": "edit a file"
