@@ -32,3 +32,18 @@ struct LoopRoundTests {
         #expect(loopLabel("(/loop 5m: run sleep as your last action)") == "Loop · every 5m")
     }
 }
+
+/// An option picked from a question goes bare only while the question is the
+/// last thing said and the agent is waiting on it.
+struct AnswerContextTests {
+    @Test func bareWhileTheQuestionIsTheLastWord() {
+        #expect(!answerNeedsQuestion(lastMessageId: "a1", questionId: "a1", working: false))
+    }
+
+    @Test func withTheQuestionOnceAnythingCameAfterOrTheAgentIsBusy() {
+        #expect(answerNeedsQuestion(lastMessageId: "u2", questionId: "a1", working: false))
+        #expect(answerNeedsQuestion(lastMessageId: "a2", questionId: "a1", working: false))
+        #expect(answerNeedsQuestion(lastMessageId: "a1", questionId: "a1", working: true))
+        #expect(answerNeedsQuestion(lastMessageId: nil, questionId: "a1", working: false))
+    }
+}

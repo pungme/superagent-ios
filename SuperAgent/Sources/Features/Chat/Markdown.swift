@@ -104,8 +104,20 @@ enum MarkdownParser {
     }
 
     private static func image(_ s: String) -> MarkdownBlock? {
-        guard let m = s.wholeMatch(of: /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/) else { return nil }
-        return .image(alt: String(m.1), src: String(m.2))
+        if let m = s.wholeMatch(of: /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/) {
+            return .image(alt: String(m.1), src: String(m.2))
+        }
+        // In angle brackets, which is how Markdown writes an address with a
+        // space in it; and a path on the Mac written plainly with one
+        // ("Application Support"), which agents do and which used to show as
+        // the address in text instead of the picture.
+        if let m = s.wholeMatch(of: /!\[([^\]]*)\]\(\s*<([^<>]+)>\s*\)/) {
+            return .image(alt: String(m.1), src: String(m.2))
+        }
+        if let m = s.wholeMatch(of: /!\[([^\]]*)\]\(\s*((?:\/|~\/|file:\/\/)[^()<>"]*[^()<>"\s])\s*\)/) {
+            return .image(alt: String(m.1), src: String(m.2))
+        }
+        return nil
     }
 
     private static func heading(_ s: String) -> MarkdownBlock? {

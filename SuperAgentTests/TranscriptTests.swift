@@ -43,6 +43,13 @@ struct MarkdownTests {
         ])
         // A title after the path is allowed; text around it keeps it inline.
         #expect(MarkdownParser.parse("![a](x.png \"t\")") == [.image(alt: "a", src: "x.png")])
+        // A path with a space in it, as "Application Support" has: plainly, or
+        // in the angle brackets Markdown asks for.
+        let spaced = "/Users/me/Library/Application Support/SuperAgent/desktop-chat/floorplan.png"
+        #expect(MarkdownParser.parse("![Floor plan: kino top left](\(spaced))") == [.image(alt: "Floor plan: kino top left", src: spaced)])
+        #expect(MarkdownParser.parse("![plan](<\(spaced)>)") == [.image(alt: "plan", src: spaced)])
+        // Prose that only looks a little like one is still prose.
+        #expect(MarkdownParser.parse("![a](not a path at all)") == [.paragraph("![a](not a path at all)")])
         #expect(MarkdownParser.parse("see ![a](x.png) here") == [.paragraph("see ![a](x.png) here")])
     }
 

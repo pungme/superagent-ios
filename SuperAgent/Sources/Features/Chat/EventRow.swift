@@ -70,7 +70,7 @@ struct TurnView: View, Equatable {
     /// next one, so the row that comes after it sits closer, iMessage-style.
     let timeIds: Set<String>
     let answer: (String, Bool) -> Void
-    let choose: (String) -> Void
+    let choose: (ChoicePick) -> Void
     /// Hold a message to answer that one specifically.
     let reply: (ReplyQuote) -> Void
 
@@ -295,7 +295,7 @@ struct EventRow: View {
     /// timestamp. See MessageTimeGroups.
     var showTime: Bool = false
     let answer: (String, Bool) -> Void
-    let choose: (String) -> Void
+    let choose: (ChoicePick) -> Void
     let reply: (ReplyQuote) -> Void
 
     private var timestamp: Date { Date(timeIntervalSince1970: event.ts / 1000) }
@@ -381,7 +381,7 @@ struct EventRow: View {
                     }
                 }
             }
-        case let .assistant(_, text):
+        case let .assistant(id, text):
             // A reply that opens by quoting one of your messages is an answer
             // to that message: the quote goes in a chip above it, as a
             // messaging app shows a reply. What you have said is only looked
@@ -412,7 +412,14 @@ struct EventRow: View {
                             .superFont(10).foregroundStyle(Theme.textTertiary)
                     }
                 }
-                if let choices { ChoicesView(choices: choices, choose: choose) }
+                if let choices {
+                    ChoicesView(choices: choices, choose: { picked in
+                        // With what it answers, should it turn out to be
+                        // answered late: the question, else what was said.
+                        choose(ChoicePick(answer: picked, messageId: id,
+                                          question: choices.question.isEmpty ? body : choices.question))
+                    })
+                }
             }
         case let .file(_, path, name, workspaceId, size, mediaType):
             FileHandoffCard(connection: connection, path: path, name: name, workspaceId: workspaceId,
@@ -462,6 +469,23 @@ struct StreamingDot: View {
             .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: on)
             .onAppear { on = true }
     }
+}
+
+/// An option picked from an agent's question, with the question it was picked from.
+struct ChoicePick {
+    let answer: String
+    /// The id of the agent's message that asked.
+    let messageId: String
+    let question: String
+}
+
+/// Whether a picked option is sent with its question quoted. Bare, "Yes,
+/// delete it" means something only while the question is the last thing either
+/// side said and the agent is waiting on it. Once anything has been written
+/// since, or the agent is at work on something else, the answer arrives out of
+/// place and has to say what it answers. The Mac's rule (answer-context.ts).
+func answerNeedsQuestion(lastMessageId: String?, questionId: String, working: Bool) -> Bool {
+    working || lastMessageId != questionId
 }
 
 /// The desktop's ```ask block: a question with tappable options.

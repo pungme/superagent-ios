@@ -379,7 +379,7 @@ struct ChatView: View {
                 ForEach(visibleTurns) { turn in
                     TurnView(connection: connection, turn: turn, pendingApprovals: pendingApprovals,
                              timeIds: timeIds, answer: answer,
-                             choose: { send(text: $0, fromComposer: false) },
+                             choose: { pick($0) },
                              reply: beginReply)
                         .equatable()
                 }
@@ -983,7 +983,31 @@ struct ChatView: View {
         Haptics.tap()
     }
 
-    private func send(text: String, fromComposer: Bool = true, filesHandled: Bool = false) {
+    /// An option picked from one of the agent's questions. It goes with the
+    /// question quoted unless that question is the last thing said and the
+    /// agent is waiting on it: sent bare after anything else, it read as an
+    /// answer to whatever came last.
+    private func pick(_ p: ChoicePick) {
+        let last = transcript.events.last { e in
+            switch e.data {
+            case .user, .assistant: return true
+            default: return false
+            }
+        }
+        var lastId: String?
+        switch last?.data {
+        case let .user(id, _, _, _, _)?: lastId = id
+        case let .assistant(id, _)?: lastId = id
+        default: break
+        }
+        let late = !transcript.outbox.isEmpty
+            || answerNeedsQuestion(lastMessageId: lastId, questionId: p.messageId, working: isWorking)
+        send(text: p.answer, fromComposer: false,
+             quoting: late ? ReplyQuote(role: .assistant, text: String(p.question.prefix(600))) : nil)
+    }
+
+    private func send(text: String, fromComposer: Bool = true, filesHandled: Bool = false,
+                      quoting: ReplyQuote? = nil) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || (fromComposer && (!attachments.isEmpty || !files.isEmpty)) else { return }
         // `/loop …` is Superagent's, not the agent's: the Mac runs the loop and
@@ -1035,7 +1059,7 @@ struct ChatView: View {
             // clear what this view still owns.
             if fromComposer { attachments = [] }
             // The quote belongs to the message it went with, not to the next one.
-            let quote = fromComposer ? replyTarget : nil
+            let quote = fromComposer ? replyTarget : quoting
             if fromComposer { replyTarget = nil }
             connection.sendMessage(chatId: chat.id, text: text, images: images,
                                    model: app.preferredModel.isEmpty ? nil : app.preferredModel,
