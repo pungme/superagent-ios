@@ -9,10 +9,14 @@ import XCTest
 final class TypingOverPageTests: XCTestCase {
     /// `corner`: where the picture starts. Given on the command line it is
     /// also where it stays, so the test that moves it passes nil.
-    private func launch(_ extra: [String] = ["-withPage"], corner: String? = "topTrailing") -> XCUIApplication {
+    private func launch(_ extra: [String] = ["-withPage"], corner: String? = "topTrailing",
+                        scale: String? = "1") -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-sidebarHarness", "-openChat", "c1", "-tab", "projects"]
-            + (corner.map { ["-mirror.pip.corner", $0] } ?? []) + [
+            + (corner.map { ["-mirror.pip.corner", $0] } ?? [])
+            // As it comes, whatever size an earlier run pinched it to; the test
+            // that pinches passes nil for its second launch.
+            + (scale.map { ["-mirror.pip.scale", $0] } ?? []) + [
                                // Shown, whatever an earlier run left: putting a page away is remembered.
                                "-pageHidden:c1", "NO", "-simHidden:c1", "NO"] + extra
         app.launch()
@@ -79,6 +83,43 @@ final class TypingOverPageTests: XCTestCase {
         // this also leaves things as the other tests expect to find them.
         show.tap()
         XCTAssertTrue(pip.waitForExistence(timeout: 5))
+    }
+
+    func testTwoFingersMakeItBiggerAndItStaysSo() throws {
+        // As with the drag: a synthesised pinch does not reach the card on an iPad.
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "proved on a phone")
+        // Without the size on the command line: given there it is also what
+        // every read gets, so a pinch would be saved and not shown. Pinched
+        // small first instead, so it starts as it comes whatever an earlier
+        // run left.
+        let app = launch(scale: nil)
+        let pip = app.buttons["mirror-pip"]
+        XCTAssertTrue(pip.waitForExistence(timeout: 10))
+        pip.pinch(withScale: 0.2, velocity: -1)
+        let base = pip.frame.width
+        let small = NSPredicate { _, _ in pip.frame.width <= 201 }
+        wait(for: [XCTNSPredicateExpectation(predicate: small, object: nil)], timeout: 5)
+        XCTAssertLessThanOrEqual(pip.frame.width, 201, "as it comes, pinched no smaller than that (was \(base))")
+        let before = pip.frame
+        pip.pinch(withScale: 2, velocity: 1)
+        let grew = NSPredicate { _, _ in pip.frame.width > before.width * 1.3 }
+        wait(for: [XCTNSPredicateExpectation(predicate: grew, object: nil)], timeout: 5)
+        let window = app.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(pip.frame.maxX, window.maxX + 1, "bigger, and still on the screen")
+        XCTAssertLessThanOrEqual(pip.frame.maxY, window.maxY + 1)
+        // Grown from its corner, not dragged off by the pinch: still against
+        // the right edge and the same distance from the top. (Bigger, it can
+        // span the width, so its middle says nothing.)
+        XCTAssertGreaterThanOrEqual(pip.frame.maxX, window.maxX - 14, "against the right edge still")
+        XCTAssertEqual(pip.frame.minY, before.minY, accuracy: 2, "as far from the top as before")
+        let bigger = pip.frame.width
+
+        // The size is kept: as big after a relaunch.
+        app.terminate()
+        let again = launch(scale: nil)
+        let pip2 = again.buttons["mirror-pip"]
+        XCTAssertTrue(pip2.waitForExistence(timeout: 10))
+        XCTAssertEqual(pip2.frame.width, bigger, accuracy: 2, "the pinched size is remembered")
     }
 
     func testTheSimulatorIsAPictureToo() {

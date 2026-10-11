@@ -86,6 +86,18 @@ struct MirrorPiPTests {
         #expect(PiP.cardSize(aspect: 0, fallback: fallback) == fallback)
     }
 
+    @Test("pinched bigger it keeps its shape, from as it comes to two and a half times")
+    func pinched() {
+        let card = CGSize(width: 200, height: 125)
+        #expect(PiP.enlarged(card, times: 1) == card)
+        #expect(PiP.enlarged(card, times: 1.5) == CGSize(width: 300, height: 188))
+        // Never smaller than it comes, never past two and a half times.
+        #expect(PiP.enlarged(card, times: 0.4) == card)
+        #expect(PiP.enlarged(card, times: 9) == CGSize(width: 500, height: 313))
+        #expect(PiP.clampedScale(.nan) == 1)
+        #expect(PiP.clampedScale(.infinity) == 1)
+    }
+
     @Test func aBottomCornerGoesUpForTheKeyboard() {
         #expect(PiP.Corner.bottomLeading.raised == .topLeading)
         #expect(PiP.Corner.bottomTrailing.raised == .topTrailing)

@@ -62,8 +62,9 @@ read yet.
 
 **Watch what it is building.** When the Mac has a page or an iOS Simulator open,
 it floats over the conversation as picture in picture — refreshed as the agent
-works, in the page's own proportions. Drag it to any corner, tap it for full
-screen (pinch to zoom in), or put it away when you just want to read. Send the
+works, in the page's own proportions. Drag it to any corner, pinch it bigger
+or smaller (it stays that size), tap it for full screen (pinch to zoom in), or
+put it away when you just want to read. Send the
 current frame back into the chat to ask about what you are looking at.
 
 </td>

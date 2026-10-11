@@ -30,6 +30,8 @@ struct BrowserMirror: View {
     /// would mean re-encoding two screenshots on every poll.
     @State private var lastFrame: Int?
     @State private var inFlight = false
+    /// Asking a pixel narrower than usual, to get bytes out of an older Mac.
+    @State private var nudge = false
     @State private var unavailable: String?
     @State private var url = ""
     @State private var opening = false
@@ -207,19 +209,28 @@ struct BrowserMirror: View {
         inFlight = true
         defer { inFlight = false }
         do {
-            let s = try await connection.browserShot(chatId: chat.id, sharp: expanded && !pip)
+            // What we hold, so a still page costs no bytes; nothing while we
+            // have no picture, so one is sent whatever the Mac sent before.
+            let s = try await connection.browserShot(chatId: chat.id, sharp: expanded && !pip,
+                                                     have: image == nil ? nil : shot?.digest,
+                                                     nudge: nudge)
             let previous = shot
-            // The Mac tells us when the picture is byte-identical to the last
-            // one it sent, and sends no bytes with it. Keep what we have: the
-            // whole point is that a still page costs nothing.
+            // The Mac tells us when the picture is the one we hold, and sends
+            // no bytes with it. Keep what we have: the whole point is that a
+            // still page costs nothing.
             if s.unchanged == true {
                 shot = WireBrowserShot(url: s.url, title: s.title, canGoBack: s.canGoBack,
                                        canGoForward: s.canGoForward, width: s.width,
                                        height: s.height, jpeg: previous?.jpeg ?? "",
-                                       unchanged: true)
+                                       unchanged: true, digest: s.digest ?? previous?.digest)
                 unavailable = nil
+                // "Unchanged" with nothing to show: a Mac from before digests
+                // going by what it last sent to anyone. Ask again, a pixel
+                // narrower, and it has new bytes to send (see Connection).
+                if image == nil, s.digest == nil { nudge.toggle() }
                 return previous?.url != s.url || previous?.title != s.title
             }
+            nudge = false
             shot = s
             unavailable = nil
             let frame = s.jpeg.hashValue
@@ -475,10 +486,15 @@ struct SimulatorMirror: View {
         inFlight = true
         defer { inFlight = false }
         do {
-            let s = try await connection.simShot(chatId: chat.id)
+            // What we hold; nothing while there is no picture, so one is sent.
+            let s = try await connection.simShot(chatId: chat.id, have: image == nil ? nil : shot?.digest)
+            let previous = shot
             shot = s
-            // The Mac says so rather than sending the same bytes again.
-            if s.unchanged == true { return false }
+            // The Mac says so rather than sending the bytes we hold again.
+            if s.unchanged == true {
+                shot?.digest = s.digest ?? previous?.digest
+                return false
+            }
             if let comma = s.url.firstIndex(of: ","),
                let data = Data(base64Encoded: String(s.url[s.url.index(after: comma)...])),
                let ui = UIImage(data: data) {
@@ -512,8 +528,9 @@ enum MirrorFrames {
 /// else you are doing. It docked above the conversation before, which on a
 /// phone left half a screen for each and enough of neither.
 ///
-/// Drag it and it settles in the nearest corner. Tap it for full screen. The ×
-/// puts it away (the bar at the top of the conversation brings it back).
+/// Drag it and it settles in the nearest corner. Pinch it bigger or smaller,
+/// and it stays that size. Tap it for full screen. The × puts it away (the bar
+/// at the top of the conversation brings it back).
 struct MirrorPiP<Content: View>: View {
     /// The card's size: wide for a page, tall for a phone's screen.
     let size: CGSize
@@ -528,8 +545,25 @@ struct MirrorPiP<Content: View>: View {
     @ViewBuilder let content: Content
 
     @AppStorage("mirror.pip.corner") private var corner = Corner.topTrailing.rawValue
+    /// How much bigger than its base size the card was pinched to; kept.
+    @AppStorage("mirror.pip.scale") private var scale = 1.0
     @State private var drag: CGSize = .zero
     @State private var dragging = false
+    /// The pinch under way, as a factor on `scale`; 1 between pinches.
+    @State private var pinch: CGFloat = 1
+    @State private var pinching = false
+
+    /// The card pinched to `times` its base size: from as it comes to two and a
+    /// half times that; the room there is caps it further (see body).
+    static func enlarged(_ size: CGSize, times: CGFloat) -> CGSize {
+        let t = Self.clampedScale(times)
+        return CGSize(width: (size.width * t).rounded(), height: (size.height * t).rounded())
+    }
+
+    static func clampedScale(_ times: CGFloat) -> CGFloat {
+        guard times.isFinite else { return 1 }
+        return min(2.5, max(1, times))
+    }
 
     enum Corner: String, CaseIterable {
         case topLeading, topTrailing, bottomLeading, bottomTrailing
@@ -570,10 +604,11 @@ struct MirrorPiP<Content: View>: View {
 
     var body: some View {
         GeometryReader { geo in
-            // Never bigger than the room there is (a short conversation area
-            // with the keyboard up, a small phone).
-            let fit = min(1, (geo.size.height - 24) / size.height, (geo.size.width - 24) / size.width)
-            let card = CGSize(width: size.width * max(0.5, fit), height: size.height * max(0.5, fit))
+            // As big as it was pinched to, but never bigger than the room there
+            // is (a short conversation area with the keyboard up, a small phone).
+            let wanted = Self.enlarged(size, times: CGFloat(scale) * pinch)
+            let fit = min(1, (geo.size.height - 24) / wanted.height, (geo.size.width - 24) / wanted.width)
+            let card = CGSize(width: wanted.width * max(0.5, fit), height: wanted.height * max(0.5, fit))
             let saved = Corner(rawValue: corner) ?? .topTrailing
             let at = keyboardUp ? saved.raised : saved
             let home = Self.rest(at, card: card, in: geo.size)
@@ -583,13 +618,35 @@ struct MirrorPiP<Content: View>: View {
                 .position(x: home.x + drag.width, y: home.y + drag.height)
                 // Ahead of the card's own tap: a drag that starts on the
                 // picture moves it, and only a still tap opens it.
+                // Two fingers make it bigger or smaller, and it stays so.
+                .simultaneousGesture(
+                    MagnificationGesture()
+                        .onChanged { v in
+                            pinch = v
+                            if !pinching { pinching = true; drag = .zero }
+                        }
+                        .onEnded { v in
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                scale = Double(Self.clampedScale(CGFloat(scale) * v))
+                                pinch = 1
+                            }
+                            pinching = false
+                            Haptics.tap()
+                        }
+                )
                 .highPriorityGesture(
                     DragGesture(minimumDistance: 8)
                         .onChanged { g in
+                            // A second finger landing turns a drag into a pinch.
+                            if pinching { return }
                             drag = g.translation
                             if !dragging { withAnimation(.easeOut(duration: 0.12)) { dragging = true } }
                         }
                         .onEnded { g in
+                            if pinching || drag == .zero {
+                                withAnimation(.easeOut(duration: 0.12)) { drag = .zero; dragging = false }
+                                return
+                            }
                             // Where it was heading, not only where it was let go:
                             // a flick across the screen gets there.
                             let landed = CGPoint(x: home.x + g.predictedEndTranslation.width,

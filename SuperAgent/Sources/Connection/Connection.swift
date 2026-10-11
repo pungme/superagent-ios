@@ -1183,7 +1183,7 @@ extension Connection {
         relayUsage = RelayUsage(day: f.day, bytes: f.bytes, limit: f.limit)
     }
 
-    func simShot(chatId: String) async throws -> WireSimulatorShot {
+    func simShot(chatId: String, have: String? = nil) async throws -> WireSimulatorShot {
         #if DEBUG
         // As for the page below: a still dropped into Documents as
         // `harness-sim.jpg` goes through the simulator's mirror as a frame
@@ -1195,7 +1195,9 @@ extension Connection {
                                      url: "data:image/jpeg;base64," + data.base64EncodedString(), unchanged: false)
         }
         #endif
-        return try await rpc("sim.screenshot", .object(["chatId": .string(chatId)]), as: WireSimulatorShot.self)
+        var params: [String: JSONValue] = ["chatId": .string(chatId)]
+        if let have, !have.isEmpty { params["have"] = .string(have) }
+        return try await rpc("sim.screenshot", .object(params), as: WireSimulatorShot.self)
     }
 
     /// Tap or swipe the mirrored device. Coordinates are the still's own pixels;
@@ -1205,7 +1207,11 @@ extension Connection {
     }
 
     /// `sharp`: the page is full screen and can be zoomed into, so ask for more of it.
-    func browserShot(chatId: String, sharp: Bool = false) async throws -> WireBrowserShot {
+    /// `have`: the digest of the frame we hold, so a still page costs no bytes;
+    /// nil when we hold none, and the Mac sends the frame whatever it last sent.
+    /// `nudge`: a Mac from before digests cannot be told we hold nothing; asked
+    /// for a picture one pixel narrower it makes different bytes, and sends them.
+    func browserShot(chatId: String, sharp: Bool = false, have: String? = nil, nudge: Bool = false) async throws -> WireBrowserShot {
         #if DEBUG
         // The harness has no Mac to ask. A real page dropped into the app's
         // Documents as `harness-page.jpg` goes through the mirror exactly as a
@@ -1213,7 +1219,9 @@ extension Connection {
         // which is what makes a screenshot of it worth taking.
         if machine.id == "harness", let shot = Self.harnessShot() { return shot }
         #endif
-        return try await rpc("browser.screenshot", .object(["chatId": .string(chatId), "maxWidth": .number(sharp ? 1400 : 700)]), as: WireBrowserShot.self)
+        var params: [String: JSONValue] = ["chatId": .string(chatId), "maxWidth": .number(sharp ? (nudge ? 1399 : 1400) : (nudge ? 699 : 700))]
+        if let have, !have.isEmpty { params["have"] = .string(have) }
+        return try await rpc("browser.screenshot", .object(params), as: WireBrowserShot.self)
     }
 
     #if DEBUG

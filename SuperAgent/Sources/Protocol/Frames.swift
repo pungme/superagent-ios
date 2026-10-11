@@ -604,6 +604,8 @@ struct WireSimulatorShot: Codable, Sendable {
     var url: String
     /// Byte-identical to the last frame we were sent, so it was not sent again.
     var unchanged: Bool?
+    /// As on WireBrowserShot.
+    var digest: String?
 }
 
 struct WireBrowserShot: Codable, Sendable {
@@ -617,6 +619,12 @@ struct WireBrowserShot: Codable, Sendable {
     var jpeg: String
     /// Byte-identical to the last frame we were sent, so it was not sent again.
     var unchanged: Bool?
+    /// Which frame this is. Sent back as `have` with the next request: the Mac
+    /// then spares us the bytes while the page is still, and only then. (It
+    /// used to go by the last frame it sent to anyone, so a phone that had lost
+    /// its copy, relaunched, was never sent a still page again: a spinner for
+    /// ever. A Mac from before this sends no digest.)
+    var digest: String?
 }
 
 /// `chat.image`: the Mac's thumbnail for one picture on one message.
