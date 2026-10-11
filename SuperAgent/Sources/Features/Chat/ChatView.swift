@@ -404,7 +404,15 @@ struct ChatView: View {
             // the drag stutter. It keeps its width while the edge moves and
             // re-wraps once, when the edge stops.
             .frame(width: settledWidth > 0 ? settledWidth : nil, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // minWidth 0: the kept width must not hold the column open. With
+            // only a maximum, this frame is at least as wide as what is in
+            // it, so a width taken on the first layout pass kept the whole
+            // conversation that wide for good: the scroll view never
+            // narrowed, so it never reported the narrower width to settle
+            // to. On a folded foldable, whose side bar takes its room a
+            // moment after the first pass, that left every row of the screen
+            // too wide and cut off on the left.
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
         .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.width.rounded() } action: { _, w in
             settle(width: w)
