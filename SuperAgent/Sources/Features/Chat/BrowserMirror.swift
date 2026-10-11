@@ -207,7 +207,7 @@ struct BrowserMirror: View {
         inFlight = true
         defer { inFlight = false }
         do {
-            let s = try await connection.browserShot(chatId: chat.id)
+            let s = try await connection.browserShot(chatId: chat.id, sharp: expanded && !pip)
             let previous = shot
             // The Mac tells us when the picture is byte-identical to the last
             // one it sent, and sends no bytes with it. Keep what we have: the

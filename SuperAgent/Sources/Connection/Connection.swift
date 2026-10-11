@@ -1204,7 +1204,8 @@ extension Connection {
         _ = try await rpc("sim.input", .object(["chatId": .string(chatId), "action": .object(action)]))
     }
 
-    func browserShot(chatId: String) async throws -> WireBrowserShot {
+    /// `sharp`: the page is full screen and can be zoomed into, so ask for more of it.
+    func browserShot(chatId: String, sharp: Bool = false) async throws -> WireBrowserShot {
         #if DEBUG
         // The harness has no Mac to ask. A real page dropped into the app's
         // Documents as `harness-page.jpg` goes through the mirror exactly as a
@@ -1212,7 +1213,7 @@ extension Connection {
         // which is what makes a screenshot of it worth taking.
         if machine.id == "harness", let shot = Self.harnessShot() { return shot }
         #endif
-        return try await rpc("browser.screenshot", .object(["chatId": .string(chatId), "maxWidth": .number(900)]), as: WireBrowserShot.self)
+        return try await rpc("browser.screenshot", .object(["chatId": .string(chatId), "maxWidth": .number(sharp ? 1400 : 700)]), as: WireBrowserShot.self)
     }
 
     #if DEBUG
