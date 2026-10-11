@@ -1473,9 +1473,58 @@ private final class RebuildGate {
 private struct StreamingReply: View {
     let stream: LiveStream
     let onGrow: () -> Void
+    /// How many characters of the reply are on screen. It arrives in bursts;
+    /// this follows it at an even pace (StreamPace), as the Mac does.
+    @State private var shown = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var target: String { AgentNudge.strip(stream.text) }
 
     var body: some View {
-        AssistantBubble(text: AgentNudge.strip(stream.text), streaming: true)
-            .onChange(of: stream.text) { _, _ in onGrow() }
+        let all = target
+        let said = reduceMotion || shown >= all.count ? all : String(all.prefix(shown))
+        AssistantBubble(text: said, streaming: true, arriving: !reduceMotion)
+            .onChange(of: said) { _, _ in onGrow() }
+            .task {
+                // From where the reply is now: one already part-written when
+                // this row appears is not played again from its first word.
+                shown = target.count
+                var last = Date()
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(33))
+                    let now = Date()
+                    let next = StreamPace.next(shown: shown, target: target,
+                                               dtMs: now.timeIntervalSince(last) * 1000)
+                    last = now
+                    if next != shown { shown = next }
+                }
+            }
+    }
+}
+
+/// The pace a reply is shown at while it is written: even, quickening when it
+/// has fallen behind, never far behind, and always up to the end of a word.
+/// The Mac's rule (lib/stream-words.ts), in characters rather than UTF-16 units.
+enum StreamPace {
+    static let minRate = 70.0
+    static let catchUp = 5.0
+    static let maxBehind = 900
+
+    static func next(shown: Int, target: String, dtMs: Double) -> Int {
+        let total = target.count
+        if shown >= total { return total }
+        let from = max(shown, total - maxBehind)
+        let behind = Double(total - from)
+        let step = max(1, Int(((minRate + behind * catchUp) * max(0, dtMs) / 1000).rounded()))
+        var n = min(total, from + step)
+        // On to the end of the word it landed in, within reason.
+        var i = target.index(target.startIndex, offsetBy: n)
+        var look = 0
+        while i < target.endIndex, look < 24, !target[i].isWhitespace {
+            i = target.index(after: i)
+            n += 1
+            look += 1
+        }
+        return n
     }
 }

@@ -1427,6 +1427,22 @@ extension Connection {
             c.browsers["c1"] = WireBrowser(chatId: "c1", open: true, url: "https://stripe.com/en-us",
                                            title: "Stripe", canGoBack: false, canGoForward: false, loading: false)
         }
+        // `-streamReply`: the agent is writing an answer, in bursts as a real
+        // one arrives: a few words, a pause, a long run at once.
+        if ProcessInfo.processInfo.arguments.contains("-streamReply") {
+            let reply = "The header was the problem. It collapsed below 400 points because the nav wrapped, so I gave the logo a fixed width and let the links shrink instead. The buttons stack rather than shrink, and the subhead takes a smaller step on a narrow screen."
+            let live = c.stream("c1")
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(1200))
+                var rest = Substring(reply)
+                for size in [22, 6, 90, 4, 60, 500] {
+                    guard !rest.isEmpty else { break }
+                    live.append(String(rest.prefix(size)))
+                    rest = rest.dropFirst(size)
+                    try? await Task.sleep(for: .milliseconds(450))
+                }
+            }
+        }
         // `-withSim`: and the simulator, for its picture in picture.
         if ProcessInfo.processInfo.arguments.contains("-withSim") {
             c.simulators["c1"] = WireSimulator(chatId: "c1", open: true,

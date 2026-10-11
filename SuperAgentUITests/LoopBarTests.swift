@@ -80,4 +80,16 @@ final class LoopBarTests: XCTestCase {
             app.terminate()
         }
     }
+
+    /// A reply being written shows up a word at a time and gets to its end:
+    /// paced, not held back for good.
+    func testAStreamingReplyArrivesAndGetsToItsEnd() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-sidebarHarness", "-streamReply", "-openChat", "c1", "-tab", "projects"]
+        app.launch()
+        let start = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'The header was the problem'")).firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 15), "the reply starts to show")
+        let whole = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'smaller step on a narrow screen.'")).firstMatch
+        XCTAssertTrue(whole.waitForExistence(timeout: 15), "and every word of it arrives")
+    }
 }

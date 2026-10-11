@@ -75,3 +75,34 @@ struct MirrorPiPTests {
         #expect(PiP.Corner.topTrailing.raised == .topTrailing)
     }
 }
+
+/// The pace a reply is shown at while it is written.
+struct StreamPaceTests {
+    private let text = String(repeating: "The quick brown fox jumps over the lazy dog, twice over. ", count: 40)
+
+    @Test func itMovesOnAndEndsOnAWord() {
+        let n = StreamPace.next(shown: 0, target: "hello there, world", dtMs: 33)
+        #expect(["hello", "hello there,", "hello there, world"].contains(String("hello there, world".prefix(n))))
+    }
+
+    @Test func itQuickensWhenBehindAndNeverLagsFar() {
+        let little = StreamPace.next(shown: 0, target: String(text.prefix(40)), dtMs: 33)
+        let much = StreamPace.next(shown: 0, target: String(text.prefix(600)), dtMs: 33)
+        #expect(much > little)
+        #expect(StreamPace.next(shown: 0, target: text, dtMs: 33) > text.count - 900)
+    }
+
+    @Test func itGetsThereAndStays() {
+        let target = String(text.prefix(500))
+        var shown = 0
+        var frames = 0
+        while shown < 500, frames < 600 {
+            shown = StreamPace.next(shown: shown, target: target, dtMs: 33)
+            frames += 1
+        }
+        #expect(shown == 500)
+        #expect(frames > 4 && frames < 80)
+        #expect(StreamPace.next(shown: 500, target: target, dtMs: 33) == 500)
+        #expect(StreamPace.next(shown: 500, target: "short", dtMs: 33) == 5)
+    }
+}

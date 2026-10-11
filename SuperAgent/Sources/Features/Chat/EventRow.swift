@@ -444,12 +444,18 @@ struct EventRow: View {
 struct AssistantBubble: View {
     let text: String
     let streaming: Bool
+    /// The reply is being written: new words fade in rather than appear.
+    var arriving = false
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 0) {
                 MarkdownView(text: text)
                     .superFont(15.5)
                     .foregroundStyle(Theme.textPrimary)
+                    // What was already there stays as it is; what is new comes
+                    // in out of nothing over a third of a second.
+                    .contentTransition(arriving ? .opacity : .identity)
+                    .animation(arriving ? .easeOut(duration: 0.32) : nil, value: text)
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(Theme.assistantBubble, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
