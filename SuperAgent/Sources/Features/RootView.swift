@@ -40,6 +40,11 @@ struct RootView: View {
     /// and left the sidebar unable to say which one you were in — a sidebar you
     /// can see is a selection, not a history.
     @State private var shown: WireChat?
+    /// The conversation most recently on screen, in either shape. A foldable
+    /// changes shape mid-conversation: unfolded it is two columns, folded a
+    /// phone. Without this the chat you were reading was simply gone after a
+    /// fold, with the sidebar in its place.
+    @State private var lastOpened: WireChat?
 
     var body: some View {
         Group {
@@ -57,6 +62,8 @@ struct RootView: View {
         // A tapped notification lands on its conversation.
         .onChange(of: app.openChatId, initial: true) { _, _ in openPending() }
         .onChange(of: app.chatsVersion) { _, _ in openPending() }
+        // Folded or unfolded, turned or split: the conversation comes along.
+        .onChange(of: width) { was, now in carryOver(from: was, to: now) }
         // Another Mac: what was open belonged to the old one's projects.
         .onChange(of: app.machineSwitches) { _, _ in
             projectsPath = NavigationPath()
@@ -65,6 +72,7 @@ struct RootView: View {
             searchPath = NavigationPath()
             path = NavigationPath()
             shown = nil
+            lastOpened = nil
         }
         .onOpenURL { url in
             log.info("open url \(url.absoluteString.prefix(40), privacy: .public)")
@@ -156,6 +164,7 @@ extension RootView {
         if let chat = shown {
             ChatView(push: { path.append($0) },
                      connection: c, chat: chat, workspace: workspace(c, for: chat))
+                .onAppear { lastOpened = chat }
                 // A different conversation is a different screen, not the same
                 // one with new contents.
                 .id(chat.id)
@@ -186,6 +195,7 @@ extension RootView {
             .navigationDestination(for: WireChat.self) { chat in
                 ChatView(push: { path.wrappedValue.append($0) },
                          connection: c, chat: chat, workspace: workspace(c, for: chat))
+                    .onAppear { lastOpened = chat }
                     // The tabs choose a place to go; once a conversation is
                     // open it owns the whole phone, just like the desktop's
                     // session pane. Back returns to the list and its bar.
@@ -230,6 +240,29 @@ extension RootView {
         c.tree.flatMap(\.workspaces).first { $0.id == chat.workspaceId }
             ?? WireWorkspace(id: chat.workspaceId, name: chat.workspaceId == "__desktop_chat__" ? "Computer" : "Project",
                              path: "", kind: chat.workspaceId == "__desktop_chat__" ? "desktop" : "app", status: .idle)
+    }
+
+    /// The shape changed under an open conversation: put it where the new
+    /// shape keeps one. To the phone shape, it goes on the Projects tab's
+    /// stack; to two columns, it becomes the second column. A conversation
+    /// already left (Back pressed on the phone) is not brought back.
+    private func carryOver(from was: UserInterfaceSizeClass?, to now: UserInterfaceSizeClass?) {
+        guard was != nil, was != now else { return }
+        if now == .regular {
+            let somethingOpen = [projectsPath, activityPath, chatPath, searchPath].contains { !$0.isEmpty }
+            guard somethingOpen, let chat = lastOpened else { return }
+            projectsPath = NavigationPath()
+            activityPath = NavigationPath()
+            chatPath = NavigationPath()
+            searchPath = NavigationPath()
+            path = NavigationPath()
+            shown = chat
+        } else if let chat = shown {
+            tab = .projects
+            projectsPath = NavigationPath()
+            projectsPath.append(chat)
+            path = NavigationPath()
+        }
     }
 
     /// Navigate to the chat a notification named, once its Mac has told us about it.
