@@ -105,4 +105,14 @@ struct StreamPaceTests {
         #expect(StreamPace.next(shown: 500, target: target, dtMs: 33) == 500)
         #expect(StreamPace.next(shown: 500, target: "short", dtMs: 33) == 5)
     }
+
+    @Test func aBurstThatEndsMidWordIsHeldToItsLastWholeWord() {
+        #expect(StreamPace.wholeWords("The header was the pro", open: true) == 19)
+        #expect(StreamPace.wholeWords("The header was the pro", open: false) == 22)
+        #expect(StreamPace.wholeWords("Th", open: true) == 0)
+        #expect(StreamPace.next(shown: 0, target: "The header was the pro", dtMs: 5000, open: true) == 19)
+        #expect(StreamPace.next(shown: 19, target: "The header was the problem. ", dtMs: 5000, open: true) == 28)
+        #expect(StreamPace.next(shown: 19, target: "The header was the pro", dtMs: 5000, open: false) == 22)
+        #expect(StreamPace.next(shown: 22, target: "The header was the pro", dtMs: 33, open: true) == 22)
+    }
 }

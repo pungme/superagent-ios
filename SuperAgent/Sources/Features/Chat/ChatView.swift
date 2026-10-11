@@ -1490,11 +1490,16 @@ private struct StreamingReply: View {
                 // this row appears is not played again from its first word.
                 shown = target.count
                 var last = Date()
+                var seen = target.count
+                var grewAt = Date.distantPast
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .milliseconds(33))
                     let now = Date()
-                    let next = StreamPace.next(shown: shown, target: target,
-                                               dtMs: now.timeIntervalSince(last) * 1000)
+                    let all = target
+                    if all.count != seen { seen = all.count; grewAt = now }
+                    let next = StreamPace.next(shown: shown, target: all,
+                                               dtMs: now.timeIntervalSince(last) * 1000,
+                                               open: now.timeIntervalSince(grewAt) * 1000 < StreamPace.openMs)
                     last = now
                     if next != shown { shown = next }
                 }
@@ -1510,9 +1515,21 @@ enum StreamPace {
     static let catchUp = 5.0
     static let maxBehind = 900
 
-    static func next(shown: Int, target: String, dtMs: Double) -> Int {
-        let total = target.count
-        if shown >= total { return total }
+    /// How long after the last of it arrived a reply still counts as mid-burst.
+    static let openMs = 300.0
+
+    /// How much may be shown: all of it, or, while more is arriving (`open`),
+    /// up to the end of the last finished word. A burst ends wherever the
+    /// network cut it, and "the pro" on its way to "the problem" is a stumble.
+    static func wholeWords(_ target: String, open: Bool) -> Int {
+        guard open else { return target.count }
+        guard let i = target.lastIndex(where: { $0.isWhitespace }) else { return 0 }
+        return target.distance(from: target.startIndex, to: i) + 1
+    }
+
+    static func next(shown: Int, target: String, dtMs: Double, open: Bool = false) -> Int {
+        let total = wholeWords(target, open: open)
+        if shown >= total { return min(shown, target.count) }
         let from = max(shown, total - maxBehind)
         let behind = Double(total - from)
         let step = max(1, Int(((minRate + behind * catchUp) * max(0, dtMs) / 1000).rounded()))
@@ -1520,7 +1537,7 @@ enum StreamPace {
         // On to the end of the word it landed in, within reason.
         var i = target.index(target.startIndex, offsetBy: n)
         var look = 0
-        while i < target.endIndex, look < 24, !target[i].isWhitespace {
+        while n < total, look < 24, !target[i].isWhitespace {
             i = target.index(after: i)
             n += 1
             look += 1
