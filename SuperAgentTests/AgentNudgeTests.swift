@@ -69,6 +69,23 @@ struct MirrorPiPTests {
         #expect(PiP.nearest(CGPoint(x: -500, y: 2000), in: box) == .bottomLeading)
     }
 
+    @Test func theCardIsTheShapeOfWhatItShows() {
+        let fallback = CGSize(width: 200, height: 130)
+        // A desktop page, 16:10: wide, its long side across.
+        #expect(PiP.cardSize(aspect: 1.6, fallback: fallback) == CGSize(width: 200, height: 125))
+        // A page in a wide pane: wider still, never taller for it.
+        #expect(PiP.cardSize(aspect: 1.75, fallback: fallback) == CGSize(width: 200, height: 114))
+        // A phone's screen: tall.
+        let phone = PiP.cardSize(aspect: 1206.0 / 2622.0, fallback: fallback)
+        #expect(phone.height == 230 && phone.width == 106)
+        // Absurd proportions are held to something that can be tapped.
+        #expect(PiP.cardSize(aspect: 9, fallback: fallback).height >= 83)
+        #expect(PiP.cardSize(aspect: 0.05, fallback: fallback).width >= 96)
+        // Nothing to go on yet.
+        #expect(PiP.cardSize(aspect: nil, fallback: fallback) == fallback)
+        #expect(PiP.cardSize(aspect: 0, fallback: fallback) == fallback)
+    }
+
     @Test func aBottomCornerGoesUpForTheKeyboard() {
         #expect(PiP.Corner.bottomLeading.raised == .topLeading)
         #expect(PiP.Corner.bottomTrailing.raised == .topTrailing)

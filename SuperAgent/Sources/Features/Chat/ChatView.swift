@@ -75,6 +75,10 @@ struct ChatView: View {
     /// Full screen, like a stream: the page or simulator fills the phone, the
     /// conversation floats over it (FloatingChat) and the composer stays.
     @State private var theater = false
+    /// The proportions of the page and of the simulator's screen, as their
+    /// last frames had them: the small pictures are cut to the same shape.
+    @State private var pageAspect: CGFloat?
+    @State private var simAspect: CGFloat?
     @State private var showTasks = false
     @State private var renaming = false
     @State private var newTitle = ""
@@ -895,18 +899,22 @@ struct ChatView: View {
     @ViewBuilder
     private var pip: some View {
         if !wide, !theater, pageShown {
-            MirrorPiP(size: CGSize(width: 184, height: 128), glyph: "globe", label: pageLabel,
+            MirrorPiP(size: MirrorPiP<EmptyView>.cardSize(aspect: pageAspect, fallback: CGSize(width: 200, height: 130)),
+                      glyph: "globe", label: pageLabel,
                       closeLabel: "Close the page", keyboardUp: composerFocused,
                       onOpen: { composerFocused = false; enterTheater() },
                       onClose: { withAnimation(.easeOut(duration: 0.2)) { setPageHidden(true) } }) {
-                BrowserMirror(connection: connection, chat: chat, compact: true, paused: false, pip: true)
+                BrowserMirror(connection: connection, chat: chat, compact: true, paused: false, pip: true,
+                              onAspect: { a in if abs((pageAspect ?? 0) - a) > 0.02 { pageAspect = a } })
             }
         } else if !wide, !theater, simShown {
-            MirrorPiP(size: CGSize(width: 116, height: 236), glyph: "iphone", label: simLabel,
+            MirrorPiP(size: MirrorPiP<EmptyView>.cardSize(aspect: simAspect, fallback: CGSize(width: 108, height: 230)),
+                      glyph: "iphone", label: simLabel,
                       closeLabel: "Close the simulator", keyboardUp: composerFocused,
                       onOpen: { composerFocused = false; enterTheater() },
                       onClose: { withAnimation(.easeOut(duration: 0.2)) { setSimHidden(true) } }) {
-                SimulatorMirror(connection: connection, chat: chat, paused: false, pip: true)
+                SimulatorMirror(connection: connection, chat: chat, paused: false, pip: true,
+                                onAspect: { a in if abs((simAspect ?? 0) - a) > 0.02 { simAspect = a } })
             }
         }
     }

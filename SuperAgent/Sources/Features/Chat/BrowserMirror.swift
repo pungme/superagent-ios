@@ -20,6 +20,9 @@ struct BrowserMirror: View {
     var paused = false
     /// Picture in picture: only the page itself, small, for MirrorPiP to frame.
     var pip = false
+    /// The page's width over its height, whenever a frame says: the small
+    /// picture is cut to the same proportions as the page on the Mac.
+    var onAspect: ((CGFloat) -> Void)?
 
     @State private var shot: WireBrowserShot?
     @State private var image: UIImage?
@@ -40,8 +43,14 @@ struct BrowserMirror: View {
         }
         // The last frame this conversation showed, so going between the small
         // picture and full screen does not start again from a spinner.
-        .onAppear { if image == nil { image = MirrorFrames.page[chat.id] } }
-        .onChange(of: image) { _, new in if let new { MirrorFrames.page[chat.id] = new } }
+        .onAppear {
+            if image == nil { image = MirrorFrames.page[chat.id] }
+            report(image)
+        }
+        .onChange(of: image) { _, new in
+            if let new { MirrorFrames.page[chat.id] = new }
+            report(new)
+        }
         .task(id: [paused, scenePhase != .active].description) {
             // Nothing to mirror while the pane is collapsed or the app is away.
             if !paused, scenePhase == .active { await poll() }
@@ -51,14 +60,24 @@ struct BrowserMirror: View {
         } message: { Text(error ?? "") }
     }
 
-    /// The page as a small picture: its top, edge to edge, and nothing else.
+    private func report(_ image: UIImage?) {
+        guard let image, image.size.height > 0 else { return }
+        onAspect?(image.size.width / image.size.height)
+    }
+
+    /// The page as a small picture: all of it, in its own proportions, and
+    /// nothing else. The card around it is cut to the same shape (see
+    /// MirrorPiP.cardSize), so this fits it edge to edge. It used to fill a
+    /// fixed card, which cropped a wide page and, worse, let the picture's own
+    /// width push the card past the edge of the screen.
     private var pipFace: some View {
         ZStack {
             Theme.panel
             if let image {
-                Image(uiImage: image)
-                    .resizable().scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                Color.clear.overlay {
+                    Image(uiImage: image).resizable().scaledToFit()
+                }
+                .clipped()
             } else {
                 VStack(spacing: 6) {
                     Image(systemName: "globe").superFont(18).foregroundStyle(Theme.textTertiary)
@@ -72,7 +91,14 @@ struct BrowserMirror: View {
         VStack(spacing: 0) {
             omnibar
             Group {
-                if let image {
+                if let image, expanded {
+                    // Full screen on a phone, a desktop page is a wide picture
+                    // in a tall space: it fits across, and is small. Pinch or
+                    // double-tap to go in close, and drag to move around.
+                    ZoomableImage(image: image)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .clipped()
+                } else if let image {
                     ScrollView {
                         Image(uiImage: image)
                             .resizable().scaledToFit()
@@ -280,6 +306,8 @@ struct SimulatorMirror: View {
     var paused = false
     /// Picture in picture: only the device's screen, small, for MirrorPiP to frame.
     var pip = false
+    /// The screen's width over its height, whenever a frame says.
+    var onAspect: ((CGFloat) -> Void)?
 
     @State private var shot: WireSimulatorShot?
     @State private var image: UIImage?
@@ -296,8 +324,15 @@ struct SimulatorMirror: View {
         Group {
             if pip { pipFace } else { full }
         }
-        .onAppear { if image == nil { image = MirrorFrames.sim[chat.id] } }
-        .onChange(of: image) { _, new in if let new { MirrorFrames.sim[chat.id] = new } }
+        .onAppear {
+            if image == nil { image = MirrorFrames.sim[chat.id] }
+            if let image, image.size.height > 0 { onAspect?(image.size.width / image.size.height) }
+        }
+        .onChange(of: image) { _, new in
+            guard let new else { return }
+            MirrorFrames.sim[chat.id] = new
+            if new.size.height > 0 { onAspect?(new.size.width / new.size.height) }
+        }
         // Keyed on scenePhase as well as paused, so backgrounding the app
         // cancels the poll — the browser mirror already did this; the simulator
         // one did not, and kept polling (a JPEG a second) while the phone was
@@ -315,7 +350,7 @@ struct SimulatorMirror: View {
         ZStack {
             Color.black
             if let image {
-                Image(uiImage: image).resizable().scaledToFit()
+                Color.clear.overlay { Image(uiImage: image).resizable().scaledToFit() }.clipped()
             } else {
                 VStack(spacing: 6) {
                     Image(systemName: "iphone").superFont(18).foregroundStyle(.white.opacity(0.5))
@@ -501,6 +536,20 @@ struct MirrorPiP<Content: View>: View {
         var top: Bool { self == .topLeading || self == .topTrailing }
         var leading: Bool { self == .topLeading || self == .bottomLeading }
         var raised: Corner { leading ? .topLeading : .topTrailing }
+    }
+
+    /// The card for a picture of these proportions (width over height): the
+    /// same shape as what it shows, its longer side a fixed length, and never
+    /// so thin that it cannot be tapped. With no picture yet, `fallback`.
+    static func cardSize(aspect: CGFloat?, fallback: CGSize, long: CGFloat = 200) -> CGSize {
+        guard let aspect, aspect.isFinite, aspect > 0 else { return fallback }
+        // Between a very tall phone and a very wide window; past that it is cut.
+        let a = min(max(aspect, 0.42), 2.4)
+        // A tall picture gets a little more length: it is narrow.
+        let tall = (long * 1.15).rounded()
+        return a >= 1
+            ? CGSize(width: long, height: (long / a).rounded())
+            : CGSize(width: (tall * a).rounded(), height: tall)
     }
 
     /// Where the card's centre rests for a corner, in a space of `box`.
