@@ -1,51 +1,84 @@
 import XCTest
 
-/// Typing in a conversation that has a page docked above it, on a phone.
+/// A page open on the Mac, in a conversation on a phone: picture in picture.
 ///
-/// It used to hide the page when the keyboard came up and keep the messages,
-/// which hid the very thing you were writing about. Now the page stays and
-/// takes the room; the messages float over it, stream-chat style, and tapping
-/// them brings the conversation back. (That used to be a "Show chat" button on
-/// the keyboard's toolbar, which crashed on devices when tapped.)
+/// It used to dock above the conversation, half a screen for each and enough
+/// of neither; and before that, typing hid it. Now the conversation keeps the
+/// screen and the page is a small card floating over it, which you can drag to
+/// a corner, open full screen, or put away. Typing changes none of that.
 final class TypingOverPageTests: XCTestCase {
-    func testThePageStaysWhileYouType() {
+    /// `corner`: where the picture starts. Given on the command line it is
+    /// also where it stays, so the test that moves it passes nil.
+    private func launch(_ extra: [String] = ["-withPage"], corner: String? = "topTrailing") -> XCUIApplication {
         let app = XCUIApplication()
-        // A conversation with a page open on the Mac, straight in.
-        app.launchArguments = ["-sidebarHarness", "-withPage", "-openChat", "c1", "-tab", "projects"]
+        app.launchArguments = ["-sidebarHarness", "-openChat", "c1", "-tab", "projects"]
+            + (corner.map { ["-mirror.pip.corner", $0] } ?? []) + [
+                               // Shown, whatever an earlier run left: putting a page away is remembered.
+                               "-pageHidden:c1", "NO", "-simHidden:c1", "NO"] + extra
         app.launch()
+        return app
+    }
 
-        let closePage = app.buttons["Close the page"]
-        XCTAssertTrue(closePage.waitForExistence(timeout: 10), "the page is docked above the chat")
-        // The newest message: the one on screen when the chat is at its end.
+    func testThePageFloatsOverTheConversationAndStaysWhileYouType() {
+        let app = launch()
+        let pip = app.buttons["mirror-pip"]
+        XCTAssertTrue(pip.waitForExistence(timeout: 10), "the page is a small picture over the chat")
+        let window = app.windows.firstMatch.frame
+        XCTAssertLessThan(pip.frame.width, window.width * 0.6, "small, not a strip across the screen")
+        XCTAssertGreaterThan(pip.frame.midX, window.midX, "in the top right to begin with")
+
+        // The whole conversation is there, not folded away under a page.
         let message = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Narrow, the headline holds'")).firstMatch
-        XCTAssertTrue(message.waitForExistence(timeout: 5), "the conversation shows")
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
         XCTAssertTrue(message.isHittable, "the newest message is on screen")
 
         let field = app.textFields["Message Claude…"].exists
             ? app.textFields["Message Claude…"]
             : app.textViews.firstMatch
         field.tap()
+        XCTAssertTrue(pip.waitForExistence(timeout: 5), "the page stays while typing")
+        XCTAssertTrue(pip.isHittable)
+        XCTAssertFalse(app.buttons["floatingChat"].exists, "and the messages are not swapped for floating ones")
 
-        let floating = app.buttons["floatingChat"]
-        XCTAssertTrue(floating.waitForExistence(timeout: 5), "the conversation floats over the page")
-        XCTAssertEqual(floating.label, "Show chat", "and says what tapping it does")
-        XCTAssertTrue(closePage.exists, "the page stays while typing")
-        // The transcript's copy of the message, not the floating chat's.
-        let inTranscript = app.staticTexts
-            .matching(NSPredicate(format: "label BEGINSWITH 'Narrow, the headline holds'"))
-            .allElementsBoundByIndex
-            .filter { !floating.frame.contains($0.frame) && $0.isHittable }
-        XCTAssertTrue(inTranscript.isEmpty, "the messages step aside")
-        XCTAssertTrue((floating.value as? String ?? "").hasPrefix("Narrow, the headline holds"),
-                      "with the newest message in it")
         let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "typing-over-page"
+        shot.name = "typing-with-pip"
         shot.lifetime = .keepAlways
         add(shot)
+    }
 
-        floating.tap()
-        XCTAssertTrue(message.waitForExistence(timeout: 5))
-        XCTAssertTrue(message.isHittable, "the messages come back")
-        XCTAssertTrue(closePage.exists)
+    func testItCanBeDraggedToAnotherCornerAndPutAway() {
+        let app = launch(corner: nil)
+        let pip = app.buttons["mirror-pip"]
+        XCTAssertTrue(pip.waitForExistence(timeout: 10))
+        let window = app.windows.firstMatch.frame
+
+        // Dragged across to the other side, it settles there. (Wherever it
+        // was: the corner is remembered between runs.)
+        let wasRight = pip.frame.midX > window.midX
+        let from = pip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let to = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: wasRight ? 0.2 : 0.8, dy: 0.3))
+        from.press(forDuration: 0.1, thenDragTo: to)
+        let settled = expectation(for: NSPredicate { _, _ in (pip.frame.midX > window.midX) != wasRight },
+                                  evaluatedWith: nil)
+        wait(for: [settled], timeout: 5)
+        XCTAssertFalse(app.buttons["Exit full screen"].exists, "a drag moves it; it does not open it")
+
+        // The ×: gone, and the conversation says it still has a page.
+        app.buttons["Close the page"].tap()
+        XCTAssertTrue(pip.waitForNonExistence(timeout: 5))
+        let show = app.staticTexts["Show"]
+        XCTAssertTrue(show.waitForExistence(timeout: 5), "with a way to bring it back")
+        // And back: putting it away is remembered for the conversation, so
+        // this also leaves things as the other tests expect to find them.
+        show.tap()
+        XCTAssertTrue(pip.waitForExistence(timeout: 5))
+    }
+
+    func testTheSimulatorIsAPictureToo() {
+        let app = launch(["-withSim"])
+        let pip = app.buttons["mirror-pip"]
+        XCTAssertTrue(pip.waitForExistence(timeout: 10))
+        XCTAssertGreaterThan(pip.frame.height, pip.frame.width, "tall, like the phone it shows")
+        XCTAssertTrue(app.buttons["Close the simulator"].exists)
     }
 }

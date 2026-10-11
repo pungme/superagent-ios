@@ -1184,7 +1184,18 @@ extension Connection {
     }
 
     func simShot(chatId: String) async throws -> WireSimulatorShot {
-        try await rpc("sim.screenshot", .object(["chatId": .string(chatId)]), as: WireSimulatorShot.self)
+        #if DEBUG
+        // As for the page below: a still dropped into Documents as
+        // `harness-sim.jpg` goes through the simulator's mirror as a frame
+        // from the Mac would.
+        if machine.id == "harness",
+           let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+           let data = try? Data(contentsOf: dir.appendingPathComponent("harness-sim.jpg")) {
+            return WireSimulatorShot(udid: "harness", device: "iPhone 17 Pro",
+                                     url: "data:image/jpeg;base64," + data.base64EncodedString(), unchanged: false)
+        }
+        #endif
+        return try await rpc("sim.screenshot", .object(["chatId": .string(chatId)]), as: WireSimulatorShot.self)
     }
 
     /// Tap or swipe the mirrored device. Coordinates are the still's own pixels;
@@ -1415,6 +1426,11 @@ extension Connection {
         if ProcessInfo.processInfo.arguments.contains("-withPage") {
             c.browsers["c1"] = WireBrowser(chatId: "c1", open: true, url: "https://stripe.com/en-us",
                                            title: "Stripe", canGoBack: false, canGoForward: false, loading: false)
+        }
+        // `-withSim`: and the simulator, for its picture in picture.
+        if ProcessInfo.processInfo.arguments.contains("-withSim") {
+            c.simulators["c1"] = WireSimulator(chatId: "c1", open: true,
+                                               udid: "harness", device: "iPhone 17 Pro")
         }
         // `-agentReplies`: the agent answers the two messages one at a time,
         // each under a quote of the one it answers.

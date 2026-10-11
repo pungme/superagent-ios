@@ -18,6 +18,8 @@ struct BrowserMirror: View {
     var expanded = false
     /// Paused while the keyboard is up (the pane is collapsed then) or the app is away.
     var paused = false
+    /// Picture in picture: only the page itself, small, for MirrorPiP to frame.
+    var pip = false
 
     @State private var shot: WireBrowserShot?
     @State private var image: UIImage?
@@ -33,6 +35,40 @@ struct BrowserMirror: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
+        Group {
+            if pip { pipFace } else { full }
+        }
+        // The last frame this conversation showed, so going between the small
+        // picture and full screen does not start again from a spinner.
+        .onAppear { if image == nil { image = MirrorFrames.page[chat.id] } }
+        .onChange(of: image) { _, new in if let new { MirrorFrames.page[chat.id] = new } }
+        .task(id: [paused, scenePhase != .active].description) {
+            // Nothing to mirror while the pane is collapsed or the app is away.
+            if !paused, scenePhase == .active { await poll() }
+        }
+        .alert("Browser", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK") {}
+        } message: { Text(error ?? "") }
+    }
+
+    /// The page as a small picture: its top, edge to edge, and nothing else.
+    private var pipFace: some View {
+        ZStack {
+            Theme.panel
+            if let image {
+                Image(uiImage: image)
+                    .resizable().scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else {
+                VStack(spacing: 6) {
+                    Image(systemName: "globe").superFont(18).foregroundStyle(Theme.textTertiary)
+                    if unavailable == nil { ProgressView().controlSize(.small) }
+                }
+            }
+        }
+    }
+
+    private var full: some View {
         VStack(spacing: 0) {
             omnibar
             Group {
@@ -60,13 +96,6 @@ struct BrowserMirror: View {
             controls
         }
         .background(Theme.panel)
-        .task(id: [paused, scenePhase != .active].description) {
-            // Nothing to mirror while the pane is collapsed or the app is away.
-            if !paused, scenePhase == .active { await poll() }
-        }
-        .alert("Browser", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-            Button("OK") {}
-        } message: { Text(error ?? "") }
     }
 
     private var omnibar: some View {
@@ -249,6 +278,8 @@ struct SimulatorMirror: View {
     var expanded = false
     /// Paused while the keyboard is up or the app is away.
     var paused = false
+    /// Picture in picture: only the device's screen, small, for MirrorPiP to frame.
+    var pip = false
 
     @State private var shot: WireSimulatorShot?
     @State private var image: UIImage?
@@ -262,6 +293,39 @@ struct SimulatorMirror: View {
     }
 
     var body: some View {
+        Group {
+            if pip { pipFace } else { full }
+        }
+        .onAppear { if image == nil { image = MirrorFrames.sim[chat.id] } }
+        .onChange(of: image) { _, new in if let new { MirrorFrames.sim[chat.id] = new } }
+        // Keyed on scenePhase as well as paused, so backgrounding the app
+        // cancels the poll — the browser mirror already did this; the simulator
+        // one did not, and kept polling (a JPEG a second) while the phone was
+        // asleep. That is what quietly drained the relay's daily budget
+        // overnight with nobody watching. Only poll while actually on screen.
+        .task(id: [paused, scenePhase != .active].description) {
+            if !paused, scenePhase == .active { await loop() }
+        }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await refresh(force: true) } } }
+    }
+
+    /// The device's screen as a small picture. Taps go to the frame around it
+    /// (full screen), not to the device: at this size a tap is not aimed.
+    private var pipFace: some View {
+        ZStack {
+            Color.black
+            if let image {
+                Image(uiImage: image).resizable().scaledToFit()
+            } else {
+                VStack(spacing: 6) {
+                    Image(systemName: "iphone").superFont(18).foregroundStyle(.white.opacity(0.5))
+                    if unavailable == nil { ProgressView().controlSize(.small).tint(.white) }
+                }
+            }
+        }
+    }
+
+    private var full: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "iphone").superFont(12).foregroundStyle(Theme.textTertiary)
@@ -302,15 +366,6 @@ struct SimulatorMirror: View {
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(Theme.panel)
         }
-        // Keyed on scenePhase as well as paused, so backgrounding the app
-        // cancels the poll — the browser mirror already did this; the simulator
-        // one did not, and kept polling (a JPEG a second) while the phone was
-        // asleep. That is what quietly drained the relay's daily budget
-        // overnight with nobody watching. Only poll while actually on screen.
-        .task(id: [paused, scenePhase != .active].description) {
-            if !paused, scenePhase == .active { await loop() }
-        }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await refresh(force: true) } } }
     }
 
     @ViewBuilder
@@ -404,5 +459,151 @@ struct SimulatorMirror: View {
             unavailable = "The simulator isn't available right now."
             return false
         }
+    }
+}
+
+
+/// The last picture each conversation's mirror showed. A mirror is drawn by
+/// one view when it is small and another when it is full screen; this is what
+/// lets the second start from where the first left off.
+@MainActor
+enum MirrorFrames {
+    static var page: [String: UIImage] = [:]
+    static var sim: [String: UIImage] = [:]
+}
+
+/// A page or the simulator as picture in picture, on a phone: a small card
+/// floating over the conversation, the way a video call sits over whatever
+/// else you are doing. It docked above the conversation before, which on a
+/// phone left half a screen for each and enough of neither.
+///
+/// Drag it and it settles in the nearest corner. Tap it for full screen. The ×
+/// puts it away (the bar at the top of the conversation brings it back).
+struct MirrorPiP<Content: View>: View {
+    /// The card's size: wide for a page, tall for a phone's screen.
+    let size: CGSize
+    let glyph: String
+    let label: String
+    /// What VoiceOver calls the ×: "Close the page", "Close the simulator".
+    let closeLabel: String
+    /// The keyboard is up: a card in a bottom corner moves to the top one.
+    let keyboardUp: Bool
+    let onOpen: () -> Void
+    let onClose: () -> Void
+    @ViewBuilder let content: Content
+
+    @AppStorage("mirror.pip.corner") private var corner = Corner.topTrailing.rawValue
+    @State private var drag: CGSize = .zero
+    @State private var dragging = false
+
+    enum Corner: String, CaseIterable {
+        case topLeading, topTrailing, bottomLeading, bottomTrailing
+        var top: Bool { self == .topLeading || self == .topTrailing }
+        var leading: Bool { self == .topLeading || self == .bottomLeading }
+        var raised: Corner { leading ? .topLeading : .topTrailing }
+    }
+
+    /// Where the card's centre rests for a corner, in a space of `box`.
+    static func rest(_ corner: Corner, card: CGSize, in box: CGSize, inset: CGFloat = 12) -> CGPoint {
+        CGPoint(x: corner.leading ? inset + card.width / 2 : box.width - inset - card.width / 2,
+                y: corner.top ? inset + card.height / 2 : box.height - inset - card.height / 2)
+    }
+
+    /// The corner nearest a point: where a card let go of there settles.
+    static func nearest(_ p: CGPoint, in box: CGSize) -> Corner {
+        switch (p.x < box.width / 2, p.y < box.height / 2) {
+        case (true, true): .topLeading
+        case (false, true): .topTrailing
+        case (true, false): .bottomLeading
+        case (false, false): .bottomTrailing
+        }
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            // Never bigger than the room there is (a short conversation area
+            // with the keyboard up, a small phone).
+            let fit = min(1, (geo.size.height - 24) / size.height, (geo.size.width - 24) / size.width)
+            let card = CGSize(width: size.width * max(0.5, fit), height: size.height * max(0.5, fit))
+            let saved = Corner(rawValue: corner) ?? .topTrailing
+            let at = keyboardUp ? saved.raised : saved
+            let home = Self.rest(at, card: card, in: geo.size)
+            face
+                .frame(width: card.width, height: card.height)
+                .scaleEffect(dragging ? 1.04 : 1)
+                .position(x: home.x + drag.width, y: home.y + drag.height)
+                // Ahead of the card's own tap: a drag that starts on the
+                // picture moves it, and only a still tap opens it.
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 8)
+                        .onChanged { g in
+                            drag = g.translation
+                            if !dragging { withAnimation(.easeOut(duration: 0.12)) { dragging = true } }
+                        }
+                        .onEnded { g in
+                            // Where it was heading, not only where it was let go:
+                            // a flick across the screen gets there.
+                            let landed = CGPoint(x: home.x + g.predictedEndTranslation.width,
+                                                 y: home.y + g.predictedEndTranslation.height)
+                            let next = Self.nearest(landed, in: geo.size)
+                            withAnimation(.spring(response: 0.36, dampingFraction: 0.8)) {
+                                corner = next.rawValue
+                                drag = .zero
+                                dragging = false
+                            }
+                            Haptics.tap()
+                        }
+                )
+                .animation(.spring(response: 0.36, dampingFraction: 0.82), value: keyboardUp)
+        }
+        .transition(.scale(scale: 0.7).combined(with: .opacity))
+    }
+
+    private var face: some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return ZStack(alignment: .topLeading) {
+            Button(action: onOpen) {
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .bottom) {
+                        // What it is, on a shade so it reads over any page.
+                        HStack(spacing: 4) {
+                            Image(systemName: glyph).font(.system(size: 9, weight: .semibold))
+                            Text(label).font(.system(size: 10, weight: .medium)).lineLimit(1)
+                            Spacer(minLength: 0)
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8).padding(.top, 14).padding(.bottom, 6)
+                        .background(
+                            LinearGradient(colors: [.clear, .black.opacity(0.62)],
+                                           startPoint: .top, endPoint: .bottom)
+                        )
+                    }
+                    .clipShape(shape)
+                    .contentShape(shape)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open full screen")
+            .accessibilityHint(label)
+            .accessibilityIdentifier("mirror-pip")
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(.black.opacity(0.5), in: Circle())
+                    // A finger's worth of target around a small mark.
+                    .padding(6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(closeLabel)
+        }
+        .overlay(shape.strokeBorder(.white.opacity(0.14), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
+        .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
     }
 }

@@ -5,11 +5,12 @@ import XCTest
 final class FullScreenMirrorTests: XCTestCase {
     func testThePageGoesFullScreenWithTheChatFloatingOverIt() {
         let app = XCUIApplication()
-        app.launchArguments = ["-sidebarHarness", "-withPage", "-openChat", "c1", "-tab", "projects"]
+        app.launchArguments = ["-sidebarHarness", "-withPage", "-openChat", "c1", "-tab", "projects",
+                               "-pageHidden:c1", "NO"]
         app.launch()
 
         let open = app.buttons["Open full screen"]
-        XCTAssertTrue(open.waitForExistence(timeout: 10), "the docked page offers full screen")
+        XCTAssertTrue(open.waitForExistence(timeout: 10), "tapping the small picture is the way to full screen")
         open.tap()
 
         let floating = app.buttons["floatingChat"]

@@ -1,4 +1,5 @@
 import Testing
+import SwiftUI
 @testable import SuperAgent
 
 struct AgentNudgeTests {
@@ -45,5 +46,32 @@ struct AnswerContextTests {
         #expect(answerNeedsQuestion(lastMessageId: "a2", questionId: "a1", working: false))
         #expect(answerNeedsQuestion(lastMessageId: "a1", questionId: "a1", working: true))
         #expect(answerNeedsQuestion(lastMessageId: nil, questionId: "a1", working: false))
+    }
+}
+
+/// Picture in picture: where the card rests, and where it settles when let go.
+struct MirrorPiPTests {
+    private typealias PiP = MirrorPiP<EmptyView>
+    private let box = CGSize(width: 390, height: 600)
+    private let card = CGSize(width: 184, height: 128)
+
+    @Test func itRestsInsetFromItsCorner() {
+        #expect(PiP.rest(.topTrailing, card: card, in: box) == CGPoint(x: 390 - 12 - 92, y: 12 + 64))
+        #expect(PiP.rest(.bottomLeading, card: card, in: box) == CGPoint(x: 12 + 92, y: 600 - 12 - 64))
+    }
+
+    @Test func itSettlesInTheNearestCorner() {
+        #expect(PiP.nearest(CGPoint(x: 40, y: 80), in: box) == .topLeading)
+        #expect(PiP.nearest(CGPoint(x: 300, y: 80), in: box) == .topTrailing)
+        #expect(PiP.nearest(CGPoint(x: 40, y: 500), in: box) == .bottomLeading)
+        #expect(PiP.nearest(CGPoint(x: 300, y: 500), in: box) == .bottomTrailing)
+        // Flung far off the screen, it still lands on it.
+        #expect(PiP.nearest(CGPoint(x: -500, y: 2000), in: box) == .bottomLeading)
+    }
+
+    @Test func aBottomCornerGoesUpForTheKeyboard() {
+        #expect(PiP.Corner.bottomLeading.raised == .topLeading)
+        #expect(PiP.Corner.bottomTrailing.raised == .topTrailing)
+        #expect(PiP.Corner.topTrailing.raised == .topTrailing)
     }
 }

@@ -180,19 +180,18 @@ struct ChatView: View {
                 // Typing with a page up: the page takes the room and the messages
                 // step aside (see typingOverMirror), so you see what you're
                 // talking about while you write.
-                if simShown {
-                    mirrorSim
-                        .frame(height: chatFloats ? nil : pageHeight)
-                        .frame(maxHeight: chatFloats ? .infinity : nil)
-                        .overlay(alignment: .bottomTrailing) { if chatFloats { floatingChat } }
-                    if !theater { dockDivider }
-                }
-                if pageShown {
+                // On a phone the page or simulator is picture in picture over
+                // the conversation (pip, in `conversation`), and takes the
+                // screen only when asked to: full screen, with the
+                // conversation floating over it instead.
+                if theater, pageShown {
                     mirrorPage
-                        .frame(height: chatFloats ? nil : pageHeight)
-                        .frame(maxHeight: chatFloats ? .infinity : nil)
-                        .overlay(alignment: .bottomTrailing) { if chatFloats { floatingChat } }
-                    if !theater { dockDivider }
+                        .frame(maxHeight: .infinity)
+                        .overlay(alignment: .bottomTrailing) { floatingChat }
+                } else if theater, simShown {
+                    mirrorSim
+                        .frame(maxHeight: .infinity)
+                        .overlay(alignment: .bottomTrailing) { floatingChat }
                 }
                 conversation
             }
@@ -715,6 +714,7 @@ struct ChatView: View {
                 // Folded away, it isn't there for VoiceOver either — the
                 // floating chat reads out instead.
                 .accessibilityHidden(chatFloats)
+                .overlay { pip }
                 .overlay(alignment: .bottom) {
                     if connection.state != .connected, !wide, !chatFloats {
                         ConnectionFloat(connection: connection)
@@ -888,6 +888,27 @@ struct ChatView: View {
                         expanded: theater,
                         paused: false)
             .transition(.move(edge: wide ? .trailing : .top).combined(with: .opacity))
+    }
+
+    /// The page or simulator as picture in picture, on a phone. The page wins
+    /// when a conversation has both: one small picture, not two.
+    @ViewBuilder
+    private var pip: some View {
+        if !wide, !theater, pageShown {
+            MirrorPiP(size: CGSize(width: 184, height: 128), glyph: "globe", label: pageLabel,
+                      closeLabel: "Close the page", keyboardUp: composerFocused,
+                      onOpen: { composerFocused = false; enterTheater() },
+                      onClose: { withAnimation(.easeOut(duration: 0.2)) { setPageHidden(true) } }) {
+                BrowserMirror(connection: connection, chat: chat, compact: true, paused: false, pip: true)
+            }
+        } else if !wide, !theater, simShown {
+            MirrorPiP(size: CGSize(width: 116, height: 236), glyph: "iphone", label: simLabel,
+                      closeLabel: "Close the simulator", keyboardUp: composerFocused,
+                      onOpen: { composerFocused = false; enterTheater() },
+                      onClose: { withAnimation(.easeOut(duration: 0.2)) { setSimHidden(true) } }) {
+                SimulatorMirror(connection: connection, chat: chat, paused: false, pip: true)
+            }
+        }
     }
 
     /// One bar per thing this conversation has open and you have put away.
@@ -1114,7 +1135,7 @@ struct ChatView: View {
     private var typingOverMirror: Bool { composerFocused && !wide && (pageShown || simShown) }
     /// The transcript steps aside and the conversation floats over the mirror:
     /// typing over it, or full screen.
-    private var chatFloats: Bool { !wide && (pageShown || simShown) && (composerFocused || theater) }
+    private var chatFloats: Bool { !wide && (pageShown || simShown) && theater }
 
     /// Tapping the floating messages is the way back to the conversation. It
     /// replaced a "Show chat" button on the keyboard's toolbar, which removed
