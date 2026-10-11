@@ -61,9 +61,10 @@ read yet.
 <td width="46%" valign="top">
 
 **Watch what it is building.** When the Mac has a page or an iOS Simulator open,
-it is mirrored above the conversation — refreshed as the agent works, resizable,
-and collapsible when you just want to read. Send the current frame back into the
-chat to ask about what you are looking at.
+it floats over the conversation as picture in picture — refreshed as the agent
+works, in the page's own proportions. Drag it to any corner, tap it for full
+screen (pinch to zoom in), or put it away when you just want to read. Send the
+current frame back into the chat to ask about what you are looking at.
 
 </td>
 <td valign="top"><img src="docs/simulator.png" alt="An iOS Simulator mirrored from the Mac above the conversation driving it"></td>
