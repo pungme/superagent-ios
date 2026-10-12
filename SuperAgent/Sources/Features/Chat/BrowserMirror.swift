@@ -414,6 +414,29 @@ struct SimulatorMirror: View {
         }
     }
 
+    /// Pinched closer: the picture is scaled about the middle of the box and
+    /// moved by `pan`; a tap is taken back through both before it is mapped to
+    /// the device (see `unzoom`). One finger moves the picture while zoomed,
+    /// and is a tap otherwise; the device never gets a swipe from here.
+    @State private var zoom: CGFloat = 1
+    @State private var zoomLast: CGFloat = 1
+    @State private var pan: CGSize = .zero
+    @State private var panLast: CGSize = .zero
+
+    /// A point in the box, as it would be with no zoom: where a tap lands on
+    /// the picture at rest. Scaling is about the box's centre, then the pan.
+    static func unzoom(_ p: CGPoint, in box: CGSize, zoom: CGFloat, pan: CGSize) -> CGPoint {
+        let c = CGPoint(x: box.width / 2, y: box.height / 2)
+        return CGPoint(x: (p.x - pan.width - c.x) / zoom + c.x,
+                       y: (p.y - pan.height - c.y) / zoom + c.y)
+    }
+
+    /// The pan held so the picture never leaves the box: at most the overhang.
+    static func clampPan(_ pan: CGSize, in box: CGSize, zoom: CGFloat) -> CGSize {
+        let mx = max(0, (zoom - 1) * box.width / 2), my = max(0, (zoom - 1) * box.height / 2)
+        return CGSize(width: min(mx, max(-mx, pan.width)), height: min(my, max(-my, pan.height)))
+    }
+
     @ViewBuilder
     private var screen: some View {
         GeometryReader { geo in
@@ -423,14 +446,8 @@ struct SimulatorMirror: View {
                     Image(uiImage: image)
                         .resizable().scaledToFit()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        // A tap lands where you put it: the still is the device's
-                        // own pixels, so the only maths is undoing scaledToFit.
-                        .gesture(
-                            SpatialTapGesture().onEnded { t in
-                                guard let px = devicePoint(t.location, in: geo.size, image: image) else { return }
-                                Task { await tap(px) }
-                            }
-                        )
+                        .scaleEffect(zoom)
+                        .offset(pan)
                 } else if let unavailable {
                     Text(unavailable).superFont(13).foregroundStyle(Theme.textTertiary)
                         .multilineTextAlignment(.center).padding()
@@ -438,6 +455,43 @@ struct SimulatorMirror: View {
                     ProgressView()
                 }
             }
+            .clipped()
+            .contentShape(Rectangle())
+            // A tap lands where you put it: the still is the device's own
+            // pixels, so the maths is undoing the zoom, then scaledToFit.
+            .gesture(
+                SpatialTapGesture().onEnded { t in
+                    guard let image else { return }
+                    let at = Self.unzoom(t.location, in: geo.size, zoom: zoom, pan: pan)
+                    guard let px = devicePoint(at, in: geo.size, image: image) else { return }
+                    Task { await tap(px) }
+                }
+            )
+            // Two fingers bring it closer, up to five times, and let it go
+            // again; one finger moves it about while it is close.
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .onChanged { v in
+                        zoom = min(5, max(1, zoomLast * v))
+                        pan = Self.clampPan(pan, in: geo.size, zoom: zoom)
+                    }
+                    .onEnded { _ in
+                        zoomLast = zoom
+                        if zoom <= 1 { withAnimation(.spring(response: 0.3)) { pan = .zero; panLast = .zero } }
+                        else { panLast = pan }
+                    }
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 6)
+                    .onChanged { g in
+                        guard zoom > 1 else { return }
+                        pan = Self.clampPan(CGSize(width: panLast.width + g.translation.width,
+                                                   height: panLast.height + g.translation.height),
+                                            in: geo.size, zoom: zoom)
+                    }
+                    .onEnded { _ in panLast = pan }
+            )
+            .animation(.interactiveSpring(), value: zoom)
         }
     }
 

@@ -50,6 +50,27 @@ struct AnswerContextTests {
 }
 
 /// Picture in picture: where the card rests, and where it settles when let go.
+struct SimulatorZoomTests {
+    @Test("a tap on the zoomed picture is taken back to where it lands at rest")
+    func unzoom() {
+        let box = CGSize(width: 400, height: 800)
+        // No zoom: the point itself.
+        #expect(SimulatorMirror.unzoom(CGPoint(x: 100, y: 300), in: box, zoom: 1, pan: .zero) == CGPoint(x: 100, y: 300))
+        // Twice the size about the centre: the centre stays, a point halfway out comes halfway back.
+        #expect(SimulatorMirror.unzoom(CGPoint(x: 200, y: 400), in: box, zoom: 2, pan: .zero) == CGPoint(x: 200, y: 400))
+        #expect(SimulatorMirror.unzoom(CGPoint(x: 300, y: 600), in: box, zoom: 2, pan: .zero) == CGPoint(x: 250, y: 500))
+        // Moved 50 to the right: the same spot on the picture is 50 further right in the box.
+        #expect(SimulatorMirror.unzoom(CGPoint(x: 350, y: 600), in: box, zoom: 2, pan: CGSize(width: 50, height: 0)) == CGPoint(x: 250, y: 500))
+    }
+
+    @Test("the picture is never moved out of the box")
+    func clamp() {
+        let box = CGSize(width: 400, height: 800)
+        #expect(SimulatorMirror.clampPan(CGSize(width: 900, height: -900), in: box, zoom: 2) == CGSize(width: 200, height: -400))
+        #expect(SimulatorMirror.clampPan(CGSize(width: 30, height: 30), in: box, zoom: 1) == .zero)
+    }
+}
+
 struct MirrorPiPTests {
     private typealias PiP = MirrorPiP<EmptyView>
     private let box = CGSize(width: 390, height: 600)
