@@ -634,17 +634,34 @@ struct MirrorPiP<Content: View>: View {
                             Haptics.tap()
                         }
                 )
+                // From the first touch, not after a few points: the card sits
+                // over the conversation's scroll view, whose own pan takes any
+                // touch that has moved a little and is not yet claimed. Claimed
+                // at once, the card follows the finger; a touch that never
+                // moves is a tap, told apart here, since the buttons under
+                // this gesture never see a real touch (VoiceOver still finds
+                // them).
                 .highPriorityGesture(
-                    DragGesture(minimumDistance: 8)
+                    DragGesture(minimumDistance: 0, coordinateSpace: .local)
                         .onChanged { g in
                             // A second finger landing turns a drag into a pinch.
                             if pinching { return }
                             drag = g.translation
-                            if !dragging { withAnimation(.easeOut(duration: 0.12)) { dragging = true } }
+                            if !dragging, hypot(g.translation.width, g.translation.height) > 4 {
+                                withAnimation(.easeOut(duration: 0.12)) { dragging = true }
+                            }
                         }
                         .onEnded { g in
-                            if pinching || drag == .zero {
+                            if pinching {
                                 withAnimation(.easeOut(duration: 0.12)) { drag = .zero; dragging = false }
+                                return
+                            }
+                            if hypot(g.translation.width, g.translation.height) < 6 {
+                                withAnimation(.easeOut(duration: 0.12)) { drag = .zero; dragging = false }
+                                // A tap: on the × in the corner, or on the picture.
+                                let left = home.x - card.width / 2, top = home.y - card.height / 2
+                                let onClose = g.startLocation.x - left < 36 && g.startLocation.y - top < 36
+                                if onClose { self.onClose() } else { onOpen() }
                                 return
                             }
                             // Where it was heading, not only where it was let go:
