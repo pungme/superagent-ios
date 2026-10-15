@@ -45,6 +45,8 @@ struct RootView: View {
     /// phone. Without this the chat you were reading was simply gone after a
     /// fold, with the sidebar in its place.
     @State private var lastOpened: WireChat?
+    /// ⌘K's palette (CommandPalette): the Mac's way of going anywhere.
+    @State private var showPalette = false
 
     var body: some View {
         Group {
@@ -54,6 +56,33 @@ struct RootView: View {
             } else {
                 NavigationStack { WelcomeView(onPair: { showPair = true }).toolbar { settingsButton } }
             }
+        }
+        // ⌘K, from anywhere in the app, as on the Mac. A button the eye never
+        // sees but the keyboard does: it is also what holding ⌘ on an iPad
+        // lists, so the shortcut can be found without being told.
+        .background {
+            if app.selected != nil {
+                Button("Go to…") { showPalette = true }
+                    .keyboardShortcut("k", modifiers: .command)
+                    .opacity(0).frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+            }
+        }
+        .sheet(isPresented: $showPalette) {
+            if let machine = app.selected {
+                let c = app.connection(for: machine)
+                CommandPalette(
+                    connection: c,
+                    current: (shown ?? lastOpened).map { workspace(c, for: $0) },
+                    openChat: { go(to: $0) },
+                    openProject: { ws in openProject(ws, c) },
+                    newChat: { ws in startChat(in: ws, c) },
+                    openSettings: { showSettings = true })
+            }
+        }
+        // -palette: open on it, for a test to look at.
+        .onAppear {
+            if ProcessInfo.processInfo.arguments.contains("-palette") { showPalette = true }
         }
         .sheet(isPresented: $showPair) { PairView() }
         // item-based, so the sheet always sees the payload that opened it.
@@ -262,6 +291,35 @@ extension RootView {
             projectsPath = NavigationPath()
             projectsPath.append(chat)
             path = NavigationPath()
+        }
+    }
+
+    /// Put a conversation on screen, in whichever shape the app is in.
+    private func go(to chat: WireChat) {
+        if width == .regular {
+            path = NavigationPath()
+            shown = chat
+        } else {
+            tab = .projects
+            projectsPath = NavigationPath()
+            projectsPath.append(chat)
+        }
+    }
+
+    /// A project from ⌘K: its most recent conversation, or a new one if it has none.
+    private func openProject(_ ws: WireWorkspace, _ c: Connection) {
+        if let latest = c.chats.filter({ $0.workspaceId == ws.id }).max(by: { $0.updatedAt < $1.updatedAt }) {
+            go(to: latest)
+        } else {
+            startChat(in: ws, c)
+        }
+    }
+
+    private func startChat(in ws: WireWorkspace, _ c: Connection) {
+        Task {
+            guard let id = try? await c.createChat(workspaceId: ws.id),
+                  let chat = c.chats.first(where: { $0.id == id }) else { return }
+            go(to: chat)
         }
     }
 

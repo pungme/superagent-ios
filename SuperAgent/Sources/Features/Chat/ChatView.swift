@@ -157,7 +157,7 @@ struct ChatView: View {
             // and the keyboard takes it back.
             if regular, !wide, boardShown {
                 boardSide.frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if wide, simShown || pageShown || boardShown {
+            } else if wide, boardShown {
                 // The thing being built sits between the sidebar and the
                 // conversation, as it does on the Mac: what you are looking at
                 // in the middle, what you say about it down the right.
@@ -184,10 +184,13 @@ struct ChatView: View {
                 // Typing with a page up: the page takes the room and the messages
                 // step aside (see typingOverMirror), so you see what you're
                 // talking about while you write.
-                // On a phone the page or simulator is picture in picture over
-                // the conversation (pip, in `conversation`), and takes the
-                // screen only when asked to: full screen, with the
-                // conversation floating over it instead.
+                // The page or simulator is picture in picture over the
+                // conversation (pip, in `conversation`), on an iPad as on a
+                // phone, and takes the screen only when asked to: full screen,
+                // with the conversation floating over it instead. It used to
+                // take a column of its own on an iPad, which left the
+                // conversation a strip beside a page you were mostly not
+                // looking at.
                 if theater, pageShown {
                     mirrorPage
                         .frame(maxHeight: .infinity)
@@ -234,7 +237,7 @@ struct ChatView: View {
             .statusBarHidden(theater)
             // Nothing left to watch (closed on the Mac, put away here, or the
             // phone turned wide): back to the conversation.
-            .onChange(of: !wide && (pageShown || simShown)) { _, watching in
+            .onChange(of: pageShown || simShown) { _, watching in
                 if !watching, theater { theater = false }
             }
     }
@@ -888,7 +891,7 @@ struct ChatView: View {
                       onExpand: { toggleTheater() },
                       expanded: theater,
                       paused: false)
-            .transition(.move(edge: wide ? .trailing : .top).combined(with: .opacity))
+            .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     @ViewBuilder
@@ -896,18 +899,19 @@ struct ChatView: View {
         SimulatorMirror(connection: connection, chat: chat,
                         onAttach: { data in if let a = Attachment(imageData: data) { attachments.append(a) } },
                         onHide: { withAnimation(.easeOut(duration: 0.2)) { setSimHidden(true) } },
-                        onExpand: wide ? nil : { toggleTheater() },
+                        onExpand: { toggleTheater() },
                         expanded: theater,
                         paused: false)
-            .transition(.move(edge: wide ? .trailing : .top).combined(with: .opacity))
+            .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    /// The page or simulator as picture in picture, on a phone. The page wins
+    /// The page or simulator as picture in picture. The page wins
     /// when a conversation has both: one small picture, not two.
     @ViewBuilder
     private var pip: some View {
-        if !wide, !theater, pageShown {
-            MirrorPiP(size: MirrorPiP<EmptyView>.cardSize(aspect: pageAspect, fallback: CGSize(width: 200, height: 130)),
+        if !theater, pageShown {
+            MirrorPiP(size: MirrorPiP<EmptyView>.cardSize(aspect: pageAspect, fallback: CGSize(width: 200 * pipScale, height: 130 * pipScale),
+                                                          long: pipLong),
                       glyph: "globe", label: pageLabel,
                       closeLabel: "Close the page", keyboardUp: composerFocused,
                       onOpen: { composerFocused = false; enterTheater() },
@@ -915,8 +919,9 @@ struct ChatView: View {
                 BrowserMirror(connection: connection, chat: chat, compact: true, paused: false, pip: true,
                               onAspect: { a in if abs((pageAspect ?? 0) - a) > 0.02 { pageAspect = a } })
             }
-        } else if !wide, !theater, simShown {
-            MirrorPiP(size: MirrorPiP<EmptyView>.cardSize(aspect: simAspect, fallback: CGSize(width: 108, height: 230)),
+        } else if !theater, simShown {
+            MirrorPiP(size: MirrorPiP<EmptyView>.cardSize(aspect: simAspect, fallback: CGSize(width: 108 * pipScale, height: 230 * pipScale),
+                                                          long: pipLong),
                       glyph: "iphone", label: simLabel,
                       closeLabel: "Close the simulator", keyboardUp: composerFocused,
                       onOpen: { composerFocused = false; enterTheater() },
@@ -926,6 +931,15 @@ struct ChatView: View {
             }
         }
     }
+
+    /// How long the floating picture's long side is: a phone's 200pt is a
+    /// thumbnail on an iPad, where there is the room to actually read it.
+    private var pipLong: CGFloat {
+        guard regular else { return 200 }
+        return containerWidth >= 900 ? 340 : 280
+    }
+    /// The same growth for the size a picture has before its first frame says its shape.
+    private var pipScale: CGFloat { pipLong / 200 }
 
     /// One bar per thing this conversation has open and you have put away.
     @ViewBuilder
@@ -1151,7 +1165,7 @@ struct ChatView: View {
     private var typingOverMirror: Bool { composerFocused && !wide && (pageShown || simShown) }
     /// The transcript steps aside and the conversation floats over the mirror:
     /// typing over it, or full screen.
-    private var chatFloats: Bool { !wide && (pageShown || simShown) && theater }
+    private var chatFloats: Bool { (pageShown || simShown) && theater }
 
     /// Tapping the floating messages is the way back to the conversation. It
     /// replaced a "Show chat" button on the keyboard's toolbar, which removed
@@ -1177,10 +1191,9 @@ struct ChatView: View {
         }
     }
 
-    /// Full screen on a phone; the iPad's side column already has the room, so
-    /// there the page's own sheet opens as before.
+    /// Full screen, on a phone and an iPad alike: the picture in picture is
+    /// small on both, and tapping it is how you get the page to work in.
     private func enterTheater() {
-        if wide { showBrowserSheet = true; return }
         withAnimation(.easeInOut(duration: 0.22)) { theater = true }
     }
     /// The simulator gets the docked slot only when there is no page in it: two
