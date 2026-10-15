@@ -338,12 +338,31 @@ struct MarkdownImage: View {
     @State private var image: UIImage?
     @State private var failed = false
     @State private var showFull = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    /// The most a preview takes: a phone keeps it small beside the words; an
+    /// iPad has the room to show what is in it.
+    private var maxBox: CGSize {
+        sizeClass == .regular ? CGSize(width: 360, height: 280) : CGSize(width: 240, height: 200)
+    }
+
+    /// `size` scaled down to fit `box`, keeping its shape; never scaled up.
+    static func fitted(_ size: CGSize, within box: CGSize) -> CGSize {
+        guard size.width > 0, size.height > 0 else { return CGSize(width: 160, height: 100) }
+        let s = min(1, box.width / size.width, box.height / size.height)
+        return CGSize(width: (size.width * s).rounded(), height: (size.height * s).rounded())
+    }
 
     var body: some View {
         Group {
             if let image {
-                Image(uiImage: image).resizable().scaledToFit()
-                    .frame(maxWidth: 220, maxHeight: 160, alignment: .leading)
+                let size = MarkdownImage.fitted(image.size, within: maxBox)
+                Image(uiImage: image).resizable().scaledToFill()
+                    // The picture's own shape. It used to be fitted inside a
+                    // fixed 220×160 box with the border drawn round the box, so
+                    // a tall screenshot was a sliver on the left of a wide,
+                    // empty frame.
+                    .frame(width: size.width, height: size.height)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.border))
                     .contentShape(Rectangle())

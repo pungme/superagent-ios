@@ -40,6 +40,12 @@ struct ChatView: View {
     /// A real keyboard is on screen, whatever GameController says is attached
     /// — see KeyboardRoom. The conversation always makes room for that one.
     @State private var keyboardOnScreen = false
+    /// The keyboard's frame, when it last moved, covered only a strip: the
+    /// shortcuts bar a Magic Keyboard leaves. That is a hardware keyboard,
+    /// whatever GameController says — and GameController is not always ready
+    /// to say when the chat appears, which left a strip's worth of empty room
+    /// under the composer on an iPad with a Magic Keyboard.
+    @State private var keyboardStrip = false
     /// The dictated text that has already been dealt with. Speech results are
     /// asynchronous, and the last one — often the final, tidied-up version —
     /// lands AFTER you have tapped send. That put the message you just sent
@@ -748,13 +754,18 @@ struct ChatView: View {
         // so a real on-screen keyboard still gets its usual room — and one
         // that comes up despite an attached keyboard gets it too.
         .ignoresSafeArea(.keyboard,
-                         edges: KeyboardRoom.ignoresKeyboard(hardwareAttached: hardwareKeyboardAttached,
+                         edges: KeyboardRoom.ignoresKeyboard(hardwareAttached: hardwareKeyboardAttached || keyboardStrip,
                                                              onScreen: keyboardOnScreen) ? .bottom : [])
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
             let screen = (note.object as? UIScreen)?.bounds.height ?? UIScreen.main.bounds.height
             let up = KeyboardRoom.onScreen(frame: frame, screenHeight: screen)
             if up != keyboardOnScreen { keyboardOnScreen = up }
+            let strip = KeyboardRoom.isStrip(frame: frame, screenHeight: screen)
+            if strip != keyboardStrip { keyboardStrip = strip }
+            // Asked again now: by the time a keyboard moves, GameController knows.
+            let attached = KeyboardRoom.hardwareAttached
+            if attached != hardwareKeyboardAttached { hardwareKeyboardAttached = attached }
         }
         .onAppear { hardwareKeyboardAttached = KeyboardRoom.hardwareAttached }
         .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidConnect)) { _ in

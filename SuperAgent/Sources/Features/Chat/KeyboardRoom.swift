@@ -32,6 +32,13 @@ enum KeyboardRoom {
         max(0, min(frame.maxY, screenHeight) - max(frame.minY, 0))
     }
 
+    /// Only a hardware keyboard's shortcuts strip is showing: something is on
+    /// screen, and it is too short to be a keyboard.
+    static func isStrip(frame: CGRect, screenHeight: CGFloat) -> Bool {
+        let h = covered(frame: frame, screenHeight: screenHeight)
+        return h > 0 && h <= stripLimit
+    }
+
     /// A real keyboard is on screen, whatever is attached.
     static func onScreen(frame: CGRect, screenHeight: CGFloat) -> Bool {
         covered(frame: frame, screenHeight: screenHeight) > stripLimit

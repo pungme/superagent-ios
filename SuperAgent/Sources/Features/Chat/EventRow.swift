@@ -1014,9 +1014,12 @@ private struct FileImagePreview<Fallback: View>: View {
         Group {
             if let image {
                 VStack(alignment: .leading, spacing: 4) {
+                    // Its own shape, so the border is round the picture and not
+                    // round an empty box beside it (see MarkdownImage.fitted).
+                    let size = MarkdownImage.fitted(image.size, within: CGSize(width: 280, height: 360))
                     Image(uiImage: image)
-                        .resizable().scaledToFit()
-                        .frame(maxWidth: 280, maxHeight: 360, alignment: .leading)
+                        .resizable().scaledToFill()
+                        .frame(width: size.width, height: size.height)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)

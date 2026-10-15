@@ -1468,6 +1468,15 @@ extension Connection {
             }
             c.transcripts["c1"] = t
         }
+        // `-imageReply`: a reply with a picture in it — a tall screenshot, the
+        // shape that used to sit as a sliver in a wide empty box.
+        if ProcessInfo.processInfo.arguments.contains("-imageReply"), var t = c.transcripts["c1"] {
+            t.lastSeq += 1
+            t.events.append(WireEvent(chatId: "c1", seq: t.lastSeq, ts: Date().timeIntervalSince1970 * 1000,
+                                      data: .assistant(id: "img\(t.lastSeq)", text:
+                                        "Here it is on the phone:\n\n![The app on a phone](https://superagent.computer/phone-app.png)\n\nThe header holds.")))
+            c.transcripts["c1"] = t
+        }
         // `-macApproval` / `-toolApproval`: the agent is waiting on a yes, to see
         // the card: one only the Mac can allow (using the Mac itself), and an
         // ordinary one the phone can answer.
