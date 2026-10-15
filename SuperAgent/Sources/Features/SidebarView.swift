@@ -23,6 +23,10 @@ struct SidebarView: View {
     var fixedMode: SidebarMode? = nil
     /// The tabs have a Search tab of their own; the drawer search is the iPad's.
     var showsSearch = true
+    /// Drawn as the iPad's sidebar, beside a conversation. Said by the layout
+    /// rather than read from the size class: a split view's sidebar column
+    /// reports compact, the same as a phone, so it could not tell.
+    var asSidebar = false
     @Environment(AppState.self) private var app
 
     @State private var routines: [WireRoutine] = []
@@ -81,12 +85,32 @@ struct SidebarView: View {
         sheetsAndAlerts(listView)
     }
 
+    /// Two columns: this is the sidebar beside a conversation, not a screen of
+    /// its own. It used to be drawn as a phone's list either way — white cards
+    /// on grey that stopped half way down, rules between every row — which on
+    /// an iPad read as a settings page where a sidebar should be.
+
+    /// A row's background: on an iPad the panel itself, with the open one in a
+    /// rounded highlight inset from the edges, as the Mac's sidebar has it; on
+    /// a phone the card it has always been.
+    @ViewBuilder
+    private func rowBackground(_ selected: Bool) -> some View {
+        if asSidebar {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(selected ? Theme.hover : Color.clear)
+                .padding(.horizontal, 8).padding(.vertical, 1)
+        } else {
+            selected ? Theme.hover : Theme.card
+        }
+    }
+
     /// The list and its chrome. Split from the modifiers below because as one
     /// expression this body took 704ms to type-check — the worst in the app by
     /// five times — and that limit is a time limit: a slower machine gives up
     /// where this one does not, which is exactly what Xcode Cloud kept doing.
     private var listView: some View {
         List {
+            Group {
             if !query.trimmingCharacters(in: .whitespaces).isEmpty {
                 searchSection
             } else {
@@ -102,9 +126,16 @@ struct SidebarView: View {
                     newGroupSection
                 }
             }
+            }
+            .listRowSeparator(asSidebar ? .hidden : .automatic)
+            .listSectionSeparator(asSidebar ? .hidden : .automatic)
         }
         .listStyle(.plain)
+        .environment(\.inSidebar, asSidebar)
         .listRowSeparatorTint(Theme.border)
+        // Beside a conversation it is a sidebar, as on the Mac: one surface,
+        // no rules between the rows — the highlight says which one is open.
+        .environment(\.defaultMinListRowHeight, asSidebar ? 34 : 44)
         .scrollContentBackground(.hidden)
         .background(Theme.panel)
         // Same treatment as the conversation: a status, not an obstruction. A
@@ -315,7 +346,7 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .disabled(computer == nil)
-        .listRowBackground(Theme.card)
+        .listRowBackground(rowBackground(false))
         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 12))
     }
 
@@ -370,7 +401,7 @@ struct SidebarView: View {
                     .foregroundStyle(Theme.textSecondary)
             }
             .buttonStyle(.plain)
-            .listRowBackground(Theme.card)
+            .listRowBackground(rowBackground(false))
         }
     }
 
@@ -416,11 +447,11 @@ struct SidebarView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .listRowBackground(Theme.card)
+                    .listRowBackground(rowBackground(false))
                 }
                 if chats.isEmpty {
                     Text("No chats yet.").superFont(13).foregroundStyle(Theme.textTertiary)
-                        .listRowBackground(Theme.card)
+                        .listRowBackground(rowBackground(false))
                 }
             }
         } header: {
@@ -477,7 +508,7 @@ struct SidebarView: View {
                                     .superFont(13.5).foregroundStyle(Theme.textTertiary)
                             }
                             .buttonStyle(.plain)
-                            .listRowBackground(Theme.card)
+                            .listRowBackground(rowBackground(false))
                         }
                     }
                 } header: {
@@ -650,7 +681,7 @@ struct SidebarView: View {
         if connection.chats.isEmpty {
             Section {
                 Text("Nothing here yet.").superFont(13).foregroundStyle(Theme.textTertiary)
-                    .listRowBackground(Theme.card)
+                    .listRowBackground(rowBackground(false))
             }
         }
         // Pinning used to only mean "sorts first" — a chat already near the
@@ -714,7 +745,7 @@ struct SidebarView: View {
         .buttonStyle(.plain)
         // The row for the conversation on screen says so — with the sidebar
         // beside it, "which one am I in" is otherwise unanswerable.
-        .listRowBackground(chat.id == openId ? Theme.hover : Theme.card)
+        .listRowBackground(rowBackground(chat.id == openId))
         .contextMenu {
             Button { togglePin(chat) } label: {
                 Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
@@ -835,7 +866,7 @@ struct SidebarView: View {
             .accessibilityLabel(folded.contains(ws.id) ? "Expand \(ws.name)" : "Collapse \(ws.name)")
         }
         }
-        .listRowBackground(chats.contains { $0.id == openId } ? Theme.hover : Theme.card)
+        .listRowBackground(rowBackground(chats.contains { $0.id == openId }))
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 12))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { removing = ws } label: { Label("Remove", systemImage: "xmark") }
@@ -966,7 +997,7 @@ struct SidebarView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(Theme.card)
+                .listRowBackground(rowBackground(false))
             }
         }
     }
@@ -1258,6 +1289,7 @@ struct FolderPickerView: View {
 /// .routine-tree-row: 11.5 pt, secondary, 3/8/3/10 padding, radius 6; the
 /// elbow (8 px, at mid-height) meets the spine the parent draws.
 private struct TreeRow<Content: View>: View {
+    @Environment(\.inSidebar) private var inSidebar
     var depth: Int = 1
     /// The tree ends here: the spine drops to this row's elbow and stops.
     var last: Bool = false
@@ -1286,7 +1318,8 @@ private struct TreeRow<Content: View>: View {
         // connected to both their parent and their own elbow.
         .listRowBackground(
             ZStack(alignment: .topLeading) {
-                Theme.card
+                // The panel itself in the iPad's sidebar; a phone's card elsewhere.
+                inSidebar ? Theme.panel : Theme.card
                 ForEach(0..<depth, id: \.self) { level in
                     Rectangle().fill(Theme.border)
                         .frame(width: 1)
@@ -1302,7 +1335,7 @@ private struct TreeRow<Content: View>: View {
 /// The kind glyph on a project row: folder, globe/favicon, or the Mac.
 /// A data URI's own bytes, decoded — `nativeImage`/browser favicon fetches
 /// on the Mac all produce these; this is the one place iOS unwraps one.
-private func decodeDataURI(_ uri: String) -> UIImage? {
+func decodeDataURI(_ uri: String) -> UIImage? {
     guard let comma = uri.firstIndex(of: ",") else { return nil }
     guard let data = Data(base64Encoded: String(uri[uri.index(after: comma)...])) else { return nil }
     return UIImage(data: data)
@@ -1326,7 +1359,11 @@ struct ProjectGlyph: View {
 
     let connection: Connection
     let workspace: WireWorkspace
-    @State private var icon: ProjectIconResult?
+    /// Kept across rows, screens and launches (ProjectIconCache): fetching it
+    /// afresh for every row that appeared is why icons went missing and came
+    /// back slowly, or not at all on a slow link.
+    private var cache: ProjectIconCache { .shared }
+    private var key: String { ProjectIconCache.key(machine: connection.machine.id, workspace: workspace) }
 
     var body: some View {
         Group {
@@ -1338,19 +1375,20 @@ struct ProjectGlyph: View {
                 Image(systemName: "globe")
             } else if workspace.isComputer {
                 Image(systemName: "desktopcomputer")
-            } else if case let .image(dataUri) = icon, let img = decodeDataURI(dataUri) {
-                Image(uiImage: img).resizable().scaledToFit()
-            } else if case let .kind(k) = icon {
-                Image(systemName: glyphSystemName(for: k))
             } else {
-                Image(systemName: "folder")
+                switch cache.icon(for: key) {
+                case let .image(img): Image(uiImage: img).resizable().scaledToFit()
+                case let .kind(k): Image(systemName: glyphSystemName(for: k))
+                case nil: Image(systemName: "folder")
+                }
             }
         }
         .superFont(15).foregroundStyle(Theme.textSecondary)
         .frame(width: box, height: box)
-        .task(id: workspace.id) {
+        .task(id: key) {
             guard !workspace.isBrowser, !workspace.isComputer else { return }
-            icon = try? await connection.projectIcon(workspaceId: workspace.id, path: workspace.path)
+            let c = connection, ws = workspace
+            cache.refresh(key: key) { try await c.projectIcon(workspaceId: ws.id, path: ws.path) }
         }
     }
 }
@@ -1379,4 +1417,11 @@ struct SearchHitGlyph: View {
             Image(systemName: "bubble.left").superFont(13).foregroundStyle(Theme.textSecondary)
         }
     }
+}
+
+
+extension EnvironmentValues {
+    /// Rows are being drawn in the iPad's sidebar (see SidebarView.asSidebar),
+    /// for the row types that live outside SidebarView to follow suit.
+    @Entry var inSidebar: Bool = false
 }

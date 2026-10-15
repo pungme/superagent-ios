@@ -172,7 +172,8 @@ extension RootView {
                     path = NavigationPath()
                     shown = chat
                 },
-                openId: shown?.id
+                openId: shown?.id,
+                asSidebar: true
             )
             .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
             .toolbar { settingsButton }
