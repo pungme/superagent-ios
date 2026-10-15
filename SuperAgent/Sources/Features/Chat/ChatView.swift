@@ -747,7 +747,13 @@ struct ChatView: View {
             if !backgroundTasks.isEmpty, !chatFloats { backgroundStrip }
             Divider().overlay(Theme.border)
             composer
+                // An iPad sits the composer just clear of the home indicator
+                // rather than a whole home-indicator band above the edge: with
+                // a Magic Keyboard attached the indicator goes and its band
+                // stays, an empty strip under the pills.
+                .padding(.bottom, regular ? 6 : 0)
         }
+        .ignoresSafeArea(.container, edges: regular ? .bottom : [])
         // See hardwareKeyboardAttached: with one connected, ignoring the
         // keyboard's safe area stops SwiftUI reserving room for a software
         // keyboard that was never going to appear. Empty edges is a no-op,
