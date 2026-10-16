@@ -368,7 +368,14 @@ extension RootView {
         } else {
             tab = .activity
             activityPath = NavigationPath()
-            activityPath.append(chat)
+            // A beat later, not in the same update: pushed while the tab bar was
+            // still being set up (a notification opening the app), the chat's
+            // "hide the tab bar" was lost, and the bar sat beside or under the
+            // conversation — down the whole side of an iPhone Duo's cover screen.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(60))
+                activityPath.append(chat)
+            }
         }
         app.openChatId = nil
     }

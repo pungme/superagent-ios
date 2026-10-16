@@ -460,6 +460,13 @@ struct ChatView: View {
             let measured = containerHeight - pageHeight - box
             if measured > 0, abs(measured - chromeHeight) > 8 { chromeHeight = measured }
         }
+        // The transcript's own height changing — the tab bar going as a
+        // conversation opens, a fold, a banner — moves where the end is. A
+        // reader at the end stays at the end; without this a conversation
+        // opened from a notification sat partway up its own messages.
+        .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height.rounded() } action: { old, new in
+            if following, old != new, !chatFloats { scrollToEnd(animated: false) }
+        }
         .onScrollGeometryChange(for: Bool.self) { geo in
             geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 40
         } action: { _, isAtEnd in
