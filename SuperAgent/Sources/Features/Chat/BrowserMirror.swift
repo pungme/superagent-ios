@@ -596,11 +596,31 @@ struct MirrorPiP<Content: View>: View {
     let keyboardUp: Bool
     let onOpen: () -> Void
     let onClose: () -> Void
-    @ViewBuilder let content: Content
+    let content: Content
 
-    @AppStorage("mirror.pip.corner") private var corner = Corner.topTrailing.rawValue
+    @AppStorage private var corner: String
     /// How much bigger than its base size the card was pinched to; kept.
-    @AppStorage("mirror.pip.scale") private var scale = 1.0
+    @AppStorage private var scale: Double
+
+    /// `place` keeps a second card's corner and size apart from the first's:
+    /// on an iPad the page and the simulator float at once, and sharing one
+    /// corner put them on top of each other. `start` is where a card goes
+    /// before it has ever been moved.
+    init(size: CGSize, glyph: String, label: String, closeLabel: String, keyboardUp: Bool,
+         place: String = "", start: Corner = .topTrailing,
+         onOpen: @escaping () -> Void, onClose: @escaping () -> Void,
+         @ViewBuilder content: () -> Content) {
+        self.size = size
+        self.glyph = glyph
+        self.label = label
+        self.closeLabel = closeLabel
+        self.keyboardUp = keyboardUp
+        self.onOpen = onOpen
+        self.onClose = onClose
+        self.content = content()
+        _corner = AppStorage(wrappedValue: start.rawValue, "mirror.pip.corner\(place)")
+        _scale = AppStorage(wrappedValue: 1.0, "mirror.pip.scale\(place)")
+    }
     @State private var drag: CGSize = .zero
     @State private var dragging = false
     /// The pinch under way, as a factor on `scale`; 1 between pinches.

@@ -62,24 +62,41 @@ struct RootView: View {
         // lists, so the shortcut can be found without being told.
         .background {
             if app.selected != nil {
-                Button("Go to…") { showPalette = true }
+                Button("Go to…") {
+                    var instant = Transaction()
+                    instant.disablesAnimations = true
+                    withTransaction(instant) { showPalette.toggle() }
+                }
                     .keyboardShortcut("k", modifiers: .command)
                     .opacity(0).frame(width: 0, height: 0)
                     .accessibilityHidden(true)
             }
         }
-        .sheet(isPresented: $showPalette) {
-            if let machine = app.selected {
-                let c = app.connection(for: machine)
-                CommandPalette(
-                    connection: c,
-                    current: (shown ?? lastOpened).map { workspace(c, for: $0) },
-                    openChat: { go(to: $0) },
-                    openProject: { ws in openProject(ws, c) },
-                    newChat: { ws in startChat(in: ws, c) },
-                    openSettings: { showSettings = true })
+        // A phone gets a sheet. An iPad gets a card over the window, there
+        // and gone with no animation — the sheet's slide up and down was the
+        // slowest thing about going somewhere with ⌘K.
+        .sheet(isPresented: Binding(get: { showPalette && width != .regular },
+                                    set: { if !$0 { showPalette = false } })) {
+            palette
+        }
+        .overlay {
+            if showPalette, width == .regular {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.18).ignoresSafeArea()
+                        .onTapGesture { showPalette = false }
+                    palette
+                        .frame(width: 600, height: 460)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.border))
+                        .shadow(color: .black.opacity(0.22), radius: 30, y: 12)
+                        .padding(.top, 90)
+                }
+                // Where it was asked for, not where a keyboard would shove it.
+                .ignoresSafeArea(.keyboard)
+                .transition(.identity)
             }
         }
+        .animation(nil, value: showPalette)
         // -palette: open on it, for a test to look at.
         .onAppear {
             if ProcessInfo.processInfo.arguments.contains("-palette") { showPalette = true }
@@ -292,6 +309,22 @@ extension RootView {
             projectsPath = NavigationPath()
             projectsPath.append(chat)
             path = NavigationPath()
+        }
+    }
+
+    /// ⌘K's palette for the paired Mac.
+    @ViewBuilder
+    private var palette: some View {
+        if let machine = app.selected {
+            let c = app.connection(for: machine)
+            CommandPalette(
+                connection: c,
+                current: (shown ?? lastOpened).map { workspace(c, for: $0) },
+                openChat: { go(to: $0) },
+                openProject: { ws in openProject(ws, c) },
+                newChat: { ws in startChat(in: ws, c) },
+                openSettings: { showSettings = true },
+                close: { showPalette = false })
         }
     }
 

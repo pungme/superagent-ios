@@ -197,7 +197,7 @@ struct ChatView: View {
                 // take a column of its own on an iPad, which left the
                 // conversation a strip beside a page you were mostly not
                 // looking at.
-                if theater, pageShown {
+                if theater, pageShown, !(theaterSim && simShown) {
                     mirrorPage
                         .frame(maxHeight: .infinity)
                         .overlay(alignment: .bottomTrailing) { floatingChat }
@@ -715,7 +715,7 @@ struct ChatView: View {
             // Attached but not on screen: say so, and offer it back. Without
             // this the page simply vanishes when you hide it or start typing,
             // and nothing says the conversation still has one.
-            if simAttached, !simShown, !pageShown {
+            if simAttached, !simShown, !pageShown || regular {
                 showBar(icon: "iphone", label: simLabel) { setSimHidden(false); composerFocused = false }
             }
             if pageAttached, !pageShown {
@@ -927,21 +927,38 @@ struct ChatView: View {
     @ViewBuilder
     private var pip: some View {
         if !theater, pageShown {
+            pagePiP
+        }
+        if !theater, simShown {
+            simPiP
+        }
+    }
+
+    @ViewBuilder
+    private var pagePiP: some View {
+        if pageShown {
             MirrorPiP(size: MirrorPiP<EmptyView>.cardSize(aspect: pageAspect, fallback: CGSize(width: 200 * pipScale, height: 130 * pipScale),
                                                           long: pipLong),
                       glyph: "globe", label: pageLabel,
                       closeLabel: "Close the page", keyboardUp: composerFocused,
-                      onOpen: { composerFocused = false; enterTheater() },
+                      onOpen: { composerFocused = false; theaterSim = false; enterTheater() },
                       onClose: { withAnimation(.easeOut(duration: 0.2)) { setPageHidden(true) } }) {
                 BrowserMirror(connection: connection, chat: chat, compact: true, paused: false, pip: true,
                               onAspect: { a in if abs((pageAspect ?? 0) - a) > 0.02 { pageAspect = a } })
             }
-        } else if !theater, simShown {
+        }
+    }
+
+    @ViewBuilder
+    private var simPiP: some View {
+        if simShown {
             MirrorPiP(size: MirrorPiP<EmptyView>.cardSize(aspect: simAspect, fallback: CGSize(width: 108 * pipScale, height: 230 * pipScale),
                                                           long: pipLong),
                       glyph: "iphone", label: simLabel,
                       closeLabel: "Close the simulator", keyboardUp: composerFocused,
-                      onOpen: { composerFocused = false; enterTheater() },
+                      // Its own corner, so it never lands on the page's card.
+                      place: ".sim", start: pageShown ? .topLeading : .topTrailing,
+                      onOpen: { composerFocused = false; theaterSim = true; enterTheater() },
                       onClose: { withAnimation(.easeOut(duration: 0.2)) { setSimHidden(true) } }) {
                 SimulatorMirror(connection: connection, chat: chat, paused: false, pip: true,
                                 onAspect: { a in if abs((simAspect ?? 0) - a) > 0.02 { simAspect = a } })
@@ -1215,7 +1232,11 @@ struct ChatView: View {
     }
     /// The simulator gets the docked slot only when there is no page in it: two
     /// mirrors over one conversation on a phone leaves room for neither.
-    private var simShown: Bool { simAttached && !pageShown && !simHidden }
+    /// On an iPad both float at once, each in its own corner: there is room
+    /// for a page and a phone beside the conversation.
+    private var simShown: Bool { simAttached && (regular || !pageShown) && !simHidden }
+    /// Which one full screen shows when both are up: the one that was tapped.
+    @State private var theaterSim = false
     private var simLabel: String { connection.simulators[chat.id]?.device ?? "Simulator" }
 
     /// The page's host, or its title when there is no useful host.

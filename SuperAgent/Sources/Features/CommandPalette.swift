@@ -14,8 +14,9 @@ struct CommandPalette: View {
     let openProject: (WireWorkspace) -> Void
     let newChat: (WireWorkspace) -> Void
     let openSettings: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
+    /// Put the palette away: a sheet on a phone, a card over the window on an
+    /// iPad, so whoever shows it says how it goes.
+    let close: () -> Void
     @State private var query = ""
     @State private var selected = 0
     @FocusState private var focused: Bool
@@ -40,7 +41,7 @@ struct CommandPalette: View {
                     .onSubmit { run(items, at: selected) }
                     .onKeyPress(.downArrow) { move(+1, count: items.count); return .handled }
                     .onKeyPress(.upArrow) { move(-1, count: items.count); return .handled }
-                    .onKeyPress(.escape) { dismiss(); return .handled }
+                    .onKeyPress(.escape) { closeNow(); return .handled }
                 Text("esc").superFont(11, weight: .medium).foregroundStyle(Theme.textTertiary)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
@@ -112,6 +113,13 @@ struct CommandPalette: View {
         .accessibilityIdentifier("palette-row")
     }
 
+    /// Gone at once: no animation on the way out either.
+    private func closeNow() {
+        var instant = Transaction()
+        instant.disablesAnimations = true
+        withTransaction(instant) { close() }
+    }
+
     private func move(_ by: Int, count: Int) {
         guard count > 0 else { return }
         selected = (selected + by + count) % count
@@ -120,7 +128,7 @@ struct CommandPalette: View {
     private func run(_ items: [CommandPaletteModel.Item], at index: Int) {
         guard items.indices.contains(index) else { return }
         let action = items[index].action
-        dismiss()
+        closeNow()
         switch action {
         case let .chat(chat): openChat(chat)
         case let .project(ws): openProject(ws)
