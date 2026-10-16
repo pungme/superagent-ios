@@ -320,7 +320,10 @@ struct Composer: View {
     /// never eat something typed in between.
     private func submit() {
         let text = draft
-        let wasTyping = focused.wrappedValue
+        // With a hardware keyboard the cursor comes back whichever way the
+        // message went — Return, or Send pressed with the trackpad, which took
+        // focus off the box on its way and left the next message a tap away.
+        let wasTyping = focused.wrappedValue || KeyboardRoom.hardwareAttached
         dictationSpent = true
         draft = ""
         saveDraft()

@@ -474,7 +474,12 @@ struct ChatView: View {
         // does. Simultaneous, so a tap that lands on an approval button or
         // a choice still reaches it.
         .simultaneousGesture(
-            TapGesture().onEnded { if composerFocused { composerFocused = false } }
+            // Not with a hardware keyboard: there is no keyboard to put away,
+            // only the cursor to lose, and then every next message started
+            // with a tap back into the box.
+            TapGesture().onEnded {
+                if composerFocused, !(hardwareKeyboardAttached || keyboardStrip) { composerFocused = false }
+            }
         )
         .overlay(alignment: .bottomTrailing) {
             if !atBottom {
@@ -773,9 +778,13 @@ struct ChatView: View {
             let attached = KeyboardRoom.hardwareAttached
             if attached != hardwareKeyboardAttached { hardwareKeyboardAttached = attached }
         }
-        .onAppear { hardwareKeyboardAttached = KeyboardRoom.hardwareAttached }
+        .onAppear {
+            hardwareKeyboardAttached = KeyboardRoom.hardwareAttached
+            focusForKeyboard()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidConnect)) { _ in
             hardwareKeyboardAttached = true
+            focusForKeyboard()
         }
         .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidDisconnect)) { _ in
             hardwareKeyboardAttached = KeyboardRoom.hardwareAttached
@@ -1213,6 +1222,20 @@ struct ChatView: View {
             withAnimation(.easeInOut(duration: 0.22)) {
                 theater = false
                 composerFocused = false
+            }
+        }
+    }
+
+    /// With a hardware keyboard the cursor waits in the message box, as on the
+    /// Mac: opening a conversation is so you can type in it. Without one this
+    /// would throw the on-screen keyboard over a conversation you came to read.
+    private func focusForKeyboard() {
+        guard KeyboardRoom.hardwareAttached || hardwareKeyboardAttached || keyboardStrip else { return }
+        Task { @MainActor in
+            // The composer may still be mounting as the conversation appears.
+            for wait in [0, 120, 400] {
+                if wait > 0 { try? await Task.sleep(for: .milliseconds(wait)) }
+                if !composerFocused { composerFocused = true }
             }
         }
     }
