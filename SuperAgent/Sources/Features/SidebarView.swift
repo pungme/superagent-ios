@@ -137,6 +137,11 @@ struct SidebarView: View {
         // no rules between the rows — the highlight says which one is open.
         .environment(\.defaultMinListRowHeight, asSidebar ? 34 : 44)
         .scrollContentBackground(.hidden)
+        // iPadOS draws a translucent grey band at the bottom of a scrolling
+        // list, to set it off from a toolbar below. The sidebar has no
+        // toolbar there, so the band was just a grey patch at the bottom left
+        // of the screen. A phone keeps it: there is a tab bar under its list.
+        .scrollEdgeEffectHidden(asSidebar, for: .bottom)
         .background(Theme.panel)
         // Same treatment as the conversation: a status, not an obstruction. A
         // band across the top pushed every project down and drew the eye to the
