@@ -1,3 +1,4 @@
+import Photos
 import SwiftUI
 
 /// `.fullScreenCover(item:)` needs Identifiable; a raw Int index doesn't
@@ -72,6 +73,10 @@ struct ImageViewerSheet: View {
     let images: [UIImage]
     @State var index: Int
     @Environment(\.dismiss) private var dismiss
+    /// What Save said, shown for a moment over the picture.
+    @State private var saved: String?
+
+    private var current: UIImage? { images.indices.contains(index) ? images[index] : nil }
 
     var body: some View {
         NavigationStack {
@@ -82,12 +87,65 @@ struct ImageViewerSheet: View {
             }
             .tabViewStyle(.page(indexDisplayMode: images.count > 1 ? .always : .never))
             .background(Color.black.ignoresSafeArea())
+            .overlay(alignment: .bottom) {
+                if let saved {
+                    Label(saved, systemImage: saved == "Saved to Photos" ? "checkmark.circle.fill" : "exclamationmark.circle")
+                        .superFont(14, weight: .semibold)
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.bottom, 40)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
             .toolbar {
+                // Keep it: straight into Photos, or anywhere else through the
+                // share sheet (Copy, AirDrop, Files). A picture you could only
+                // look at, and then lose, was the whole of this screen before.
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    if let image = current {
+                        Button { save(image) } label: { Image(systemName: "square.and.arrow.down") }
+                            .foregroundStyle(.white)
+                            .accessibilityLabel("Save to Photos")
+                        ShareLink(item: Image(uiImage: image), preview: SharePreview("Image", image: Image(uiImage: image))) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .foregroundStyle(.white)
+                        .accessibilityLabel("Share")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }.foregroundStyle(.white)
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
+        }
+    }
+
+    private func save(_ image: UIImage) {
+        PhotoSaver.save(image) { ok in
+            withAnimation(.easeOut(duration: 0.2)) { saved = ok ? "Saved to Photos" : "Allow Photos access in Settings to save" }
+            if ok { Haptics.tap() }
+            Task {
+                try? await Task.sleep(for: .seconds(1.8))
+                withAnimation(.easeOut(duration: 0.2)) { saved = nil }
+            }
+        }
+    }
+}
+
+/// Writes a picture into Photos (add-only access: it can save, not read).
+enum PhotoSaver {
+    static func save(_ image: UIImage, done: @escaping @MainActor (Bool) -> Void) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                Task { @MainActor in done(false) }
+                return
+            }
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            } completionHandler: { ok, _ in
+                Task { @MainActor in done(ok) }
+            }
         }
     }
 }
