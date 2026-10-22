@@ -10,6 +10,9 @@ struct ChatView: View {
     /// How this chat pushes a screen of its own. RootView owns the path; the
     /// agent's `open_file` is the only thing that needs it so far.
     var push: ((FileRef) -> Void)?
+    /// How this chat opens Files or Todo on its own stack (from the ⋯ menu).
+    var openPanel: ((WorkspacePanel) -> Void)?
+    @Environment(\.inSplitTile) private var inSplitTile
     /// The round icon buttons hold a glyph that grows with the text size;
     /// the well has to grow with it or the glyph spills over the circle.
     @ScaledMetric(relativeTo: .subheadline) private var well: CGFloat = 34
@@ -147,17 +150,22 @@ struct ChatView: View {
 
     var body: some View {
         events(sheets(chrome))
+            .overlay(alignment: .topTrailing) {
+                if inSplitTile {
+                    moreMenu
+                        .superFont(15, weight: .medium)
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 32, height: 32)
+                        .background(.regularMaterial, in: Circle())
+                        .padding(8)
+                }
+            }
     }
 
     /// `body` split into stages on purpose. As one chained expression, with the
     /// composer's focus binding threaded through it, the type checker gave up.
     private var chrome: some View {
         VStack(spacing: 0) {
-            ProjectBar(connection: connection, workspace: workspace, pageOpen: pageShown,
-                       pageAttached: pageAttached,
-                       onBrowser: togglePage, onBranches: { showBranches = true }, onNewChat: newChat, creating: creating,
-                       boardOpen: boardShown,
-                       onBoard: regular ? { withAnimation(.easeInOut(duration: 0.2)) { boardShown.toggle() } } : nil)
             // With the room, the page goes BESIDE the conversation, which is
             // what the Mac does. On a phone there is no room, so it docks above
             // and the keyboard takes it back.
@@ -572,7 +580,57 @@ struct ChatView: View {
                     }
                     .accessibilityLabel("Tasks")
                 }
+                moreMenu
             }
+    }
+
+    /// Files, Todo, the page, the branch and New chat, in one ⋯ instead of a
+    /// row of chips over the conversation. In a split window (no navigation
+    /// bar) it sits in the window's top corner instead.
+    private var moreMenu: some View {
+        Menu {
+            if !workspace.isBrowser, !workspace.isComputer {
+                if let openPanel {
+                    Button { openPanel(WorkspacePanel(kind: .files, workspace: workspace)) } label: {
+                        Label("Files", systemImage: "doc.text")
+                    }
+                }
+                if regular {
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { boardShown.toggle() } } label: {
+                        Label(boardShown ? "Hide Todo" : "Todo", systemImage: "square.grid.2x2")
+                    }
+                } else if let openPanel {
+                    Button { openPanel(WorkspacePanel(kind: .board, workspace: workspace)) } label: {
+                        Label("Todo", systemImage: "square.grid.2x2")
+                    }
+                }
+            }
+            Button(action: togglePage) {
+                Label(pageShown ? "Hide the page" : "Show the page", systemImage: "safari")
+            }
+            .disabled(connection.state != .connected)
+            if let b = workspace.branch, !b.isEmpty {
+                Button { showBranches = true } label: {
+                    Label("Branch: \(b)", systemImage: "arrow.triangle.branch")
+                }
+            }
+            if inSplitTile {
+                let pinned = connection.chats.first { $0.id == chat.id }?.isPinned ?? false
+                Button {
+                    Task {
+                        do { try await connection.pinChat(chatId: chat.id, pinned: !pinned); Haptics.tap() }
+                        catch { self.error = error.localizedDescription }
+                    }
+                } label: { Label(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") }
+            }
+            Divider()
+            Button(action: newChat) { Label("New chat", systemImage: "square.and.pencil") }
+                .disabled(creating || connection.state != .connected)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("More")
+        .accessibilityIdentifier("chat-more")
     }
 
     private var modelBinding: Binding<String> {
@@ -1463,77 +1521,6 @@ struct WorkingRow: View {
             }
             .padding(.vertical, 4)
         }
-    }
-}
-
-/// The bar above a project's chat, as on the desktop: Files, Todo (the board),
-/// the project's name and branch, Preview for browser projects, New chat.
-struct ProjectBar: View {
-    let connection: Connection
-    let workspace: WireWorkspace
-    let pageOpen: Bool
-    /// A page is attached to this conversation. When one is, the bar below says
-    /// so and offers Show, so this bar does not need a button for it; the
-    /// compass is only how you open a page when there is not one.
-    var pageAttached = false
-    let onBrowser: () -> Void
-    let onBranches: () -> Void
-    let onNewChat: () -> Void
-    let creating: Bool
-    /// Set on wide layouts: Todo toggles a panel beside the conversation, the
-    /// way the Mac shows it, instead of pushing a screen you must come back
-    /// from. Nil keeps the push, which is right on a phone with no room.
-    var boardOpen = false
-    var onBoard: (() -> Void)?
-
-    var body: some View {
-        HStack(spacing: 6) {
-            // The chips scroll rather than truncate: at the larger text sizes
-            // "Routines" and the branch name no longer fit across a phone, and
-            // a bar that reads "Ro…" is worse than one you push sideways.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    if !workspace.isBrowser, !workspace.isComputer {
-                        NavigationLink(value: WorkspacePanel(kind: .files, workspace: workspace)) { barButton("Files", "doc.text") }
-                        if let onBoard {
-                            Button(action: onBoard) { barButton("Todo", "square.grid.2x2", on: boardOpen) }
-                                .buttonStyle(.plain)
-                        } else {
-                            NavigationLink(value: WorkspacePanel(kind: .board, workspace: workspace)) { barButton("Todo", "square.grid.2x2") }
-                        }
-                        // No Routines chip: the desktop's bar doesn't have
-                        // one either — routines are rows in the sidebar's tree.
-                    }
-                    if !pageAttached {
-                        Button(action: onBrowser) { barButton(nil, pageOpen ? "safari.fill" : "safari", on: pageOpen) }
-                            .buttonStyle(.plain).disabled(connection.state != .connected)
-                            .accessibilityLabel(pageOpen ? "Hide the page" : "Show the page")
-                    }
-                    if let b = workspace.branch, !b.isEmpty {
-                        Button(action: onBranches) { BranchChip(branch: b) }.buttonStyle(.plain)
-                    }
-                }
-            }
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            // ✎ at the right, as on the desktop — outside the scroller, always reachable.
-            Button(action: onNewChat) { barButton(nil, "square.and.pencil") }
-                .buttonStyle(.plain).disabled(creating || connection.state != .connected)
-                .accessibilityLabel("New chat")
-        }
-        .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(Theme.panel)
-        .overlay(alignment: .bottom) { Divider().overlay(Theme.border) }
-    }
-
-    private func barButton(_ title: String?, _ icon: String, on: Bool = false) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon).superFont(11, weight: .medium)
-            if let title { Text(title).superFont(12, weight: .medium).lineLimit(1) }
-        }
-        .foregroundStyle(on ? Theme.textPrimary : Theme.textSecondary)
-        .padding(.horizontal, title == nil ? 7 : 8).padding(.vertical, 5)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.border))
     }
 }
 

@@ -1445,4 +1445,10 @@ extension EnvironmentValues {
     /// Rows are being drawn in the iPad's sidebar (see SidebarView.asSidebar),
     /// for the row types that live outside SidebarView to follow suit.
     @Entry var inSidebar: Bool = false
+    /// The composer is in a split window (see RootView.tileView): pills
+    /// without their labels.
+    @Entry var compactComposer: Bool = false
+    /// The chat is a window of the iPad's split: no navigation bar of its
+    /// own, so its ⋯ menu sits in the window's corner.
+    @Entry var inSplitTile: Bool = false
 }

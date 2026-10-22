@@ -6,6 +6,9 @@ import SwiftUI
 /// opens the commands the agent reported for this session.
 struct Composer: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// In a split window the pills drop their "Model"/"Mode" labels so they
+    /// fit on one line, as the Mac's composer folds in a narrow window.
+    @Environment(\.compactComposer) private var compact
     /// The round icon buttons hold a glyph that grows with the text size;
     /// the well has to grow with it or the glyph spills over the circle. It
     /// stops growing at 46 pt, and the glyphs stop at .accessibility1, because
@@ -173,7 +176,7 @@ struct Composer: View {
                     } label: {
                         ControlPill {
                             HStack(spacing: 4) {
-                                Text("Account").foregroundStyle(Theme.textTertiary)
+                                if !compact { Text("Account").foregroundStyle(Theme.textTertiary) }
                                 Text(current.shortName)
                                 if let pct = current.fullest() {
                                     Text("\(pct)%").foregroundStyle(usageColour(pct)).monospacedDigit()
@@ -205,7 +208,7 @@ struct Composer: View {
                         }
                     }
                 } label: {
-                    ControlPill { HStack(spacing: 4) { Text("Model").foregroundStyle(Theme.textTertiary); Text(modelPillLabel); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                    ControlPill { HStack(spacing: 4) { if !compact { Text("Model").foregroundStyle(Theme.textTertiary) }; Text(modelPillLabel); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
                 Menu {
                     ForEach(Composer.modes, id: \.id) { m in
@@ -214,7 +217,7 @@ struct Composer: View {
                         }
                     }
                 } label: {
-                    ControlPill { HStack(spacing: 4) { Text("Mode").foregroundStyle(Theme.textTertiary); Text(Composer.modes.first { $0.id == mode }?.label ?? "Full"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                    ControlPill { HStack(spacing: 4) { if !compact { Text("Mode").foregroundStyle(Theme.textTertiary) }; Text(Composer.modes.first { $0.id == mode }?.label ?? "Full"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
                 if let b = browserChoices, b.browsers.count > 1 {
                     Menu {
@@ -227,7 +230,7 @@ struct Composer: View {
                             }
                         }
                     } label: {
-                        ControlPill { HStack(spacing: 4) { Text("Browser").foregroundStyle(Theme.textTertiary); Text(b.currentName); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                        ControlPill { HStack(spacing: 4) { if !compact { Text("Browser").foregroundStyle(Theme.textTertiary) }; Text(b.currentName); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                     }
                     .accessibilityIdentifier("browser-pill")
                 }
@@ -236,7 +239,7 @@ struct Composer: View {
                     // The desktop's Memory gauge, at pill size: how much of the
                     // context window the conversation is carrying.
                     HStack(spacing: 5) {
-                        Text("Memory").foregroundStyle(Theme.textTertiary)
+                        if !compact { Text("Memory").foregroundStyle(Theme.textTertiary) }
                         Capsule().fill(Theme.accentSoft)
                             .frame(width: 36, height: 4)
                             .overlay(alignment: .leading) {

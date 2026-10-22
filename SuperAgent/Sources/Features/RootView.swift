@@ -341,7 +341,7 @@ extension RootView {
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 0.5) }
             TileStack { tilePath in
                 destinations(
-                    ChatView(push: { tilePath.wrappedValue.append($0) },
+                    ChatView(push: { tilePath.wrappedValue.append($0) }, openPanel: { tilePath.wrappedValue.append($0) },
                              connection: c, chat: chat, workspace: ws)
                         // The header above says whose window it is; a second
                         // bar inside would merge into the column's own.
@@ -349,6 +349,8 @@ extension RootView {
                         .id(chat.id),
                     c, tilePath)
             }
+            .environment(\.compactComposer, true)
+            .environment(\.inSplitTile, true)
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
@@ -366,7 +368,7 @@ extension RootView {
     @ViewBuilder
     private func detail(_ c: Connection) -> some View {
         if let chat = shown {
-            ChatView(push: { path.append($0) },
+            ChatView(push: { path.append($0) }, openPanel: { path.append($0) },
                      connection: c, chat: chat, workspace: workspace(c, for: chat))
                 .onAppear { lastOpened = chat }
                 // A different conversation is a different screen, not the same
@@ -397,7 +399,7 @@ extension RootView {
     private func destinations(_ view: some View, _ c: Connection, _ path: Binding<NavigationPath>) -> some View {
         view
             .navigationDestination(for: WireChat.self) { chat in
-                ChatView(push: { path.wrappedValue.append($0) },
+                ChatView(push: { path.wrappedValue.append($0) }, openPanel: { path.wrappedValue.append($0) },
                          connection: c, chat: chat, workspace: workspace(c, for: chat))
                     .onAppear { lastOpened = chat }
                     // The tabs choose a place to go; once a conversation is
