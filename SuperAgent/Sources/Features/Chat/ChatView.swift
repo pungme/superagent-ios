@@ -308,7 +308,7 @@ struct ChatView: View {
                     Task { await connection.loadAccounts(chatId: chat.id) }
                 }
             }
-            .onChange(of: connection.state) { _, s in if s == .connected { connection.subscribe(chatId: chat.id) } }
+            .onChange(of: connection.state) { _, s in if s == .connected { connection.catchUp(chatId: chat.id) } }
             // Which browser this conversation uses can change on the Mac while
             // the phone is away, so it is asked for each time the chat opens.
             .task(id: connection.state == .connected) {

@@ -14,11 +14,14 @@ struct ConnectionLinkTests {
         private let lock = NSLock()
         private var _closed = false
         private var _sent = 0
+        private var _texts: [String] = []
         var closed: Bool { lock.withLock { _closed } }
         var sent: Int { lock.withLock { _sent } }
+        /// Everything sent, still sealed.
+        var texts: [String] { lock.withLock { _texts } }
         init(emit: @escaping @Sendable (RelayTransport.Event) -> Void) { self.emit = emit }
         func connect(relay: String, machineId: String) {}
-        func send(_ text: String) { lock.withLock { _sent += 1 } }
+        func send(_ text: String) { lock.withLock { _sent += 1; _texts.append(text) } }
         func close() { lock.withLock { _closed = true } }
     }
     final class Sockets: @unchecked Sendable {
@@ -123,5 +126,104 @@ struct ConnectionLinkTests {
         try await Task.sleep(for: .milliseconds(300))
         #expect(sockets.made[0].closed)
         #expect(c.state == .connecting)
+    }
+
+    /// What the phone has said to the Mac, opened as the Mac opens it: each
+    /// frame's `t`, with the chat it names.
+    private func said(_ socket: FakeTransport) throws -> [String] {
+        try frames(socket).map { o in
+            let t = o["t"] as? String ?? "?"
+            return (o["chatId"] as? String).map { "\(t) \($0)" } ?? t
+        }
+    }
+
+    private func frames(_ socket: FakeTransport) throws -> [[String: Any]] {
+        var mac = Opener(key: DeviceKeys(secret: machine.secret, machineId: machine.id).p2m,
+                         aad: aad(machineId: machine.id, direction: .p2m))
+        var out: [[String: Any]] = []
+        for sealed in socket.texts {
+            let plain = mac.open(sealed)
+            let opened = try #require(plain)
+            out.append(try #require(JSONSerialization.jsonObject(with: Data(opened.utf8)) as? [String: Any]))
+        }
+        return out
+    }
+
+    /// Replying to a long answer of the agent's. Its whole text went as the
+    /// quote, and a Mac refuses a quote over 4,000 characters — with it the
+    /// message, so the reply sat on the phone marked as failed.
+    @Test func aReplyToALongAnswerGoesWithAQuoteAnyMacTakes() async throws {
+        let (c, socket) = try await connected()
+        let long = String(repeating: "Step by step, here is the plan. 🙂 ", count: 300)
+        c.sendMessage(chatId: "c", text: "do step two first", replyTo: ReplyQuote(role: .assistant, text: long))
+        await settle()
+        let send = try #require(try frames(socket).first { ($0["method"] as? String) == "chat.send" })
+        let params = try #require(send["params"] as? [String: Any])
+        #expect(params["text"] as? String == "do step two first")
+        let quote = try #require(params["replyTo"] as? [String: Any])
+        #expect(quote["role"] as? String == "assistant")
+        let text = try #require(quote["text"] as? String)
+        #expect(text.utf16.count <= 4_000)
+        #expect(text.hasPrefix("Step by step, here is the plan."))
+        // The bubble still shows what you picked, whole.
+        #expect(c.transcripts["c"]?.outbox.first?.replyTo?.text == long)
+    }
+
+    private func connected() async throws -> (Connection, FakeTransport) {
+        let (c, sockets) = connection()
+        c.connect()
+        let socket = sockets.made[0]
+        socket.emit(.opened)
+        socket.emit(.text(try welcome()))
+        await settle()
+        #expect(c.state == .connected)
+        return (c, socket)
+    }
+
+    /// The conversation you are in, opened again from a notification about it.
+    /// The new copy arrives before the old one says it has gone, and that late
+    /// goodbye used to unsubscribe the chat still on screen: the Mac stopped
+    /// sending it anything, and it sat on what it had until you left it.
+    @Test func theSameChatOpenedTwiceStaysSubscribedWhenTheOldCopyLeaves() async throws {
+        let (c, socket) = try await connected()
+        c.subscribe(chatId: "c")      // the conversation you were in
+        c.subscribe(chatId: "c")      // the same one, pushed by the notification
+        c.unsubscribe(chatId: "c")    // the first copy's transition ends
+        await settle()
+        #expect(try said(socket).filter { $0.hasSuffix(" c") } == ["subscribe c"],
+                "the chat on screen must not be unsubscribed on the Mac")
+        #expect(c.transcripts["c"]?.subscribed == true)
+
+        // Live text still reaches it…
+        c._applyForTests(.delta(chatId: "c", text: "Still here"))
+        await settle()
+        #expect(c.stream("c").text == "Still here")
+        // …and a missed event is still asked for again.
+        c._applyForTests(.event(WireEvent(chatId: "c", seq: 1, ts: 1000, data: .assistant(id: "a1", text: "first"))))
+        await settle()
+        c._applyForTests(.event(WireEvent(chatId: "c", seq: 3, ts: 3000, data: .assistant(id: "a3", text: "two was lost"))))
+        await settle()
+        #expect(try said(socket).filter { $0.hasSuffix(" c") } == ["subscribe c", "subscribe c"])
+
+        // Once the last copy goes, the Mac stops sending it.
+        c.unsubscribe(chatId: "c")
+        await settle()
+        #expect(try said(socket).last == "unsubscribe c")
+        #expect(c.transcripts["c"]?.subscribed == false)
+    }
+
+    /// Asked to catch up when the link comes back, a chat is not counted as
+    /// shown twice — leaving it once still lets it go.
+    @Test func catchingUpAfterAReconnectIsNotAnotherViewer() async throws {
+        let (c, socket) = try await connected()
+        c.subscribe(chatId: "c")
+        c.catchUp(chatId: "c")
+        c.unsubscribe(chatId: "c")
+        await settle()
+        #expect(try said(socket).filter { $0.hasSuffix(" c") } == ["subscribe c", "unsubscribe c"])
+        // And a chat nothing shows is not subscribed by a catch-up.
+        c.catchUp(chatId: "other")
+        await settle()
+        #expect(try said(socket).contains("subscribe other") == false)
     }
 }

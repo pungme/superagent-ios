@@ -62,6 +62,18 @@ final class AppState {
         // a layout you cannot check.
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-openChat"), i + 1 < args.count { openChatId = args[i + 1] }
+        // `-tapNotification <id>`: a notification about that conversation is
+        // tapped a few seconds in, as the simulator cannot be sent a real one
+        // without notification permission.
+        if let i = args.firstIndex(of: "-tapNotification"), i + 1 < args.count {
+            let chatId = args[i + 1]
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                if let info = PushInfo(userInfo: ["sa": ["kind": "done", "chatId": chatId]]) {
+                    self?.openFromPush(info)
+                }
+            }
+        }
     }
     #endif
 

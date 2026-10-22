@@ -43,6 +43,26 @@ struct ReplyQuote: Codable, Hashable, Sendable {
     enum Role: String, Codable, Sendable { case user, assistant }
     var role: Role
     var text: String
+
+    /// The most of a quote that goes to the Mac, in UTF-16 units (what the
+    /// Mac counts in). A Mac before 2.0.1 refused a quote over 4,000 and with
+    /// it the whole message, so a reply to a long answer of the agent's never
+    /// went. The agent is only told the first 400 characters of it anyway.
+    static let wireLimit = 2_000
+
+    /// This quote, short enough for any Mac to take.
+    var forWire: ReplyQuote {
+        guard text.utf16.count > Self.wireLimit else { return self }
+        var used = 0
+        var kept = ""
+        for ch in text {
+            let n = String(ch).utf16.count
+            if used + n > Self.wireLimit - 1 { break }
+            kept.append(ch)
+            used += n
+        }
+        return ReplyQuote(role: role, text: kept + "…")
+    }
 }
 
 enum WireEventData: Hashable, Sendable {

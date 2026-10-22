@@ -89,4 +89,37 @@ final class ReplyKeyboardTests: XCTestCase {
         XCTAssertLessThanOrEqual(field.frame.maxY, keyboard.frame.minY + 1, "the composer sits above the keyboard")
         XCTAssertTrue(field.isHittable)
     }
+
+    /// Swiping a message to the right answers it, as in Messages: the quote
+    /// comes up above the composer. Holding it for the menu was the only way,
+    /// and nothing said so.
+    func testSwipingAMessageToTheRightRepliesToIt() throws {
+        let app = open()
+        let agent = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Narrow, the headline holds'")).firstMatch
+        XCTAssertTrue(agent.waitForExistence(timeout: 10))
+        agent.swipeRight()
+        XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5), "the quote sits above the composer")
+        XCTAssertTrue(app.staticTexts["Replying to the agent"].exists)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "swipe-reply-agent"
+        shot.lifetime = .keepAlways
+        add(shot)
+        app.buttons["Cancel reply"].tap()
+        XCTAssertFalse(app.buttons["Cancel reply"].waitForExistence(timeout: 2))
+
+        let mine = app.staticTexts["Better. Now check it on a phone."]
+        XCTAssertTrue(mine.waitForExistence(timeout: 5))
+        mine.swipeRight()
+        XCTAssertTrue(app.staticTexts["Replying to you"].waitForExistence(timeout: 5))
+    }
+
+    /// Scrolling the conversation is still scrolling, not a reply.
+    func testScrollingIsNotAReply() throws {
+        let app = open(["-longTranscript"])
+        let list = app.scrollViews.firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        list.swipeDown()
+        list.swipeUp()
+        XCTAssertFalse(app.buttons["Cancel reply"].waitForExistence(timeout: 2))
+    }
 }

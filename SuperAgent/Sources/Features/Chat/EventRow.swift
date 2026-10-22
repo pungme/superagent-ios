@@ -350,7 +350,11 @@ struct EventRow: View {
                                     Button { UIPasteboard.general.string = mainText } label: {
                                         Label("Copy", systemImage: "doc.on.doc")
                                     }
+                                    Button { reply(ReplyQuote(role: .user, text: mainText)) } label: {
+                                        Label("Reply", systemImage: "arrowshape.turn.up.left")
+                                    }
                                 }
+                                .swipeToReply { reply(ReplyQuote(role: .user, text: mainText)) }
                         } else if !mainText.isEmpty {
                             Text(mainText)
                                 .superFont(15.5)
@@ -369,6 +373,7 @@ struct EventRow: View {
                                         Label("Reply", systemImage: "arrowshape.turn.up.left")
                                     }
                                 }
+                                .swipeToReply { reply(ReplyQuote(role: .user, text: text)) }
                         }
                     }
                     if from == .ios {
@@ -407,6 +412,7 @@ struct EventRow: View {
                                 Label("Reply", systemImage: "arrowshape.turn.up.left")
                             }
                         }
+                        .swipeToReply { reply(ReplyQuote(role: .assistant, text: body)) }
                     if showTime {
                         Text(messageTimeLabel(timestamp))
                             .superFont(10).foregroundStyle(Theme.textTertiary)
@@ -1060,6 +1066,98 @@ private struct FileImagePreview<Fallback: View>: View {
                   let ui = UIImage(data: data) else { return }
             FileImageCache.images[key] = ui
             image = ui
+        }
+    }
+}
+
+// MARK: Swipe to reply
+
+extension View {
+    /// Drag a message to the right to answer it, the way Messages and WhatsApp
+    /// do. The hold menu's Reply was the only way in, and nothing on screen
+    /// said it was there.
+    func swipeToReply(_ reply: @escaping () -> Void) -> some View {
+        modifier(SwipeToReply(reply: reply))
+    }
+}
+
+/// The message follows the finger a little way to the right; an arrow comes
+/// in behind it, and letting go past the mark answers it.
+struct SwipeToReply: ViewModifier {
+    let reply: () -> Void
+    @State private var offset: CGFloat = 0
+    @State private var armed = false
+    /// How far it has to go before letting go replies.
+    static let trigger: CGFloat = 56
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: offset)
+            .background(alignment: .leading) {
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .superFont(13)
+                    .foregroundStyle(armed ? Theme.accentFg : Theme.textSecondary)
+                    .frame(width: 30, height: 30)
+                    .background(armed ? Theme.accent : Theme.card, in: Circle())
+                    .scaleEffect(armed ? 1 : 0.8)
+                    .opacity(Double(min(1, offset / Self.trigger)))
+                    .offset(x: offset - 38)
+                    .accessibilityHidden(true)
+            }
+            .gesture(ReplyPan(
+                changed: { x in
+                    // Past the mark it slows, as if on a spring.
+                    let t = Self.trigger
+                    offset = x <= t ? x : t + (x - t) * 0.25
+                    let now = x >= t
+                    if now != armed {
+                        armed = now
+                        if now { Haptics.tap() }
+                    }
+                },
+                ended: { x in
+                    if x >= Self.trigger { reply() }
+                    armed = false
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { offset = 0 }
+                }
+            ))
+            .accessibilityAction(named: "Reply", reply)
+    }
+}
+
+/// A pan that only starts for a drag to the right that is mostly sideways, so
+/// scrolling the conversation, the hold menu and Back's edge swipe are left
+/// alone.
+struct ReplyPan: UIGestureRecognizerRepresentable {
+    var changed: (CGFloat) -> Void
+    var ended: (CGFloat) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let g = UIPanGestureRecognizer()
+        g.delegate = context.coordinator
+        return g
+    }
+
+    func handleUIGestureRecognizerAction(_ g: UIPanGestureRecognizer, context: Context) {
+        let x = max(0, g.translation(in: g.view).x)
+        switch g.state {
+        case .began, .changed: changed(x)
+        case .ended: ended(x)
+        case .cancelled, .failed: ended(0)
+        default: break
+        }
+    }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            guard let pan = g as? UIPanGestureRecognizer else { return false }
+            let v = pan.velocity(in: pan.view)
+            guard v.x > 0, abs(v.x) > abs(v.y) * 1.5 else { return false }
+            // Not from the screen's own edge: that is Back.
+            if let window = pan.view?.window, pan.location(in: window).x < 24 { return false }
+            return true
         }
     }
 }

@@ -1,6 +1,9 @@
 import Foundation
 import Observation
 import UIKit
+import os
+
+private let log = Logger(subsystem: "dev.superagent.ios", category: "connection")
 
 /// What the phone knows about one chat: its sequenced events. The text
 /// streaming in lives apart from it, in LiveStream.
@@ -220,6 +223,13 @@ final class Connection {
     /// live in one observed dictionary, each of those tokens redrew whichever
     /// chat was on screen, however unrelated.
     @ObservationIgnored private var watching: Set<String> = []
+    /// How many views are showing each watched chat. The same conversation can
+    /// be on screen twice for a moment: a notification about the chat you are
+    /// in pushes a fresh copy of it, and the copy it replaces only reports
+    /// leaving once its own transition ends — after the new one has arrived.
+    /// Counted, so that late goodbye no longer unsubscribes the conversation
+    /// still on screen; it went on showing what it had and never another word.
+    @ObservationIgnored private var viewers: [String: Int] = [:]
 
     /// Streamed text waiting to be shown. A reply arrives a few characters
     /// per frame, dozens of frames a second, and each one used to redraw the
@@ -633,8 +643,20 @@ final class Connection {
         transport.send(sealed)
     }
 
+    /// A view showing this chat appeared. Every call is matched by one
+    /// `unsubscribe` when that view goes.
     func subscribe(chatId: String) {
+        let n = (viewers[chatId] ?? 0) + 1
+        viewers[chatId] = n
+        log.info("watch \(chatId, privacy: .public) (views: \(n))")
         watching.insert(chatId)
+        catchUp(chatId: chatId)
+    }
+
+    /// Make sure a chat something is showing is subscribed on the Mac — after
+    /// the link comes back, say. Counts no viewer: asking twice is harmless.
+    func catchUp(chatId: String) {
+        guard watching.contains(chatId) else { return }
         var t = transcripts[chatId] ?? cachedTranscript(chatId) ?? Transcript()
         let catchUp = state == .connected && !t.subscribed
         if catchUp { t.subscribed = true }
@@ -642,11 +664,18 @@ final class Connection {
         if catchUp { resubscribe(chatId) }
     }
 
-    /// Nothing is showing this chat any more: stop the Mac streaming it here.
-    /// Its events stay, so coming back is a catch-up from `lastSeq`, not a
-    /// reload — the half-streamed reply is dropped, since the finished message
-    /// replaces it anyway.
+    /// A view showing this chat went. When it was the last one, stop the Mac
+    /// streaming it here. Its events stay, so coming back is a catch-up from
+    /// `lastSeq`, not a reload — the half-streamed reply is dropped, since the
+    /// finished message replaces it anyway.
     func unsubscribe(chatId: String) {
+        let n = max(0, (viewers[chatId] ?? 0) - 1)
+        log.info("unwatch \(chatId, privacy: .public) (views left: \(n))")
+        if n > 0 {
+            viewers[chatId] = n
+            return
+        }
+        viewers[chatId] = nil
         watching.remove(chatId)
         pendingDeltas[chatId] = nil
         streams[chatId]?.clear()
@@ -761,7 +790,7 @@ final class Connection {
         if let m = msg.mode { params["permissionMode"] = .string(m) }
         // The Mac builds the blockquote the agent reads from this; what we send
         // as `text` stays exactly what was typed.
-        if let r = msg.replyTo {
+        if let r = msg.replyTo?.forWire {
             params["replyTo"] = .object(["role": .string(r.role.rawValue), "text": .string(r.text)])
         }
         if !msg.images.isEmpty {
