@@ -27,6 +27,9 @@ struct SidebarView: View {
     /// rather than read from the size class: a split view's sidebar column
     /// reports compact, the same as a phone, so it could not tell.
     var asSidebar = false
+    /// The iPad's split view: put a conversation beside the one on screen.
+    /// nil on the phone, which shows one conversation at a time.
+    var openBeside: ((WireChat) -> Void)? = nil
     @Environment(AppState.self) private var app
 
     @State private var routines: [WireRoutine] = []
@@ -748,10 +751,17 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Drag it onto the conversation column to open it beside (iPad split).
+        .draggable(chat.id)
         // The row for the conversation on screen says so — with the sidebar
         // beside it, "which one am I in" is otherwise unanswerable.
         .listRowBackground(rowBackground(chat.id == openId))
         .contextMenu {
+            if let openBeside {
+                Button { openBeside(chat) } label: {
+                    Label("Open in Split", systemImage: "rectangle.split.2x1")
+                }
+            }
             Button { togglePin(chat) } label: {
                 Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
             }
@@ -791,7 +801,13 @@ struct SidebarView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .draggable(chat.id)
             .contextMenu {
+                if let openBeside {
+                    Button { openBeside(chat) } label: {
+                        Label("Open in Split", systemImage: "rectangle.split.2x1")
+                    }
+                }
                 Button { togglePin(chat) } label: {
                     Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
                 }

@@ -47,6 +47,13 @@ struct RootView: View {
     @State private var lastOpened: WireChat?
     /// ⌘K's palette (CommandPalette): the Mac's way of going anywhere.
     @State private var showPalette = false
+    /// Split view (iPad): the conversations side by side in the second column,
+    /// two to four of them, or empty for one conversation as before.
+    @State private var tiles: [WireChat] = []
+    /// The window of the split your typing goes to.
+    @State private var focusedTile = 0
+    /// The split comes back after a relaunch, by its conversations' ids.
+    @AppStorage("splitTileIds") private var savedTileIds = ""
 
     var body: some View {
         Group {
@@ -186,20 +193,170 @@ extension RootView {
                 // Selecting, not pushing: the conversation becomes the second
                 // column's root, and anything already stacked on it goes.
                 open: { chat in
+                    // In the split: go to its window. Anything else leaves the
+                    // split — it waits to be opened beside again — as on the Mac.
+                    if let i = tiles.firstIndex(where: { $0.id == chat.id }) {
+                        focusedTile = i
+                        return
+                    }
+                    setTiles([])
                     path = NavigationPath()
                     shown = chat
                 },
-                openId: shown?.id,
-                asSidebar: true
+                openId: tiles.indices.contains(focusedTile) ? tiles[focusedTile].id : shown?.id,
+                asSidebar: true,
+                openBeside: { chat in openBeside(chat) }
             )
             .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
             .toolbar { settingsButton }
         } detail: {
-            NavigationStack(path: $path) {
-                destinations(detail(c), c, $path)
+            Group {
+                if tiles.count >= 2 {
+                    splitDetail(c)
+                        .toolbar(.hidden, for: .navigationBar)
+                } else {
+                    NavigationStack(path: $path) {
+                        destinations(detail(c), c, $path)
+                    }
+                }
+            }
+            // Drag a conversation from the sidebar onto this column: beside.
+            .dropDestination(for: String.self) { ids, _ in
+                guard let id = ids.first, let chat = c.chats.first(where: { $0.id == id }) else { return false }
+                return openBeside(chat)
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .onChange(of: app.chatsVersion) { _, _ in restoreTiles(c) }
+        .onAppear { restoreTiles(c) }
+    }
+
+    /// Put a conversation in a window beside the one on screen. False when four are open.
+    @discardableResult
+    private func openBeside(_ chat: WireChat) -> Bool {
+        if let i = tiles.firstIndex(where: { $0.id == chat.id }) { focusedTile = i; return true }
+        var next = tiles
+        if next.isEmpty {
+            guard let current = shown, current.id != chat.id else { shown = chat; return true }
+            next = [current]
+        }
+        guard next.count < IPadSplit.max else { Haptics.warning(); return false }
+        next.append(chat)
+        setTiles(next)
+        focusedTile = next.count - 1
+        Haptics.tap()
+        return true
+    }
+
+    private func setTiles(_ next: [WireChat]) {
+        tiles = next
+        savedTileIds = next.count >= 2 ? next.map(\.id).joined(separator: ",") : ""
+        if focusedTile >= next.count { focusedTile = max(0, next.count - 1) }
+    }
+
+    /// Bring the split back once the conversations it names are known.
+    private func restoreTiles(_ c: Connection) {
+        // `-split c1,c2`: open on a split of those conversations, for a test to look at.
+        let args = ProcessInfo.processInfo.arguments
+        let wanted = args.firstIndex(of: "-split").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
+        let ids = wanted ?? savedTileIds
+        guard tiles.isEmpty, !ids.isEmpty else { return }
+        let found = ids.split(separator: ",").compactMap { id in c.chats.first { $0.id == String(id) } }
+        if found.count >= 2 { tiles = found; shown = found[0] }
+    }
+
+    /// Take window i off screen (its conversation keeps going on the Mac).
+    private func closeTile(_ i: Int) {
+        guard tiles.indices.contains(i) else { return }
+        var next = tiles
+        next.remove(at: i)
+        if next.count < 2 {
+            shown = next.first
+            setTiles([])
+        } else {
+            setTiles(next)
+            focusedTile = min(focusedTile, next.count - 1)
+        }
+    }
+
+    /// The second column as a split: each window a whole conversation with its
+    /// own bar (number, title, project) and its own stack.
+    @ViewBuilder
+    private func splitDetail(_ c: Connection) -> some View {
+        GeometryReader { geo in
+            let rows = IPadSplit.rows(tiles.count, width: geo.size.width)
+            VStack(spacing: 8) {
+                ForEach(rows.indices, id: \.self) { r in
+                    HStack(spacing: 8) {
+                        ForEach(rows[r], id: \.self) { i in
+                            if tiles.indices.contains(i) { tileView(c, i) }
+                        }
+                    }
+                }
+            }
+            .padding(8)
+        }
+        .background(Theme.panel)
+        // ⌘1–4 with a keyboard: go to that window.
+        .background {
+            ForEach(0..<min(tiles.count, IPadSplit.max), id: \.self) { i in
+                Button("Window \(i + 1)") { focusedTile = i }
+                    .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+                    .opacity(0).frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tileView(_ c: Connection, _ i: Int) -> some View {
+        let chat = tiles[i]
+        let focused = i == focusedTile
+        let ws = workspace(c, for: chat)
+        let title = c.chats.first { $0.id == chat.id }?.title ?? chat.title ?? "New chat"
+        VStack(spacing: 0) {
+            // The window's own header: its number, the session's name as the
+            // headline, the project small beside it, and a way off screen.
+            HStack(spacing: 8) {
+                TileNumber(index: i, focused: focused)
+                Text(title).superFont(14, weight: .semibold)
+                    .foregroundStyle(focused ? Theme.textPrimary : Theme.textSecondary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Text(ws.isBrowser ? (ws.host ?? ws.name) : ws.name)
+                    .superFont(12).foregroundStyle(Theme.textTertiary).lineLimit(1)
+                Spacer(minLength: 4)
+                Button { closeTile(i) } label: {
+                    Image(systemName: "xmark").superFont(12, weight: .semibold)
+                        .foregroundStyle(Theme.textTertiary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Take this window off screen")
+            }
+            .padding(.leading, 12).padding(.trailing, 6)
+            .frame(height: 40)
+            .background(Theme.panel)
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 0.5) }
+            TileStack { tilePath in
+                destinations(
+                    ChatView(push: { tilePath.wrappedValue.append($0) },
+                             connection: c, chat: chat, workspace: ws)
+                        // The header above says whose window it is; a second
+                        // bar inside would merge into the column's own.
+                        .toolbar(.hidden, for: .navigationBar)
+                        .id(chat.id),
+                    c, tilePath)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(focused ? Theme.textTertiary : Theme.border, lineWidth: focused ? 1.2 : 0.8)
+        )
+        .simultaneousGesture(TapGesture().onEnded { focusedTile = i })
+        .id(chat.id)
     }
 
     /// The second column: the conversation you picked, at the root of its own
