@@ -37,6 +37,8 @@
 	<string>Superagent uses the camera only to scan the pairing code shown on your Mac.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Superagent listens only while you hold the microphone button, to dictate a message.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Superagent saves a picture to your photos only when you tap Save on it.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Your dictation is transcribed on this device when possible, so you can review it before sending.</string>
 	<key>UILaunchScreen</key>
