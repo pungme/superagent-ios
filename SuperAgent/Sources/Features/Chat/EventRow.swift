@@ -688,6 +688,8 @@ struct OutgoingRow: View {
                         Label("Waiting for the Mac", systemImage: "clock")
                     case .sending:
                         Label("Sending", systemImage: "arrow.up.circle")
+                    case .sent:
+                        Label("Sent · syncing conversation", systemImage: "checkmark")
                     case .failed(let why):
                         Text("Not delivered · \(why)").lineLimit(1)
                         Button("Retry", action: retry).foregroundStyle(Theme.textPrimary)

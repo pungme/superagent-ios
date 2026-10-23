@@ -169,6 +169,35 @@ struct ConnectionLinkTests {
         #expect(c.transcripts["c"]?.outbox.first?.replyTo?.text == long)
     }
 
+    @Test func acceptedMessageStaysVisibleUntilItsEchoCatchesUp() async throws {
+        let (connection, socket) = try await connected()
+        connection.subscribe(chatId: "c")
+        connection._applyForTests(.event(WireEvent(chatId: "c", seq: 1, ts: 1000,
+            data: .assistant(id: "first", text: "First reply"))))
+        await settle()
+        connection.sendMessage(chatId: "c", text: "My new message")
+        await settle()
+        let request = try #require(try frames(socket).first { ($0["method"] as? String) == "chat.send" })
+        let requestId = try #require(request["id"] as? String)
+        let outgoing = try #require(connection.transcripts["c"]?.outbox.first)
+        let echo = WireEvent(chatId: "c", seq: 3, ts: 3000,
+            data: .user(id: outgoing.id, text: outgoing.text, images: [], from: .ios, replyTo: nil))
+        connection._applyForTests(.event(echo))
+        connection._applyForTests(.res(id: requestId, result: .success(Data("{}".utf8))))
+        await settle()
+        #expect(connection.transcripts["c"]?.outbox.first?.status == .sent)
+        #expect(connection.transcripts["c"]?.outbox.first?.text == "My new message")
+        #expect(connection.transcripts["c"]?.lastSeq == 1)
+        connection._applyForTests(.event(WireEvent(chatId: "c", seq: 2, ts: 2000,
+            data: .assistant(id: "missing", text: "Missing reply"))))
+        connection._applyForTests(.event(echo))
+        await settle()
+        #expect(connection.transcripts["c"]?.outbox.isEmpty == true)
+        #expect(connection.transcripts["c"]?.events.last == echo)
+        #expect(try frames(socket).filter { ($0["method"] as? String) == "chat.send" }.count == 1)
+        connection.disconnect()
+    }
+
     private func connected() async throws -> (Connection, FakeTransport) {
         let (c, sockets) = connection()
         c.connect()

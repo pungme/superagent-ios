@@ -113,7 +113,7 @@ final class LiveStream {
 /// A message on its way to the Mac. Shown as a bubble the moment Send is
 /// tapped; queued while the link is down, retried on demand if it fails.
 struct Outgoing: Identifiable, Hashable, Sendable {
-    enum Status: Hashable, Sendable { case queued, sending, failed(String) }
+    enum Status: Hashable, Sendable { case queued, sending, sent, failed(String) }
     struct Image: Hashable, Sendable { let mediaType: String; let data: Data }
 
     let id: String
@@ -798,12 +798,12 @@ final class Connection {
         }
         do {
             _ = try await rpc("chat.send", .object(params))
-            // The echo normally retires it before the response lands; make
-            // sure. Events are held for a tick before they are applied, so
-            // apply them first: otherwise the bubble goes a moment before the
-            // message that replaces it is there.
             flushEvents()
-            discard(chatId: chatId, id: id)
+            setOutgoing(chatId: chatId, id: id, status: .sent)
+            if transcripts[chatId]?.outbox.contains(where: { $0.id == id }) == true,
+               watching.contains(chatId) {
+                resubscribe(chatId)
+            }
         } catch {
             // The Mac may or may not have taken it if the link dropped mid-flight,
             // so never resend on our own — leave the choice to the person.
