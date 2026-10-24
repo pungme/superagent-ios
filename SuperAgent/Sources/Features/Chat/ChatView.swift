@@ -936,6 +936,17 @@ struct ChatView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// "just started", "12m", "3h 20m", "2d 4h": a job left running for a day
+    /// read "1,082m".
+    static func taskAge(ms: Double) -> String {
+        let mins = Int(max(0, ms) / 60_000)
+        if mins < 1 { return "just started" }
+        if mins < 60 { return "\(mins)m" }
+        let hours = mins / 60
+        if hours < 24 { return mins % 60 == 0 ? "\(hours)h" : "\(hours)h \(mins % 60)m" }
+        return hours % 24 == 0 ? "\(hours / 24)d" : "\(hours / 24)d \(hours % 24)h"
+    }
+
     private var backgroundStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -945,8 +956,10 @@ struct ChatView: View {
                     HStack(spacing: 6) {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(task.description ?? task.command).superFont(11.5, weight: .medium).lineLimit(1)
+                                // A long command must not push its pill off the screen.
+                                .frame(maxWidth: 230, alignment: .leading)
                             TimelineView(.periodic(from: .now, by: 10)) { context in
-                                Text(context.date.timeIntervalSince1970 * 1000 - task.startedAt < 60_000 ? "just started" : "\(Int((context.date.timeIntervalSince1970 * 1000 - task.startedAt) / 60_000))m")
+                                Text(Self.taskAge(ms: context.date.timeIntervalSince1970 * 1000 - task.startedAt))
                                     .superFont(10).foregroundStyle(Theme.textTertiary)
                             }
                         }
