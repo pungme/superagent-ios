@@ -56,6 +56,8 @@ struct SidebarView: View {
     @State private var renaming: WireGroup?
     @State private var groupName = ""
     @State private var removing: WireWorkspace?
+    @State private var renamingProject: WireWorkspace?
+    @State private var projectName = ""
     /// The conversation a context menu asked to delete, held until confirmed.
     @State private var deletingChat: WireChat?
     @State private var renamingChat: WireChat?
@@ -306,6 +308,17 @@ struct SidebarView: View {
                     Task { await run { try await connection.renameChat(chatId: chat.id, title: title) } }
                 }
                 renamingChat = nil
+            }
+        }
+        .alert("Rename project", isPresented: Binding(get: { renamingProject != nil }, set: { if !$0 { renamingProject = nil } })) {
+            TextField("Name", text: $projectName)
+            Button("Cancel", role: .cancel) { renamingProject = nil }
+            Button("Save") {
+                let name = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let ws = renamingProject, !name.isEmpty {
+                    Task { await run { try await connection.renameWorkspace(id: ws.id, name: name) } }
+                }
+                renamingProject = nil
             }
         }
         .alert("Rename group", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
@@ -768,6 +781,7 @@ struct SidebarView: View {
             Button { chatTitle = chat.title ?? ""; renamingChat = chat } label: {
                 Label("Rename", systemImage: "pencil")
             }
+            moveMenu(for: chat)
             // The Mac drags pins into order; a hold menu is the phone's way.
             if let i = pinned.firstIndex(where: { $0.id == chat.id }) {
                 if i > 0 {
@@ -781,6 +795,31 @@ struct SidebarView: View {
                 deletingChat = chat
             } label: {
                 Label(deleteLabel(chat), systemImage: "trash")
+            }
+        }
+    }
+
+    /// "Move to": under another project, or out into Chats. A chat on its own
+    /// branch stays with its project.
+    @ViewBuilder
+    private func moveMenu(for chat: WireChat) -> some View {
+        let home = "__desktop_chat__"
+        let targets = connection.tree.flatMap(\.workspaces)
+            .filter { !$0.isBrowser && !$0.isComputer && $0.id != chat.workspaceId && $0.id != home }
+        if chat.workspaceId != home || !targets.isEmpty {
+            Menu {
+                if chat.workspaceId != home {
+                    Button { Task { await run { try await connection.moveChat(chatId: chat.id, to: home) } } } label: {
+                        Label("Chats", systemImage: "bubble.left")
+                    }
+                }
+                ForEach(targets, id: \.id) { ws in
+                    Button { Task { await run { try await connection.moveChat(chatId: chat.id, to: ws.id) } } } label: {
+                        Text(ws.name)
+                    }
+                }
+            } label: {
+                Label("Move to", systemImage: "folder")
             }
         }
     }
@@ -814,6 +853,7 @@ struct SidebarView: View {
                 Button { chatTitle = chat.title ?? ""; renamingChat = chat } label: {
                     Label("Rename", systemImage: "pencil")
                 }
+                moveMenu(for: chat)
                 Button(role: .destructive) {
                     deletingChat = chat
                 } label: {
@@ -905,6 +945,7 @@ struct SidebarView: View {
             // and finding "+ New chat" inside it, so the menu you get by holding
             // a project offered no way to do the main thing you hold it for.
             Button { newChat(in: ws) } label: { Label("New chat", systemImage: "square.and.pencil") }
+            Button { projectName = ws.name; renamingProject = ws } label: { Label("Rename", systemImage: "pencil") }
             Button(role: .destructive) { removing = ws } label: { Label("Remove project", systemImage: "xmark") }
         }
 

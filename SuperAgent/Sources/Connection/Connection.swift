@@ -1173,6 +1173,17 @@ extension Connection {
         return r.workspaceId ?? ""
     }
 
+    func renameWorkspace(id: String, name: String) async throws {
+        applyTree(try await rpc("workspace.rename", .object(["id": .string(id), "name": .string(name)]), as: TreeResult.self))
+    }
+
+    /// Put a conversation under another project, or into Chats (`__desktop_chat__`).
+    /// A chat on its own branch stays with its project: the Mac says so.
+    func moveChat(chatId: String, to workspaceId: String) async throws {
+        _ = try await rpc("chat.move", .object(["chatId": .string(chatId), "workspaceId": .string(workspaceId)]))
+        chats = chats.map { var c = $0; if c.id == chatId { c.workspaceId = workspaceId }; return c }
+    }
+
     func removeWorkspace(id: String) async throws {
         applyTree(try await rpc("workspace.remove", .object(["id": .string(id)]), as: TreeResult.self))
         chats.removeAll { $0.workspaceId == id }

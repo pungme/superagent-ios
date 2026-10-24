@@ -444,7 +444,7 @@ extension RootView {
     /// The project a chat belongs to; a stand-in row if the tree hasn't named it yet.
     private func workspace(_ c: Connection, for chat: WireChat) -> WireWorkspace {
         c.tree.flatMap(\.workspaces).first { $0.id == chat.workspaceId }
-            ?? WireWorkspace(id: chat.workspaceId, name: chat.workspaceId == "__desktop_chat__" ? "Computer" : "Project",
+            ?? WireWorkspace(id: chat.workspaceId, name: chat.workspaceId == "__desktop_chat__" ? "Chats" : "Project",
                              path: "", kind: chat.workspaceId == "__desktop_chat__" ? "desktop" : "app", status: .idle)
     }
 
