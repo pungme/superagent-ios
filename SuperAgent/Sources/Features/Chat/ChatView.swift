@@ -484,16 +484,20 @@ struct ChatView: View {
             if atBottom != isAtEnd { atBottom = isAtEnd }
         }
         .background(Theme.content)
+        .contentShape(Rectangle())
         .scrollDismissesKeyboard(.interactively)
         // Tap the transcript to put the keyboard away, the way Messages
         // does. Simultaneous, so a tap that lands on an approval button or
         // a choice still reaches it.
         .simultaneousGesture(
-            // Not with a hardware keyboard: there is no keyboard to put away,
-            // only the cursor to lose, and then every next message started
-            // with a tap back into the box.
+            // A hardware keyboard can coexist with the on-screen keyboard.
+            // Keep the cursor only when there is no software keyboard to hide.
             TapGesture().onEnded {
-                if composerFocused, !(hardwareKeyboardAttached || keyboardStrip) { composerFocused = false }
+                if composerFocused,
+                   !KeyboardRoom.ignoresKeyboard(hardwareAttached: hardwareKeyboardAttached || keyboardStrip,
+                                                 onScreen: keyboardOnScreen) {
+                    composerFocused = false
+                }
             }
         )
         .overlay(alignment: .bottomTrailing) {

@@ -8,6 +8,28 @@ import XCTest
 /// happened whenever iOS reported a hardware keyboard that was not really
 /// there (see KeyboardRoom); the plain cases are pinned here too.
 final class ReplyKeyboardTests: XCTestCase {
+    func testTappingConversationDismissesSoftwareKeyboardWithHardwareAttached() throws {
+        let app = open(["-hardwareKeyboard"])
+        let field = composer(app)
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.waitForExistence(timeout: 5) else {
+            throw XCTSkip("no on-screen keyboard on this simulator")
+        }
+        field.typeText("Keep this draft")
+        let message = app.staticTexts["Better. Now check it on a phone."]
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        message.tap()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(NSPredicate(format: "value == %@", "Keep this draft")).firstMatch.exists)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "ipad-keyboard-dismissed"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
     private func open(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-sidebarHarness", "-openChat", "c1", "-tab", "projects"] + extra
