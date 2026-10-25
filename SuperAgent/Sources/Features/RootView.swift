@@ -172,7 +172,11 @@ extension RootView {
             }
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                 NavigationStack(path: $searchPath) {
-                    destinations(SearchTabView(connection: c, path: $searchPath), c, $searchPath)
+                    destinations(SearchTabView(connection: c, path: $searchPath,
+                                               current: (shown ?? lastOpened).map { workspace(c, for: $0) },
+                                               openProject: { ws in openProject(ws, c) },
+                                               newChat: { ws in startChat(in: ws, c) },
+                                               openSettings: { tab = .settings }), c, $searchPath)
                 }
             }
             Tab("Settings", systemImage: "gearshape", value: AppTab.settings) {

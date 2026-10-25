@@ -69,6 +69,7 @@ final class TabBarTests: XCTestCase {
         let search = app.buttons["Search"].firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 5), "the trailing search circle should exist")
         search.tap()
-        XCTAssertTrue(app.staticTexts["Search every conversation"].waitForExistence(timeout: 5))
+        // Like ⌘K: recent conversations and actions are there before a word is typed.
+        XCTAssertTrue(app.buttons["palette-row"].firstMatch.waitForExistence(timeout: 5))
     }
 }

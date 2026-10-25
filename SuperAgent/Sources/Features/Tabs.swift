@@ -31,6 +31,12 @@ struct ComputerChatsTab: View {
 struct SearchTabView: View {
     let connection: Connection
     @Binding var path: NavigationPath
+    /// The palette's own doors, as ⌘K has them: the project you are in (for
+    /// "New chat"), a project, a new chat, Settings.
+    var current: WireWorkspace? = nil
+    var openProject: (WireWorkspace) -> Void = { _ in }
+    var newChat: (WireWorkspace) -> Void = { _ in }
+    var openSettings: () -> Void = {}
     @Environment(AppState.self) private var app
 
     @State private var query = ""
@@ -38,14 +44,25 @@ struct SearchTabView: View {
 
     var body: some View {
         List {
-            if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                ContentUnavailableView("Search every conversation", systemImage: "magnifyingglass",
-                                       description: Text("Titles and what was said, across every project on \(connection.machine.name)."))
-                    .listRowBackground(Theme.panel)
-                    .listRowSeparator(.hidden)
-            } else if hits.isEmpty {
-                Text("Nothing matches").foregroundStyle(.secondary)
-                    .listRowBackground(Theme.panel)
+            // Like ⌘K: recent conversations and actions before you type, then
+            // chats, projects and actions that match, then what was said.
+            ForEach(items) { item in
+                if items.first(where: { $0.section == item.section })?.id == item.id {
+                    SmallCapsHeader(title: item.section.rawValue)
+                        .listRowBackground(Theme.panel).listRowSeparator(.hidden)
+                }
+                paletteRow(item)
+                    .listRowBackground(Theme.card)
+            }
+            if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                if items.isEmpty && hits.isEmpty {
+                    Text("Nothing matches").foregroundStyle(.secondary)
+                        .listRowBackground(Theme.panel)
+                }
+                if !hits.isEmpty {
+                    SmallCapsHeader(title: "What was said")
+                        .listRowBackground(Theme.panel).listRowSeparator(.hidden)
+                }
             }
             ForEach(hits) { hit in
                 Button { open(hit) } label: {
@@ -75,7 +92,7 @@ struct SearchTabView: View {
         .background(Theme.panel)
         .navigationTitle("Search")
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: "Search every conversation")
+                    prompt: "Go to a chat or project, or search what was said")
         .task(id: query) {
             let q = query.trimmingCharacters(in: .whitespaces)
             guard !q.isEmpty else { hits = []; return }
@@ -83,6 +100,47 @@ struct SearchTabView: View {
             guard !Task.isCancelled else { return }
             hits = (try? await connection.searchChats(q)) ?? []
         }
+    }
+
+    private var items: [CommandPaletteModel.Item] {
+        CommandPaletteModel.items(
+            query: query,
+            chats: connection.chats,
+            workspaces: connection.tree.flatMap(\.workspaces),
+            current: current)
+    }
+
+    private func paletteRow(_ item: CommandPaletteModel.Item) -> some View {
+        Button {
+            switch item.action {
+            case let .chat(chat): path.append(chat)
+            case let .project(ws): openProject(ws)
+            case let .newChat(ws): newChat(ws)
+            case .settings: openSettings()
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Group {
+                    if let ws = item.workspace {
+                        ProjectGlyph(connection: connection, workspace: ws)
+                    } else {
+                        Image(systemName: item.systemImage).superFont(14).foregroundStyle(Theme.textSecondary)
+                            .frame(width: 19, height: 19)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.title).superFont(14, weight: .medium).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                    if let sub = item.subtitle {
+                        Text(sub).superFont(12).foregroundStyle(Theme.textTertiary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("palette-row")
     }
 
     private func open(_ hit: WireSearchHit) {
