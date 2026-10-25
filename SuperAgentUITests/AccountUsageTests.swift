@@ -8,6 +8,11 @@ final class AccountUsageTests: XCTestCase {
         app.launchArguments = ["-sidebarHarness", "-openChat", "c1", "-tab", "projects"]
         app.launch()
 
+        // The pills are folded behind the agent's logo in the message box.
+        let logo = app.buttons["composer-settings"]
+        XCTAssertTrue(logo.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["account-pill"].exists, "folded until asked for")
+        logo.tap()
         let pill = app.buttons["account-pill"]
         XCTAssertTrue(pill.waitForExistence(timeout: 10), "a chat with several accounts shows the Account pill")
         XCTAssertTrue(pill.label.contains("Claude"), "named for the account it is on: \(pill.label)")

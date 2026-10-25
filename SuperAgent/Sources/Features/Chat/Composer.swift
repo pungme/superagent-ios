@@ -93,6 +93,11 @@ struct Composer: View {
         ("plan", "Plan", "Read-only — plans without changing anything")
     ]
 
+    /// The pills (agent, account, model, mode…) are folded into the agent's
+    /// logo at the start of the field, as on the Mac's narrow composer: one
+    /// clean line until they are wanted. Remembered, so it stays as left.
+    @AppStorage("composer.settingsOpen") private var settingsOpen = false
+
     @State private var showPhotoPicker = false
     @State private var showFilePicker = false
     /// Nothing the recogniser says after a send belongs in the emptied composer;
@@ -518,7 +523,20 @@ struct Composer: View {
                     }
                 }
 
-                HStack(alignment: .bottom, spacing: 6) {
+                HStack(alignment: .bottom, spacing: 0) {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.18)) { settingsOpen.toggle() }
+                        Haptics.tap()
+                    } label: {
+                        ProviderMark(provider: provider, size: 17)
+                            .frame(width: well, height: well)
+                            .background(settingsOpen ? Theme.accentSoft : .clear, in: Circle())
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 3)
+                    .accessibilityLabel(settingsOpen ? "Hide agent, model and mode" : "Show agent, model and mode")
+                    .accessibilityIdentifier("composer-settings")
                     TextField(dictation.listening ? "Listening…" : "Message \(providerName)…", text: $draft, axis: .vertical)
                         .lineLimit(1...6)
                         .superFont(15.5)
@@ -542,7 +560,7 @@ struct Composer: View {
                             submit()
                             return .handled
                         }
-                        .padding(.leading, 12).padding(.vertical, 9)
+                        .padding(.leading, 4).padding(.trailing, 6).padding(.vertical, 9)
                     Button {
                         Task { if dictation.listening { dictation.stop() } else { await dictation.start() } }
                     } label: {
@@ -610,7 +628,7 @@ struct Composer: View {
 
             // Every pill belongs to the same strip. Memory used to sit outside
             // this ScrollView and stay pinned over Model/Mode on narrow phones.
-            pillRow
+            if settingsOpen { pillRow.transition(.opacity.combined(with: .move(edge: .bottom))) }
             if let e = dictation.error { Text(e).superFont(11).foregroundStyle(Theme.danger).lineLimit(1) }
         }
         .padding(.top, 8).padding(.bottom, 8)
