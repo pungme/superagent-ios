@@ -205,7 +205,13 @@ extension RootView {
                 },
                 openId: tiles.indices.contains(focusedTile) ? tiles[focusedTile].id : shown?.id,
                 asSidebar: true,
-                openBeside: { chat in openBeside(chat) }
+                openBeside: { chat in openBeside(chat) },
+                openSplit: { chats in
+                    guard chats.count >= 2 else { return }
+                    path = NavigationPath()
+                    setTiles(Array(chats.prefix(IPadSplit.max)))
+                    focusedTile = 0
+                }
             )
             .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
             .toolbar { settingsButton }
@@ -421,6 +427,9 @@ extension RootView {
                 case .routines: RoutinesView(connection: c, workspace: panel.workspace)
                 case .chats: ChatsListView(connection: c, workspace: panel.workspace) { chat in path.wrappedValue.append(chat) }
                 }
+            }
+            .navigationDestination(for: SplitRoute.self) { route in
+                SplitGridView(connection: c, splitId: route.id) { chat in path.wrappedValue.append(chat) }
             }
             .navigationDestination(for: FileRef.self) { ref in FileView(connection: c, ref: ref) }
             .navigationDestination(for: FolderRef.self) { ref in

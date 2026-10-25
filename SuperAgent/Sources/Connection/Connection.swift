@@ -152,6 +152,9 @@ final class Connection {
     private(set) var info: WireMachine?
     private(set) var tree: [WireGroup] = []
     private(set) var chats: [WireChat] = []
+    /// The Mac's splits, shown on the phone as a grid. Asked for whenever the
+    /// chat list is (the Mac pushes the list when its splits change).
+    var splits: [WireSplit] = []
     /// Which conversations have moved since you last had them open, on this
     /// phone. Local by nature — see Unread.
     let unread: Unread
@@ -533,6 +536,7 @@ final class Connection {
             OfflineCache.save(machine.id, "chats", chats)
             writeShareSnapshot()
             onChatsChanged?()
+            Task { await loadSplits() }
             state = .connected
             lastError = nil
             handshakeTask?.cancel()
@@ -603,6 +607,7 @@ final class Connection {
             OfflineCache.save(machine.id, "chats", list)
             writeShareSnapshot()
             onChatsChanged?()
+            Task { await loadSplits() }
         case let .res(id, result):
             if let c = pending.removeValue(forKey: id) {
                 switch result {
@@ -1173,6 +1178,15 @@ extension Connection {
         return r.workspaceId ?? ""
     }
 
+    func loadSplits() async {
+        #if DEBUG
+        if machine.id == "harness" { return }
+        #endif
+        struct R: Decodable { var splits: [WireSplit] }
+        guard let r = try? await rpc("splits.list", .object([:]), as: R.self) else { return }
+        if r.splits != splits { splits = r.splits }
+    }
+
     func renameWorkspace(id: String, name: String) async throws {
         applyTree(try await rpc("workspace.rename", .object(["id": .string(id), "name": .string(name)]), as: TreeResult.self))
     }
@@ -1379,6 +1393,11 @@ extension Connection {
                                        nextAt: held ? nil : now + 240_000, paused: held)
         }
         // Two of them have moved since this phone last looked.
+        // `-withSplit`: one of the Mac's splits, so the grid can be looked at.
+        if ProcessInfo.processInfo.arguments.contains("-withSplit") {
+            let ids = Array(c.chats.prefix(4))
+            c.splits = [WireSplit(id: "s1", name: nil, tiles: ids.map { WireSplit.Tile(workspaceId: $0.workspaceId, chatId: $0.id) })]
+        }
         c.unread.note(c.chats.map { var x = $0; if x.id == "c1" || x.id == "c3" { x.updatedAt -= 600_000 }; return x })
         // Enough of a conversation in the first one to see the chat itself.
         var t = Transcript()

@@ -288,6 +288,17 @@ struct WireGroup: Codable, Hashable, Sendable, Identifiable {
     var workspaces: [WireWorkspace]
 }
 
+/// One of the Mac's splits: the conversations it holds, in window order.
+struct WireSplit: Codable, Hashable, Sendable, Identifiable {
+    struct Tile: Codable, Hashable, Sendable {
+        var workspaceId: String
+        var chatId: String
+    }
+    var id: String
+    var name: String?
+    var tiles: [Tile]
+}
+
 struct WireChat: Codable, Hashable, Sendable, Identifiable {
     var id: String
     var workspaceId: String

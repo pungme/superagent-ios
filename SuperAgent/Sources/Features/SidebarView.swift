@@ -30,6 +30,9 @@ struct SidebarView: View {
     /// The iPad's split view: put a conversation beside the one on screen.
     /// nil on the phone, which shows one conversation at a time.
     var openBeside: ((WireChat) -> Void)? = nil
+    /// The iPad: open all of a Mac split's conversations as windows. nil on the
+    /// phone, where a split opens as a grid.
+    var openSplit: (([WireChat]) -> Void)? = nil
     @Environment(AppState.self) private var app
 
     @State private var routines: [WireRoutine] = []
@@ -125,6 +128,7 @@ struct SidebarView: View {
                 } else {
                     machineSection
                     pinnedShortcutsSection
+                    splitsSection
                     chatsSection
                     projectsSection
                     ForEach(groups) { group in groupSection(group) }
@@ -450,6 +454,58 @@ struct SidebarView: View {
         return connection.chats
             .filter { $0.workspaceId == c.id && !$0.isPinned }
             .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// "landing-page · api": the projects of a split's chats, once each, as the
+    /// Mac's row names a split that has no name of its own.
+    private func splitProjects(_ chats: [WireChat]) -> String {
+        var seen: [String] = []
+        for chat in chats {
+            let name = chat.workspaceId == "__desktop_chat__" ? "Chats"
+                : connection.tree.flatMap(\.workspaces).first { $0.id == chat.workspaceId }?.name ?? "Project"
+            if !seen.contains(name) { seen.append(name) }
+        }
+        return seen.joined(separator: " · ")
+    }
+
+    /// The Mac's splits. On the phone one opens as a grid of its conversations;
+    /// on the iPad it opens as the same windows.
+    @ViewBuilder
+    private var splitsSection: some View {
+        let splits = connection.splits
+        if !splits.isEmpty {
+            Section {
+                ForEach(splits) { split in
+                    let chats = split.tiles.compactMap { t in connection.chats.first { $0.id == t.chatId } }
+                    Button {
+                        if let openSplit { openSplit(chats) } else { path.append(SplitRoute(id: split.id)) }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "rectangle.split.2x2")
+                                .superFont(15).foregroundStyle(Theme.textSecondary)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(split.name ?? splitProjects(chats))
+                                    .superFont(14.5, weight: .medium).lineLimit(1)
+                                Text(chats.map { $0.title ?? "New chat" }.joined(separator: " · "))
+                                    .superFont(12).foregroundStyle(Theme.textTertiary).lineLimit(1)
+                            }
+                            Spacer(minLength: 4)
+                            if chats.contains(where: \.live) { ProgressView().controlSize(.mini) }
+                            Text("\(chats.count)").superFont(12).foregroundStyle(Theme.textTertiary)
+                        }
+                        .frame(minHeight: 40)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(rowBackground(false))
+                    .accessibilityIdentifier("split-row-\(split.id)")
+                }
+            } header: {
+                Text("Splits").font(.footnote.weight(.semibold)).textCase(.uppercase).tracking(0.5)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
     }
 
     @ViewBuilder
