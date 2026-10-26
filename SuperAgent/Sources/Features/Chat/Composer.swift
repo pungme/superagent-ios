@@ -112,6 +112,14 @@ struct Composer: View {
 
     private static func draftKey(_ chatID: String) -> String { "draft:" + chatID }
 
+    /// How much of the account's usage limit is used, 0…1: the fullest of its
+    /// windows. nil until the Mac has read the account's usage.
+    private var limitFraction: Double? {
+        let current = accounts.first(where: { $0.id == currentAccount }) ?? accounts.first
+        guard let pct = current?.fullest() else { return nil }
+        return min(1, max(0, Double(pct) / 100))
+    }
+
     /// How full the conversation's memory is, 0…1, once a turn has reported it.
     private var memoryFraction: Double? {
         guard let context, context.window > 0 else { return nil }
@@ -125,6 +133,9 @@ struct Composer: View {
     /// What a pointer's hover says over the logo (an iPad with a mouse).
     private var agentDetails: String {
         var lines = [provider == "codex" ? "Codex" : provider == "antigravity" ? "Antigravity" : "Claude Code"]
+        if let f = limitFraction {
+            lines.append("Usage limit \(Int(f * 100))%")
+        }
         if let f = memoryFraction, let context {
             lines.append("Memory \(Int(f * 100))% · \(context.used / 1000)K of \(context.window / 1000)K")
         }
@@ -549,9 +560,9 @@ struct Composer: View {
                         Haptics.tap()
                     } label: {
                         ZStack {
-                            // How full the conversation's memory is, as a ring
-                            // round the logo; it reddens as it fills.
-                            if let ring = memoryFraction {
+                            // How much of the account's usage limit is used, as a
+                            // ring round the logo; it reddens as it fills.
+                            if let ring = limitFraction {
                                 Circle().stroke(Theme.textTertiary.opacity(0.25), lineWidth: 2)
                                 Circle().trim(from: 0, to: max(0.02, ring))
                                     .stroke(memoryColour(ring), style: StrokeStyle(lineWidth: 2, lineCap: .round))
@@ -566,7 +577,7 @@ struct Composer: View {
                     }
                     .buttonStyle(.plain)
                     .help(agentDetails)
-                    .accessibilityValue(memoryFraction.map { "Memory \(Int($0 * 100)) percent" } ?? "")
+                    .accessibilityValue(limitFraction.map { "Usage limit \(Int($0 * 100)) percent" } ?? "")
                     .padding(.leading, 3)
                     .accessibilityLabel(settingsOpen ? "Hide agent, model and mode" : "Show agent, model and mode")
                     .accessibilityIdentifier("composer-settings")

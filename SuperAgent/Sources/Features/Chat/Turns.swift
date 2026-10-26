@@ -10,6 +10,23 @@ struct Turn: Identifiable, Equatable {
     var tokens: Int?
     var startedAt: Double?
     var endedAt: Double?
+    /// Roughly how much this turn has to lay out: the characters it says, and a
+    /// little for each step. `utf8.count` is constant time on a native string.
+    var weight: Int {
+        items.reduce(0) { sum, item in
+            switch item {
+            case .steps(let g): return sum + 120 * min(g.events.count, 20)
+            case .event(let e):
+                switch e.data {
+                case .user(_, let t, _, _, _), .assistant(_, let t), .thinking(_, let t), .notice(let t):
+                    return sum + t.utf8.count
+                case .toolResult(_, _, let summary, _): return sum + min(summary.utf8.count, 400)
+                default: return sum + 120
+                }
+            }
+        }
+    }
+
     var duration: TimeInterval? {
         guard let s = startedAt, let e = endedAt, e >= s else { return nil }
         return (e - s) / 1000

@@ -126,11 +126,26 @@ struct ChatView: View {
     /// SwiftUI evaluates `body` constantly (a keystroke, a streamed word, a
     /// scroll); regrouping every event each time froze long conversations.
     @State private var turns: [Turn] = []
-    /// The whole conversation, once asked for; the newest turns otherwise.
-    @State private var showAllTurns = false
+    /// How many earlier turns have been asked for, beyond the newest ones.
+    @State private var extraTurns = 0
     private static let initialTurns = 40
+    private static let moreTurns = 20
+    /// The newest turns are laid out by how much they SAY, not only how many:
+    /// forty turns of long replies took the main thread past the ten seconds
+    /// iOS allows (the app was killed, 0x8BADF00D, 2026-10-24 and 26) while
+    /// forty short ones are nothing. At least three show.
+    private static let textBudget = 24_000
+    private static let leastTurns = 3
     private var visibleTurns: ArraySlice<Turn> {
-        showAllTurns ? turns[...] : turns.suffix(Self.initialTurns)
+        var used = 0
+        var n = 0
+        for turn in turns.reversed() {
+            used += turn.weight
+            n += 1
+            if n >= Self.initialTurns { break }
+            if used > Self.textBudget, n >= Self.leastTurns { break }
+        }
+        return turns.suffix(min(turns.count, n + extraTurns))
     }
     private var hiddenTurns: Int { turns.count - visibleTurns.count }
     @State private var tasks: [TaskItem] = []
@@ -386,7 +401,7 @@ struct ChatView: View {
                 // last few. The rest are one tap away.
                 if hiddenTurns > 0 {
                     Button {
-                        showAllTurns = true
+                        extraTurns += Self.moreTurns
                     } label: {
                         Text("Show \(hiddenTurns) earlier \(hiddenTurns == 1 ? "message" : "messages")")
                             .font(.footnote.weight(.medium))
