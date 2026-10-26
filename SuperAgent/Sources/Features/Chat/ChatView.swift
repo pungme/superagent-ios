@@ -1464,6 +1464,10 @@ struct ChatView: View {
     /// reported it resolved to, else inferred from the model id — the 1M-class
     /// models by name, the 200K baseline for everything else.
     private var contextReading: (used: Int, window: Int)? {
+        #if DEBUG
+        // `-withContext`: a nearly full memory, so the ring round the logo can be looked at.
+        if ProcessInfo.processInfo.arguments.contains("-withContext") { return (800_000, 1_000_000) }
+        #endif
         guard let used = transcript.contextTokens else { return nil }
         let model = (transcript.model ?? "").lowercased()
         let window = (model.contains("[1m]") || model.contains("fable") || model.contains("opus"))

@@ -112,6 +112,26 @@ struct Composer: View {
 
     private static func draftKey(_ chatID: String) -> String { "draft:" + chatID }
 
+    /// How full the conversation's memory is, 0…1, once a turn has reported it.
+    private var memoryFraction: Double? {
+        guard let context, context.window > 0 else { return nil }
+        return min(1, Double(context.used) / Double(context.window))
+    }
+
+    private func memoryColour(_ f: Double) -> Color {
+        f >= 0.9 ? Theme.danger : f >= 0.75 ? .orange : Theme.textTertiary
+    }
+
+    /// What a pointer's hover says over the logo (an iPad with a mouse).
+    private var agentDetails: String {
+        var lines = [provider == "codex" ? "Codex" : provider == "antigravity" ? "Antigravity" : "Claude Code"]
+        if let f = memoryFraction, let context {
+            lines.append("Memory \(Int(f * 100))% · \(context.used / 1000)K of \(context.window / 1000)K")
+        }
+        lines.append(settingsOpen ? "Tap to hide the settings" : "Tap for model, mode and account")
+        return lines.joined(separator: "\n")
+    }
+
     /// Every pill in one row. On a phone it scrolls sideways, to keep the
     /// composer one line tall; with an iPad's room it wraps onto a second line
     /// as the Mac's does, instead of running off the edge with Mode cut in
@@ -528,12 +548,25 @@ struct Composer: View {
                         withAnimation(.easeOut(duration: 0.18)) { settingsOpen.toggle() }
                         Haptics.tap()
                     } label: {
-                        ProviderMark(provider: provider, size: 17)
-                            .frame(width: well, height: well)
-                            .background(settingsOpen ? Theme.accentSoft : .clear, in: Circle())
-                            .contentShape(Circle())
+                        ZStack {
+                            // How full the conversation's memory is, as a ring
+                            // round the logo; it reddens as it fills.
+                            if let ring = memoryFraction {
+                                Circle().stroke(Theme.textTertiary.opacity(0.25), lineWidth: 2)
+                                Circle().trim(from: 0, to: max(0.02, ring))
+                                    .stroke(memoryColour(ring), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                                    .rotationEffect(.degrees(-90))
+                            }
+                            ProviderMark(provider: provider, size: 17)
+                        }
+                        .frame(width: well - 6, height: well - 6)
+                        .frame(width: well, height: well)
+                        .background(settingsOpen ? Theme.accentSoft : .clear, in: Circle())
+                        .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .help(agentDetails)
+                    .accessibilityValue(memoryFraction.map { "Memory \(Int($0 * 100)) percent" } ?? "")
                     .padding(.leading, 3)
                     .accessibilityLabel(settingsOpen ? "Hide agent, model and mode" : "Show agent, model and mode")
                     .accessibilityIdentifier("composer-settings")
