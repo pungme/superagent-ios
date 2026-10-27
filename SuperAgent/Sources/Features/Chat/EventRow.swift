@@ -835,6 +835,7 @@ struct SentImagesRow: View {
     let count: Int
     @State private var shots: [UIImage] = []
     @State private var viewerIndex: Int?
+    @Environment(\.chatGallery) private var gallery
 
     var body: some View {
         Group {
@@ -864,6 +865,7 @@ struct SentImagesRow: View {
                                 }
                                 .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                                 .onTapGesture { viewerIndex = i }
+                                .draggable(Image(uiImage: image))
                         }
                     }
                     .frame(maxWidth: shots.count == 1 ? 132 : 270)
@@ -872,7 +874,8 @@ struct SentImagesRow: View {
                         get: { viewerIndex.map { IdentifiedInt(value: $0) } },
                         set: { viewerIndex = $0?.value }
                     )) { start in
-                        ImageViewerSheet(images: shots, index: start.value)
+                        ImageViewerSheet(images: shots, index: start.value, gallery: gallery,
+                                         sources: shots.indices.map { .sent(messageId: messageId, index: $0) })
                     }
                 }
             }
@@ -998,7 +1001,7 @@ struct FileHandoffCard: View {
 /// The transcript is lazy: scrolling a picture off and back on would pull it
 /// from the Mac again without this. Lives outside FileImagePreview because a
 /// generic type cannot hold a static stored property.
-@MainActor private enum FileImageCache {
+@MainActor enum FileImageCache {
     static var images: [String: UIImage] = [:]
 }
 
@@ -1015,6 +1018,7 @@ private struct FileImagePreview<Fallback: View>: View {
     @ViewBuilder let fallback: () -> Fallback
     @State private var image: UIImage?
     @State private var viewing = false
+    @Environment(\.chatGallery) private var gallery
 
     private var key: String { "\(workspaceId)|\(chatId)|\(path)" }
 
@@ -1035,6 +1039,7 @@ private struct FileImagePreview<Fallback: View>: View {
                         }
                         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .onTapGesture { viewing = true }
+                        .draggable(Image(uiImage: image))
                         .contextMenu {
                             NavigationLink(value: FileRef(workspaceId: workspaceId, path: path, chatId: chatId)) {
                                 Label("Open file", systemImage: "doc")
@@ -1051,7 +1056,8 @@ private struct FileImagePreview<Fallback: View>: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fullScreenCover(isPresented: $viewing) {
-                    ImageViewerSheet(images: [image], index: 0)
+                    ImageViewerSheet(images: [image], index: 0, gallery: gallery,
+                                     sources: [.file(workspaceId: workspaceId, path: path, chatId: chatId)])
                 }
             } else {
                 NavigationLink(value: FileRef(workspaceId: workspaceId, path: path, chatId: chatId)) {

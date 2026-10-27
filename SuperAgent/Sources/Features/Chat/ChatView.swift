@@ -148,6 +148,14 @@ struct ChatView: View {
         return turns.suffix(min(turns.count, n + extraTurns))
     }
     private var hiddenTurns: Int { turns.count - visibleTurns.count }
+    /// Every picture in the conversation, for the viewer's swipe.
+    @State private var gallerySources: [ChatImageSource] = []
+    private var chatGallery: ChatGallery {
+        let c = connection
+        let id = chat.id
+        return ChatGallery(connection: c, sources: gallerySources,
+                           markdownLoader: { path in await ChatGallery.fetchMarkdownFile(c, chatId: id, path: path) })
+    }
     @State private var tasks: [TaskItem] = []
     /// WireEvent.id of every message that should show its own timestamp —
     /// see MessageTimeGroups.
@@ -445,6 +453,7 @@ struct ChatView: View {
             // moment after the first pass, that left every row of the screen
             // too wide and cut off on the left.
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .environment(\.chatGallery, chatGallery)
         }
         .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.width.rounded() } action: { _, w in
             settle(width: w)
@@ -775,6 +784,7 @@ struct ChatView: View {
     private func rebuild() {
         let events = transcript.events
         turns = TurnBuilder.build(events)
+        gallerySources = ChatGallery.sources(in: events)
         tasks = TaskList.build(events)
         timeIds = MessageTimeGroups.visibleIds(events)
         var open = Set<String>()

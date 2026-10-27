@@ -31,13 +31,34 @@ final class SaveImageTests: XCTestCase {
             return false
         }
         save.tap()
+        // The first time Photos asks, say yes; once it has been allowed there is
+        // no alert and the confirmation is up for under two seconds, so look for
+        // it as often as for the alert rather than waiting for one first.
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        for label in ["Allow", "OK"] where springboard.buttons[label].waitForExistence(timeout: 3) {
-            springboard.buttons[label].tap()
-            break
+        let toast = app.staticTexts["Saved to Photos"]
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline, !toast.exists {
+            for label in ["Allow", "OK"] where springboard.buttons[label].exists {
+                springboard.buttons[label].tap()
+            }
+            usleep(100_000)
         }
-        app.tap() // lets the interruption monitor run if the alert came through it
-        XCTAssertTrue(app.staticTexts["Saved to Photos"].waitForExistence(timeout: 10),
-                      "saving should say it worked")
+        XCTAssertTrue(toast.exists, "saving should say it worked")
+    }
+
+    /// Swiping the full-screen picture goes to the next one in the conversation,
+    /// not only to the next in the same message.
+    func testSwipingGoesToTheNextPictureInTheConversation() {
+        app.terminate()
+        app.launchArguments += ["-imageReply2"]
+        app.launch()
+        let picture = app.images["The app on a phone"]
+        XCTAssertTrue(picture.waitForExistence(timeout: 20), "the first reply shows its picture")
+        picture.tap()
+        XCTAssertTrue(app.staticTexts["1 of 2"].waitForExistence(timeout: 5), "the viewer says where it is")
+        app.swipeLeft()
+        XCTAssertTrue(app.staticTexts["2 of 2"].waitForExistence(timeout: 10), "a swipe goes to the next picture")
+        app.swipeRight()
+        XCTAssertTrue(app.staticTexts["1 of 2"].waitForExistence(timeout: 5), "and back")
     }
 }

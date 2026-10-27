@@ -338,6 +338,7 @@ struct MarkdownImage: View {
     @State private var image: UIImage?
     @State private var failed = false
     @State private var showFull = false
+    @Environment(\.chatGallery) private var gallery
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// The most a preview takes: a phone keeps it small beside the words; an
@@ -367,7 +368,10 @@ struct MarkdownImage: View {
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.border))
                     .contentShape(Rectangle())
                     .onTapGesture { showFull = true }
-                    .fullScreenCover(isPresented: $showFull) { ImageViewerSheet(images: [image], index: 0) }
+                    .draggable(Image(uiImage: image))
+                    .fullScreenCover(isPresented: $showFull) {
+                        ImageViewerSheet(images: [image], index: 0, gallery: gallery, sources: [.markdown(src)])
+                    }
                     .accessibilityLabel(alt.isEmpty ? "Image" : alt)
             } else if failed {
                 Label(alt.isEmpty ? (src as NSString).lastPathComponent : alt, systemImage: "photo")
