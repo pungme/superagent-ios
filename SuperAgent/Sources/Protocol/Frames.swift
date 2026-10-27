@@ -65,6 +65,20 @@ struct ReplyQuote: Codable, Hashable, Sendable {
     }
 }
 
+/// A message can be a megabyte (a pasted log, a whole file). Laid out in full it
+/// held the main thread past iOS's ten seconds and the app was killed on opening
+/// the conversation, so the phone keeps the first part and says what it left out.
+enum WireText {
+    static let limit = 20_000
+
+    static func clip(_ text: String) -> String {
+        guard text.utf8.count > limit + 4_000 else { return text }
+        let kept = text.prefix(limit)
+        let left = text.count - kept.count
+        return String(kept) + "\n\n… [\(left.formatted()) more characters, not shown on the phone]"
+    }
+}
+
 enum WireEventData: Hashable, Sendable {
     case user(id: String, text: String, images: [ImageMeta], from: Origin, replyTo: ReplyQuote?)
     case assistant(id: String, text: String)
@@ -120,14 +134,14 @@ extension WireEventData: Codable {
         case "user":
             self = .user(
                 id: try c.decode(String.self, forKey: .id),
-                text: try c.decodeIfPresent(String.self, forKey: .text) ?? "",
+                text: WireText.clip(try c.decodeIfPresent(String.self, forKey: .text) ?? ""),
                 images: try c.decodeIfPresent([ImageMeta].self, forKey: .images) ?? [],
                 from: try c.decodeIfPresent(Origin.self, forKey: .from) ?? .desktop,
                 replyTo: try c.decodeIfPresent(ReplyQuote.self, forKey: .replyTo))
         case "assistant":
-            self = .assistant(id: try c.decode(String.self, forKey: .id), text: try c.decode(String.self, forKey: .text))
+            self = .assistant(id: try c.decode(String.self, forKey: .id), text: WireText.clip(try c.decode(String.self, forKey: .text)))
         case "thinking":
-            self = .thinking(id: try c.decode(String.self, forKey: .id), text: try c.decode(String.self, forKey: .text))
+            self = .thinking(id: try c.decode(String.self, forKey: .id), text: WireText.clip(try c.decode(String.self, forKey: .text)))
         case "tool":
             self = .tool(
                 id: try c.decode(String.self, forKey: .id),
