@@ -35,6 +35,12 @@ final class AppState {
     init() {
         let saved = UserDefaults.standard.string(forKey: "selectedMachine")
         selectedMachineId = machines.contains { $0.id == saved } ? saved : machines.first?.id
+        #if DEBUG
+        // `-openRealChat <id>`: open that conversation of the paired Mac as the
+        // app starts, to profile a heavy one without tapping through to it.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-openRealChat"), i + 1 < args.count { openChatId = args[i + 1] }
+        #endif
     }
 
     /// Switch to another paired Mac by hand.

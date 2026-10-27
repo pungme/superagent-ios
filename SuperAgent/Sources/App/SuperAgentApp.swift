@@ -13,6 +13,14 @@ struct SuperAgentApp: App {
     /// Something was shared into the inbox; ask where it should go.
     @State private var shareInboxShown = false
 
+    init() {
+        #if DEBUG
+        // Before any screen asks: `-hangChat <id>` says that conversation froze the app.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-hangChat"), i + 1 < args.count { HangGuard.markForTesting(args[i + 1]) }
+        #endif
+    }
+
 
     /// Shares the sheet aimed but could not deliver (Mac unreachable at the
     /// time): send them now, silently — the user already said where.
@@ -66,7 +74,10 @@ struct SuperAgentApp: App {
             }
                 .id(accent)
                 .environment(app)
-                .onAppear { PushDelegate.app = app }
+                .onAppear {
+                    PushDelegate.app = app
+                    HangGuard.shared.start()
+                }
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     switch phase {
                     case .active:

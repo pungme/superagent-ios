@@ -128,22 +128,39 @@ struct ChatView: View {
     @State private var turns: [Turn] = []
     /// How many earlier turns have been asked for, beyond the newest ones.
     @State private var extraTurns = 0
-    private static let initialTurns = 40
+    /// A conversation that froze the app lately (HangGuard) lays out far less,
+    /// until asked for more: a cap on how much is on screen is a cap on how long
+    /// the main thread can be held.
+    @State private var safeMode = false
+    /// How tall the keyboard is while it is up, to know how much room is left above it.
+    @State private var keyboardHeight: CGFloat = 0
+    /// Little room above the keyboard (a Duo's short screen, a phone on its side):
+    /// the title bar and the strips above the composer give way to the messages.
+    private var squeezed: Bool {
+        #if DEBUG
+        // `-squeeze`: as if the screen were short, to look at it on a tall one.
+        if ProcessInfo.processInfo.arguments.contains("-squeeze") { return keyboardOnScreen }
+        #endif
+        return keyboardOnScreen && keyboardHeight > 0 && UIScreen.main.bounds.height - keyboardHeight < 480
+    }
     private static let moreTurns = 20
+    private var initialTurns: Int { safeMode ? 8 : 30 }
     /// The newest turns are laid out by how much they SAY, not only how many:
     /// forty turns of long replies took the main thread past the ten seconds
     /// iOS allows (the app was killed, 0x8BADF00D, 2026-10-24 and 26) while
-    /// forty short ones are nothing. At least three show.
-    private static let textBudget = 24_000
-    private static let leastTurns = 3
+    /// forty short ones are nothing. At least `leastTurns` show.
+    private var textBudget: Int { safeMode ? 5_000 : 16_000 }
+    private var leastTurns: Int { safeMode ? 2 : 3 }
+    /// Events older than this are not even grouped: the phone keeps the newest few hundred.
+    private static let eventCap = 600
     private var visibleTurns: ArraySlice<Turn> {
         var used = 0
         var n = 0
         for turn in turns.reversed() {
             used += turn.weight
             n += 1
-            if n >= Self.initialTurns { break }
-            if used > Self.textBudget, n >= Self.leastTurns { break }
+            if n >= initialTurns { break }
+            if used > textBudget, n >= leastTurns { break }
         }
         return turns.suffix(min(turns.count, n + extraTurns))
     }
@@ -255,6 +272,7 @@ struct ChatView: View {
             .navigationTitle(chat.title ?? "Conversation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { chatToolbar }
+            .animation(.easeOut(duration: 0.15), value: squeezed)
             // Here, not on the title itself: an alert hung on a toolbar item does not
             // reliably run its buttons.
             .alert("Rename conversation", isPresented: $renaming) {
@@ -270,7 +288,7 @@ struct ChatView: View {
                 }
             }
             // Full screen owns the phone: no navigation or status bar over it.
-            .toolbar(theater ? .hidden : .automatic, for: .navigationBar)
+            .toolbar(theater || squeezed ? .hidden : .automatic, for: .navigationBar)
             .statusBarHidden(theater)
             // Nothing left to watch (closed on the Mac, put away here, or the
             // phone turned wide): back to the conversation.
@@ -296,13 +314,18 @@ struct ChatView: View {
         view
             .onAppear {
                 connection.subscribe(chatId: chat.id)
+                safeMode = HangGuard.recentHangs(in: chat.id) > 0
+                HangGuard.shared.setOpen(chat.id)
                 rebuild()
                 loadHidden()
                 markRead()
             }
             // Off screen is off the wire: see Connection.watching. Coming back
             // resubscribes from lastSeq and catches up on whatever it missed.
-            .onDisappear { connection.unsubscribe(chatId: chat.id) }
+            .onDisappear {
+                connection.unsubscribe(chatId: chat.id)
+                HangGuard.shared.setOpen(nil)
+            }
             // Poll the running-jobs pills ONLY while the app is foreground and
             // this chat is on screen. Keyed on scenePhase so backgrounding
             // cancels it — a poll every 2s is small, but "ask for nothing when
@@ -407,6 +430,22 @@ struct ChatView: View {
                 // in this stack is measured up front (see above), and a long
                 // conversation was paying for hundreds of rows to show its
                 // last few. The rest are one tap away.
+                if safeMode {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.textSecondary)
+                        Text("This conversation froze the app last time, so only the latest messages are shown.")
+                            .superFont(12).foregroundStyle(Theme.textSecondary)
+                        Spacer(minLength: 4)
+                        Button("Show all") {
+                            HangGuard.forget(chat.id)
+                            safeMode = false
+                        }
+                        .superFont(12, weight: .semibold)
+                    }
+                    .padding(10)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityIdentifier("safe-mode-banner")
+                }
                 if hiddenTurns > 0 {
                     Button {
                         extraTurns += Self.moreTurns
@@ -570,11 +609,16 @@ struct ChatView: View {
                     newTitle = title ?? ""
                     renaming = true
                 } label: {
-                    VStack(spacing: 1) {
-                        Text(title ?? "Conversation").superFont(15, weight: .semibold).lineLimit(1)
-                            .foregroundStyle(Theme.textPrimary)
-                        Text(workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name)
-                            .superFont(11).foregroundStyle(Theme.textSecondary)
+                    HStack(spacing: 8) {
+                        // The project's own icon, so which app this is is not only a word.
+                        ProjectGlyph(connection: connection, workspace: workspace)
+                            .foregroundStyle(Theme.textSecondary)
+                        VStack(spacing: 1) {
+                            Text(title ?? "Conversation").superFont(15, weight: .semibold).lineLimit(1)
+                                .foregroundStyle(Theme.textPrimary)
+                            Text(workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name)
+                                .superFont(11).foregroundStyle(Theme.textSecondary)
+                        }
                     }
                 }
                 .buttonStyle(.plain)
@@ -782,20 +826,27 @@ struct ChatView: View {
     }
 
     private func rebuild() {
-        let events = transcript.events
-        turns = TurnBuilder.build(events)
-        gallerySources = ChatGallery.sources(in: events)
-        tasks = TaskList.build(events)
-        timeIds = MessageTimeGroups.visibleIds(events)
-        var open = Set<String>()
-        for e in events {
-            switch e.data {
-            case .approval(let id, _, _, _, _): open.insert(id)
-            case .approvalEnd(let id, _, _): open.remove(id)
-            default: break
-            }
+        // Grouping, task lists and time marks are pure functions of the events:
+        // done off the main thread, and the newest result wins. A long
+        // conversation used to hold the screen thread for the whole pass.
+        let events = Array(transcript.events.suffix(Self.eventCap))
+        let gate = rebuildGate
+        gate.generation += 1
+        let generation = gate.generation
+        Task.detached(priority: .userInitiated) {
+            let derived = ChatDerived(events)
+            await MainActor.run { apply(derived, generation: generation, gate: gate) }
         }
-        pendingApprovals = open
+    }
+
+    @MainActor
+    private func apply(_ d: ChatDerived, generation: Int, gate: RebuildGate) {
+        guard gate.generation == generation else { return }
+        turns = d.turns
+        gallerySources = d.gallery
+        tasks = d.tasks
+        timeIds = d.timeIds
+        pendingApprovals = d.openApprovals
         // The transcript arrives after this view does and lands in batches, and
         // the rows are wildly uneven — a collapsed step group is one line, the
         // reply under it is forty. A bottom anchor on its own settles against
@@ -814,10 +865,10 @@ struct ChatView: View {
             // Attached but not on screen: say so, and offer it back. Without
             // this the page simply vanishes when you hide it or start typing,
             // and nothing says the conversation still has one.
-            if simAttached, !simShown, !pageShown || regular {
+            if !squeezed, simAttached, !simShown, !pageShown || regular {
                 showBar(icon: "iphone", label: simLabel) { setSimHidden(false); composerFocused = false }
             }
-            if pageAttached, !pageShown {
+            if !squeezed, pageAttached, !pageShown {
                 showBar(icon: "globe", label: pageLabel) { setPageHidden(false); composerFocused = false }
             }
             // The connection lives at the BOTTOM now, floating over the last
@@ -842,8 +893,8 @@ struct ChatView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-            if let loop = liveLoop, !chatFloats { loopBar(loop) }
-            if !backgroundTasks.isEmpty, !chatFloats { backgroundStrip }
+            if let loop = liveLoop, !chatFloats, !squeezed { loopBar(loop) }
+            if !backgroundTasks.isEmpty, !chatFloats, !squeezed { backgroundStrip }
             Divider().overlay(Theme.border)
             composer
                 // An iPad sits the composer just clear of the home indicator
@@ -866,6 +917,8 @@ struct ChatView: View {
             let screen = (note.object as? UIScreen)?.bounds.height ?? UIScreen.main.bounds.height
             let up = KeyboardRoom.onScreen(frame: frame, screenHeight: screen)
             if up != keyboardOnScreen { keyboardOnScreen = up }
+            let kh = up ? frame.height : 0
+            if kh != keyboardHeight { keyboardHeight = kh }
             let strip = KeyboardRoom.isStrip(frame: frame, screenHeight: screen)
             if strip != keyboardStrip { keyboardStrip = strip }
             // Asked again now: by the time a keyboard moves, GameController knows.
@@ -1594,8 +1647,35 @@ struct ChatHarness: View {
 #endif
 
 /// See ChatView.scheduleRebuild.
-private final class RebuildGate {
+private final class RebuildGate: @unchecked Sendable {
     var pending = false
+    /// Bumped by every rebuild; a result that is not the newest is dropped.
+    var generation = 0
+}
+
+/// Everything ChatView derives from the events, computed off the main thread.
+private struct ChatDerived: Sendable {
+    let turns: [Turn]
+    let gallery: [ChatImageSource]
+    let tasks: [TaskItem]
+    let timeIds: Set<String>
+    let openApprovals: Set<String>
+
+    init(_ events: [WireEvent]) {
+        turns = TurnBuilder.build(events)
+        gallery = ChatGallery.sources(in: events)
+        tasks = TaskList.build(events)
+        timeIds = MessageTimeGroups.visibleIds(events)
+        var open = Set<String>()
+        for e in events {
+            switch e.data {
+            case .approval(let id, _, _, _, _): open.insert(id)
+            case .approvalEnd(let id, _, _): open.remove(id)
+            default: break
+            }
+        }
+        openApprovals = open
+    }
 }
 
 /// The reply being typed. The only view that reads the streamed text, so it

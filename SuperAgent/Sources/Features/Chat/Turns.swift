@@ -21,6 +21,8 @@ struct Turn: Identifiable, Equatable {
                 case .user(_, let t, _, _, _), .assistant(_, let t), .thinking(_, let t), .notice(let t):
                     return sum + t.utf8.count
                 case .toolResult(_, _, let summary, _): return sum + min(summary.utf8.count, 400)
+                case .diff(_, _, let hunks):
+                    return sum + min(hunks.reduce(0) { $0 + $1.added.count + $1.removed.count } * 80, 6_000)
                 default: return sum + 120
                 }
             }
