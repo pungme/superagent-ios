@@ -284,12 +284,14 @@ struct SidebarView: View {
         }
         .task(id: connection.state) {
             guard connection.state == .connected else { return }
+            await connection.loadSplits()
             await loadRoutines()
             await loadWorktrees()
         }
         .refreshable {
             connection.connect()
             await connection.refreshTree()
+            await connection.loadSplits()
             await loadRoutines()
             await loadWorktrees()
         }

@@ -214,6 +214,7 @@ final class Connection {
         info = OfflineCache.load(machine.id, "machine", as: WireMachine.self)
         tree = OfflineCache.load(machine.id, "tree", as: [WireGroup].self) ?? []
         chats = OfflineCache.load(machine.id, "chats", as: [WireChat].self)?.map { var c = $0; c.live = false; return c } ?? []
+        splits = OfflineCache.load(machine.id, "splits", as: [WireSplit].self) ?? []
         unread.note(chats)
     }
 
@@ -1183,8 +1184,17 @@ extension Connection {
         if machine.id == "harness" { return }
         #endif
         struct R: Decodable { var splits: [WireSplit] }
-        guard let r = try? await rpc("splits.list", .object([:]), as: R.self) else { return }
-        if r.splits != splits { splits = r.splits }
+        // Asked again until it answers: the first ask can go out before the
+        // connection is up, or to a Mac too old to know it, and then the phone
+        // showed no splits until something else happened to ask again.
+        for attempt in 0..<4 {
+            if state == .connected, let r = try? await rpc("splits.list", .object([:]), as: R.self) {
+                if r.splits != splits { splits = r.splits }
+                OfflineCache.save(machine.id, "splits", r.splits)
+                return
+            }
+            try? await Task.sleep(for: .seconds(attempt == 0 ? 1 : 3))
+        }
     }
 
     func renameWorkspace(id: String, name: String) async throws {
@@ -1435,6 +1445,13 @@ extension Connection {
             if let i = c.chats.firstIndex(where: { $0.id == "c1" }) {
                 c.chats[i].live = ProcessInfo.processInfo.arguments.contains("-askLate")
             }
+        }
+        // `-withAskMulti`: a question that takes several answers.
+        if ProcessInfo.processInfo.arguments.contains("-withAskMulti") {
+            seq += 1
+            t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at, data: .assistant(
+                id: "a\(seq)",
+                text: "Which should I build?\n\n```ask\n{\"question\":\"What next?\",\"multiple\":true,\"options\":[{\"label\":\"Build iOS for TestFlight\"},{\"label\":\"Check the failing tests\",\"hint\":\"The three that fail on main\"},{\"label\":\"Move board cards to done\"}]}\n```")))
         }
         // `-longTranscript`: the Mac's 400-event cap worth of turns, tool steps
         // and Markdown, to measure what opening a real conversation costs.
