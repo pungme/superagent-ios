@@ -127,8 +127,8 @@ struct SidebarView: View {
                     activitySection
                 } else {
                     machineSection
-                    pinnedShortcutsSection
                     splitsSection
+                    pinnedShortcutsSection
                     chatsSection
                     projectsSection
                     ForEach(groups) { group in groupSection(group) }
