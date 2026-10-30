@@ -1032,7 +1032,11 @@ extension Connection {
                   limitedUntil: nil, needsAuth: nil, usage: u)
         }
         return WireAccounts(
-            claude: [account("claude:login", "claude", "Your Claude login", "login", "you@example.com · Max plan", usage(13, 99)),
+            claude: [account("claude:login", "claude", "Your Claude login", "login", "you@example.com · Max plan",
+                             { var u = usage(13, 99)
+                               u.windows.append(.init(label: "Weekly Fable", percent: 100, resetsAt: soon + 86_400_000, model: "fable"))
+                               return u }()),
+                     account("a0", "claude", "studio@", "token", "Token", usage(100, 99)),
                      account("a1", "claude", "campaigns@", "token", "Token", usage(41, 22)),
                      account("a2", "claude", "admin@", "token", "Token", usage(0, 7))],
             codex: [account("codex:login", "codex", "Your Codex login", "login", "ChatGPT", usage(27, 14))],

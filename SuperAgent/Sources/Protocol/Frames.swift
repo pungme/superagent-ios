@@ -815,6 +815,10 @@ struct WireAccount: Codable, Hashable, Sendable, Identifiable {
         var label: String
         var percent: Int
         var resetsAt: Double?
+        /// Set when the window is one model's own allowance ("fable"): running
+        /// it out only moves a chat to the next model, so it is listed but does
+        /// not make the account look full. Absent from older Macs.
+        var model: String? = nil
     }
     struct Usage: Codable, Hashable, Sendable {
         var windows: [Window]
@@ -841,12 +845,25 @@ struct WireAccount: Codable, Hashable, Sendable, Identifiable {
     func liveWindows(now: Date = .now) -> [Window] {
         (usage?.windows ?? []).map { w in
             guard let r = w.resetsAt, r / 1000 <= now.timeIntervalSince1970 else { return w }
-            return Window(label: w.label, percent: 0, resetsAt: nil)
+            return Window(label: w.label, percent: 0, resetsAt: nil, model: w.model)
         }
     }
 
+    /// The fullest of the account's own windows still running (a model's own
+    /// week left out), or nil when nothing has been read — the Mac's rule.
+    func fullestWindow(now: Date = .now) -> Window? {
+        (usage?.windows ?? [])
+            .filter { w in w.model == nil && (w.resetsAt.map { $0 / 1000 > now.timeIntervalSince1970 } ?? true) }
+            .max { $0.percent < $1.percent }
+    }
+
     /// The fullest window, 0–100, or nil when nothing has been read.
-    func fullest(now: Date = .now) -> Int? { liveWindows(now: now).map(\.percent).max() }
+    func fullest(now: Date = .now) -> Int? { fullestWindow(now: now)?.percent }
+
+    /// Out of allowance: its fullest window is spent, or the Mac saw it refused.
+    func isBlocked(now: Date = .now) -> Bool {
+        (fullest(now: now) ?? 0) >= 100 || (limitedUntil ?? 0) / 1000 > now.timeIntervalSince1970
+    }
 }
 
 /// Every agent's accounts, and the one the chat asked about is on.

@@ -152,6 +152,11 @@ struct SidebarView: View {
         // of the screen. A phone keeps it: there is a tab bar under its list.
         .scrollEdgeEffectHidden(asSidebar, for: .bottom)
         .background(Theme.panel)
+        // How much allowance is left, at the foot as on the Mac's sidebar.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            UsageFooter(connection: connection, chatId: openId)
+                .background(Theme.panel)
+        }
         // Same treatment as the conversation: a status, not an obstruction. A
         // band across the top pushed every project down and drew the eye to the
         // one thing you cannot act on; floating it at the bottom keeps it
