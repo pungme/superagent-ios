@@ -6,8 +6,8 @@ import SwiftUI
 /// opens the commands the agent reported for this session.
 struct Composer: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
-    /// In a split window the pills drop their "Model"/"Mode" labels so they
-    /// fit on one line, as the Mac's composer folds in a narrow window.
+    /// In a split window the composer is the mini one (see `mini`): the
+    /// pills fold into the agent's logo, as the Mac's composer does there.
     @Environment(\.compactComposer) private var compact
     /// The round icon buttons hold a glyph that grows with the text size;
     /// the well has to grow with it or the glyph spills over the circle. It
@@ -98,6 +98,40 @@ struct Composer: View {
     /// clean line until they are wanted. Remembered, so it stays as left.
     @AppStorage("composer.settingsOpen") private var settingsOpen = false
 
+    /// The composer's own width, to fold into the mini layout when a column
+    /// is too narrow for the pills, as the Mac's does (its container query).
+    @State private var width: CGFloat = 0
+    /// Narrower than this on an iPad (a Stage Manager window, a column beside
+    /// a page) and the pills would wrap onto two lines. Below an 11-inch
+    /// iPad's portrait chat column with the sidebar out (about 514 pt) and an
+    /// iPad mini's (about 424 pt), so a full single chat keeps its layout.
+    static let miniWidth: CGFloat = 400
+    /// The mini composer: one row (+, the box with the agent's logo, send),
+    /// every setting in the logo's menu. In a split window always; elsewhere
+    /// on an iPad when the column is narrow. A phone keeps its own layout.
+    private var mini: Bool {
+        compact || (sizeClass == .regular && width > 0 && width < Self.miniWidth)
+    }
+
+    /// The agent's logo in the box, with the usage limit as a ring round it.
+    private func logoMark(highlighted: Bool) -> some View {
+        ZStack {
+            // How much of the account's usage limit is used, as a
+            // ring round the logo; it reddens as it fills.
+            if let ring = limitFraction {
+                Circle().stroke(Theme.textTertiary.opacity(0.25), lineWidth: 2)
+                Circle().trim(from: 0, to: max(0.02, ring))
+                    .stroke(memoryColour(ring), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            ProviderMark(provider: provider, size: 17)
+        }
+        .frame(width: well - 6, height: well - 6)
+        .frame(width: well, height: well)
+        .background(highlighted ? Theme.accentSoft : .clear, in: Circle())
+        .contentShape(Circle())
+    }
+
     @State private var showPhotoPicker = false
     @State private var showFilePicker = false
     /// Nothing the recogniser says after a send belongs in the emptied composer;
@@ -139,7 +173,8 @@ struct Composer: View {
         if let f = memoryFraction, let context {
             lines.append("Memory \(Int(f * 100))% · \(context.used / 1000)K of \(context.window / 1000)K")
         }
-        lines.append(settingsOpen ? "Tap to hide the settings" : "Tap for model, mode and account")
+        lines.append(mini ? "Tap for agent, model, mode and account"
+                     : settingsOpen ? "Tap to hide the settings" : "Tap for model, mode and account")
         return lines.joined(separator: "\n")
     }
 
@@ -161,54 +196,174 @@ struct Composer: View {
         }
     }
 
+    private var agentName: String {
+        provider == "codex" ? "Codex" : provider == "antigravity" ? "Antigravity" : "Claude Code"
+    }
+    private var currentAccountEntry: WireAccount? {
+        guard accounts.count > 1 else { return nil }
+        return accounts.first(where: { $0.id == currentAccount }) ?? accounts.first
+    }
+    private var modeLabel: String { Composer.modes.first { $0.id == mode }?.label ?? "Full" }
+    private var memoryPercent: Int? {
+        guard let context else { return nil }
+        return min(100, Int((Double(context.used) / Double(max(1, context.window)) * 100).rounded()))
+    }
+
+    // MARK: The choices, shared by the pills and the mini composer's menu
+
+    @ViewBuilder
+    private var agentChoices: some View {
+        Button { onProvider("claude") } label: {
+            Label {
+                Text(provider != "codex" && provider != "antigravity" ? "✓ Claude Code" : "Claude Code")
+            } icon: { Image("ClaudeMark").renderingMode(.original) }
+        }
+        Button { onProvider("codex") } label: {
+            Label {
+                Text(provider == "codex" ? "✓ Codex" : "Codex")
+            } icon: { Image("CodexMark").renderingMode(.template) }
+        }
+        // Google's agent (Gemini), the Mac's third. It was shown
+        // when the Mac had put a conversation on it, and could
+        // not be picked from here.
+        Button { onProvider("antigravity") } label: {
+            Label {
+                Text(provider == "antigravity" ? "✓ Antigravity" : "Antigravity")
+            } icon: { Image("AntigravityMark").renderingMode(.template) }
+        }
+    }
+
+    @ViewBuilder
+    private func accountChoices(_ current: WireAccount) -> some View {
+        ForEach(accounts) { a in
+            // Title and subtitle straight in the label: inside a
+            // Label with a conditional icon, iOS showed the name
+            // and dropped the usage line under it.
+            Button { onAccount(a.id) } label: {
+                Text(a.id == current.id ? "✓ \(a.name)" : a.name)
+                Text(a.needsAuth != nil ? "Needs sign-in on the Mac"
+                     : a.liveWindows().isEmpty ? "Usage not read yet"
+                     : a.liveWindows().map { "\($0.label) \($0.percent)%" }.joined(separator: " · "))
+            }
+            .disabled(a.needsAuth != nil)
+        }
+    }
+
+    @ViewBuilder
+    private var modelChoices: some View {
+        // What this conversation is actually on right now — the
+        // family names below ("Opus") don't say which version.
+        if let running = runningModel.flatMap(ModelName.pretty) {
+            Section {
+                Button {} label: { Label("Now running: \(running)", systemImage: "cpu") }
+                    .disabled(true)
+            }
+        }
+        ForEach(availableModels.filter { $0.older != true }) { m in
+            modelButton(m)
+        }
+        // The Mac lists every version still available; the earlier
+        // ones sit one level down so the current five stay in view.
+        let older = availableModels.filter { $0.older == true }
+        if !older.isEmpty {
+            Menu("Older models") {
+                ForEach(older) { m in modelButton(m) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modeChoices: some View {
+        ForEach(Composer.modes, id: \.id) { m in
+            Button { mode = m.id } label: {
+                Label { Text(m.label); Text(m.hint) } icon: { if mode == m.id { Image(systemName: "checkmark") } }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func browserChoicesMenu(_ b: BrowserChoices) -> some View {
+        ForEach(b.browsers) { option in
+            Button { onBrowser(option.id) } label: {
+                Label {
+                    Text(option.name)
+                    Text(option.id == "builtin" ? "The browser inside Superagent" : "On your Mac, with its sign-ins")
+                } icon: { if b.current == option.id { Image(systemName: "checkmark") } }
+            }
+        }
+    }
+
+    /// The mini composer's one control: everything the pills hold, as the
+    /// Mac's folded list is — one setting to a row, its name and its value,
+    /// each opening its choices. Then the figures (usage, memory) last.
+    @ViewBuilder
+    private var settingsMenu: some View {
+        Menu {
+            agentChoices
+        } label: {
+            Text("Agent"); Text(agentName)
+        }
+        if let current = currentAccountEntry {
+            Menu {
+                accountChoices(current)
+            } label: {
+                Text("Account")
+                Text(current.fullest().map { "\(current.shortName) · \($0)%" } ?? current.shortName)
+            }
+        }
+        Menu {
+            modelChoices
+        } label: {
+            Text("Model"); Text(modelPillLabel)
+        }
+        Menu {
+            modeChoices
+        } label: {
+            Text("Mode"); Text(modeLabel)
+        }
+        if let b = browserChoices, b.browsers.count > 1 {
+            Menu {
+                browserChoicesMenu(b)
+            } label: {
+                Text("Browser"); Text(b.currentName)
+            }
+        }
+        if limitFraction != nil || memoryPercent != nil {
+            Section {
+                if let f = limitFraction {
+                    Button {} label: { Text("Usage limit \(Int(f * 100))%") }.disabled(true)
+                }
+                if let pct = memoryPercent, let context {
+                    Button {} label: {
+                        Text("Memory \(pct)%")
+                        Text("\(context.used / 1000)K of \(context.window / 1000)K tokens")
+                    }
+                    .disabled(true)
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var pills: some View {
                 Menu {
-                    Button { onProvider("claude") } label: {
-                        Label {
-                            Text(provider != "codex" && provider != "antigravity" ? "✓ Claude Code" : "Claude Code")
-                        } icon: { Image("ClaudeMark").renderingMode(.original) }
-                    }
-                    Button { onProvider("codex") } label: {
-                        Label {
-                            Text(provider == "codex" ? "✓ Codex" : "Codex")
-                        } icon: { Image("CodexMark").renderingMode(.template) }
-                    }
-                    // Google's agent (Gemini), the Mac's third. It was shown
-                    // when the Mac had put a conversation on it, and could
-                    // not be picked from here.
-                    Button { onProvider("antigravity") } label: {
-                        Label {
-                            Text(provider == "antigravity" ? "✓ Antigravity" : "Antigravity")
-                        } icon: { Image("AntigravityMark").renderingMode(.template) }
-                    }
+                    agentChoices
                 } label: {
                     ControlPill {
                         HStack(spacing: 4) {
                             ProviderMark(provider: provider, size: 13)
                             // A conversation the Mac put on Antigravity says
                             // so, rather than passing for Claude Code.
-                            Text(provider == "codex" ? "Codex" : provider == "antigravity" ? "Antigravity" : "Claude Code")
+                            Text(agentName)
                             Image(systemName: "chevron.down").superFont(9, weight: .bold)
                         }
                     }
                 }
                 // Which subscription this chat spends, once there is more than
                 // one: the Mac's Account pill, with each account's usage.
-                if accounts.count > 1, let current = accounts.first(where: { $0.id == currentAccount }) ?? accounts.first {
+                if let current = currentAccountEntry {
                     Menu {
-                        ForEach(accounts) { a in
-                            // Title and subtitle straight in the label: inside a
-                            // Label with a conditional icon, iOS showed the name
-                            // and dropped the usage line under it.
-                            Button { onAccount(a.id) } label: {
-                                Text(a.id == current.id ? "✓ \(a.name)" : a.name)
-                                Text(a.needsAuth != nil ? "Needs sign-in on the Mac"
-                                     : a.liveWindows().isEmpty ? "Usage not read yet"
-                                     : a.liveWindows().map { "\($0.label) \($0.percent)%" }.joined(separator: " · "))
-                            }
-                            .disabled(a.needsAuth != nil)
-                        }
+                        accountChoices(current)
                     } label: {
                         ControlPill {
                             HStack(spacing: 4) {
@@ -224,54 +379,24 @@ struct Composer: View {
                     .accessibilityIdentifier("account-pill")
                 }
                 Menu {
-                    // What this conversation is actually on right now — the
-                    // family names below ("Opus") don't say which version.
-                    if let running = runningModel.flatMap(ModelName.pretty) {
-                        Section {
-                            Button {} label: { Label("Now running: \(running)", systemImage: "cpu") }
-                                .disabled(true)
-                        }
-                    }
-                    ForEach(availableModels.filter { $0.older != true }) { m in
-                        modelButton(m)
-                    }
-                    // The Mac lists every version still available; the earlier
-                    // ones sit one level down so the current five stay in view.
-                    let older = availableModels.filter { $0.older == true }
-                    if !older.isEmpty {
-                        Menu("Older models") {
-                            ForEach(older) { m in modelButton(m) }
-                        }
-                    }
+                    modelChoices
                 } label: {
                     ControlPill { HStack(spacing: 4) { if !compact { Text("Model").foregroundStyle(Theme.textTertiary) }; Text(modelPillLabel); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
                 Menu {
-                    ForEach(Composer.modes, id: \.id) { m in
-                        Button { mode = m.id } label: {
-                            Label { Text(m.label); Text(m.hint) } icon: { if mode == m.id { Image(systemName: "checkmark") } }
-                        }
-                    }
+                    modeChoices
                 } label: {
-                    ControlPill { HStack(spacing: 4) { if !compact { Text("Mode").foregroundStyle(Theme.textTertiary) }; Text(Composer.modes.first { $0.id == mode }?.label ?? "Full"); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                    ControlPill { HStack(spacing: 4) { if !compact { Text("Mode").foregroundStyle(Theme.textTertiary) }; Text(modeLabel); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
                 if let b = browserChoices, b.browsers.count > 1 {
                     Menu {
-                        ForEach(b.browsers) { option in
-                            Button { onBrowser(option.id) } label: {
-                                Label {
-                                    Text(option.name)
-                                    Text(option.id == "builtin" ? "The browser inside Superagent" : "On your Mac, with its sign-ins")
-                                } icon: { if b.current == option.id { Image(systemName: "checkmark") } }
-                            }
-                        }
+                        browserChoicesMenu(b)
                     } label: {
                         ControlPill { HStack(spacing: 4) { if !compact { Text("Browser").foregroundStyle(Theme.textTertiary) }; Text(b.currentName); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                     }
                     .accessibilityIdentifier("browser-pill")
                 }
-                if let context {
-                    let pct = min(100, Int((Double(context.used) / Double(max(1, context.window)) * 100).rounded()))
+                if let context, let pct = memoryPercent {
                     // The desktop's Memory gauge, at pill size: how much of the
                     // context window the conversation is carrying.
                     HStack(spacing: 5) {
@@ -555,32 +680,36 @@ struct Composer: View {
                 }
 
                 HStack(alignment: .bottom, spacing: 0) {
-                    Button {
-                        withAnimation(.easeOut(duration: 0.18)) { settingsOpen.toggle() }
-                        Haptics.tap()
-                    } label: {
-                        ZStack {
-                            // How much of the account's usage limit is used, as a
-                            // ring round the logo; it reddens as it fills.
-                            if let ring = limitFraction {
-                                Circle().stroke(Theme.textTertiary.opacity(0.25), lineWidth: 2)
-                                Circle().trim(from: 0, to: max(0.02, ring))
-                                    .stroke(memoryColour(ring), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                                    .rotationEffect(.degrees(-90))
-                            }
-                            ProviderMark(provider: provider, size: 17)
+                    if mini {
+                        // Mini (a split window, a narrow column): the logo is
+                        // the only control, and it opens every setting as a
+                        // menu instead of laying pills out under the box.
+                        Menu {
+                            settingsMenu
+                        } label: {
+                            logoMark(highlighted: false)
                         }
-                        .frame(width: well - 6, height: well - 6)
-                        .frame(width: well, height: well)
-                        .background(settingsOpen ? Theme.accentSoft : .clear, in: Circle())
-                        .contentShape(Circle())
+                        .menuOrder(.fixed)
+                        .buttonStyle(.plain)
+                        .help(agentDetails)
+                        .accessibilityValue(limitFraction.map { "Usage limit \(Int($0 * 100)) percent" } ?? "")
+                        .padding(.leading, 3)
+                        .accessibilityLabel("Agent, model and mode")
+                        .accessibilityIdentifier("composer-settings")
+                    } else {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.18)) { settingsOpen.toggle() }
+                            Haptics.tap()
+                        } label: {
+                            logoMark(highlighted: settingsOpen)
+                        }
+                        .buttonStyle(.plain)
+                        .help(agentDetails)
+                        .accessibilityValue(limitFraction.map { "Usage limit \(Int($0 * 100)) percent" } ?? "")
+                        .padding(.leading, 3)
+                        .accessibilityLabel(settingsOpen ? "Hide agent, model and mode" : "Show agent, model and mode")
+                        .accessibilityIdentifier("composer-settings")
                     }
-                    .buttonStyle(.plain)
-                    .help(agentDetails)
-                    .accessibilityValue(limitFraction.map { "Usage limit \(Int($0 * 100)) percent" } ?? "")
-                    .padding(.leading, 3)
-                    .accessibilityLabel(settingsOpen ? "Hide agent, model and mode" : "Show agent, model and mode")
-                    .accessibilityIdentifier("composer-settings")
                     TextField(dictation.listening ? "Listening…" : "Message \(providerName)…", text: $draft, axis: .vertical)
                         .lineLimit(1...6)
                         .superFont(15.5)
@@ -672,11 +801,13 @@ struct Composer: View {
 
             // Every pill belongs to the same strip. Memory used to sit outside
             // this ScrollView and stay pinned over Model/Mode on narrow phones.
-            if settingsOpen { pillRow.transition(.opacity.combined(with: .move(edge: .bottom))) }
+            // Mini: never a row of pills under the box; they are in the logo's menu.
+            if settingsOpen && !mini { pillRow.transition(.opacity.combined(with: .move(edge: .bottom))) }
             if let e = dictation.error { Text(e).superFont(11).foregroundStyle(Theme.danger).lineLimit(1) }
         }
         .padding(.top, 8).padding(.bottom, 8)
         .background(Theme.content)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .onAppear { loadDraft() }
         .onDisappear { saveDraft() }
         // Reused across a chat switch: keep the old chat's words, load the new
