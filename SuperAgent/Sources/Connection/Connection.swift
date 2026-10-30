@@ -1307,6 +1307,16 @@ extension Connection {
     func browserNav(chatId: String, action: String) async throws {
         _ = try await rpc("browser.nav", .object(["chatId": .string(chatId), "action": .string(action)]))
     }
+
+    /// Tap, point, scroll or type into the page the Mac's pane shows for this
+    /// conversation. Frames go out in the order they are called, and the Mac
+    /// plays each conversation's input in that order.
+    func browserInput(chatId: String, _ input: BrowserInput) async throws {
+        #if DEBUG
+        if machine.id == "harness" { return }
+        #endif
+        _ = try await rpc("browser.input", .object(["chatId": .string(chatId), "action": input.json]))
+    }
 }
 
 extension Bundle {

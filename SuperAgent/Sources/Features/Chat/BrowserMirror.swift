@@ -38,6 +38,14 @@ struct BrowserMirror: View {
     @State private var error: String?
     @FocusState private var urlFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
+    /// Touch or trackpad, remembered across launches.
+    @AppStorage("browser.controlMode") private var modeRaw = PageControlMode.touch.rawValue
+    private var mode: PageControlMode { PageControlMode(rawValue: modeRaw) ?? .touch }
+    /// The keyboard is up, typing into the page.
+    @State private var typing = false
+    @State private var pump = PageInputPump()
+    /// The Mac is from before the page could be used from here.
+    @State private var tooOld = false
 
     var body: some View {
         Group {
@@ -93,20 +101,29 @@ struct BrowserMirror: View {
         VStack(spacing: 0) {
             omnibar
             Group {
-                if let image, expanded {
-                    // Full screen on a phone, a desktop page is a wide picture
-                    // in a tall space: it fits across, and is small. Pinch or
-                    // double-tap to go in close, and drag to move around.
-                    ZoomableImage(image: image)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .clipped()
-                } else if let image {
-                    ScrollView {
-                        Image(uiImage: image)
-                            .resizable().scaledToFit()
-                            .frame(maxWidth: .infinity, alignment: .top)
-                    }
-                    .scrollDisabled(compact)
+                if let image {
+                    // The page to use, not only to look at: tap or point and
+                    // click, drag or two fingers to scroll, the keyboard to
+                    // type. Full screen, a desktop page fits across and is
+                    // small: pinch in (touch) to go close. Docked, it runs
+                    // across the strip from the top, as it did.
+                    PageSurface(image: image, chatId: chat.id, fitWidth: compact && !expanded,
+                                mode: mode, post: post)
+                        .overlay(alignment: .bottom) {
+                            if tooOld {
+                                Text("Update Superagent on the Mac to use the page from here.")
+                                    .superFont(12, weight: .medium)
+                                    .padding(.horizontal, 12).padding(.vertical, 7)
+                                    .background(.ultraThinMaterial, in: Capsule())
+                                    .padding(10)
+                                    .transition(.opacity)
+                            }
+                        }
+                        .background(alignment: .topLeading) {
+                            PageKeyboard(active: $typing, post: post)
+                                .frame(width: 1, height: 1).opacity(0.01)
+                                .accessibilityHidden(true)
+                        }
                 } else if let unavailable {
                     if compact {
                         Text(unavailable).superFont(12).foregroundStyle(Theme.textTertiary)
@@ -160,6 +177,14 @@ struct BrowserMirror: View {
             Button { nav("back") } label: { Image(systemName: "chevron.left") }.disabled(!(shot?.canGoBack ?? false))
             Button { nav("forward") } label: { Image(systemName: "chevron.right") }.disabled(!(shot?.canGoForward ?? false))
             Button { nav("reload") } label: { Image(systemName: "arrow.clockwise") }
+                .accessibilityLabel("Reload")
+            if image != nil {
+                modeSwitch
+                Button { typing.toggle() } label: {
+                    Image(systemName: typing ? "keyboard.chevron.compact.down" : "keyboard")
+                }
+                .accessibilityLabel(typing ? "Stop typing" : "Type into the page")
+            }
             if let onExpand {
                 Button(action: onExpand) {
                     Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
@@ -188,16 +213,68 @@ struct BrowserMirror: View {
         .background(Theme.panel)
     }
 
+    /// Touch or trackpad: two small faces in one capsule, the one in use lit.
+    private var modeSwitch: some View {
+        HStack(spacing: 0) {
+            ForEach(PageControlMode.allCases, id: \.self) { m in
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { modeRaw = m.rawValue }
+                    Haptics.tap()
+                } label: {
+                    Image(systemName: m == .touch ? "hand.point.up.left" : "cursorarrow")
+                        .superFont(compact ? 12 : 14, weight: .medium)
+                        .frame(width: compact ? 28 : 34, height: compact ? 22 : 28)
+                        .background(mode == m ? Theme.textPrimary : .clear, in: Capsule())
+                        .foregroundStyle(mode == m ? Theme.content : Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(m == .touch ? "Touch" : "Trackpad")
+                .accessibilityAddTraits(mode == m ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(Theme.hover, in: Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Control the page by")
+    }
+
+    private func post(_ input: BrowserInput) {
+        if pump.send == nil {
+            let connection = connection, chatId = chat.id
+            pump.send = { input in try await connection.browserInput(chatId: chatId, input) }
+            pump.onUnsupported = {
+                withAnimation { tooOld = true }
+                Task {
+                    try? await Task.sleep(for: .seconds(4))
+                    withAnimation { tooOld = false }
+                }
+            }
+        }
+        pump.post(input)
+    }
+
     // MARK: Mirroring
 
     /// While the page is changing, refresh briskly; when it settles, back off —
     /// the capture is a whole JPEG through the relay, not a video stream.
+    ///
+    /// While you are using the page, much faster: what a tap or a scroll did
+    /// shows within a quarter of a second, and a touch cuts a long wait short.
     private func poll() async {
         var quiet = 0
         while !Task.isCancelled {
             let changed = await refresh()
             quiet = changed ? 0 : min(quiet + 1, 4)
-            try? await Task.sleep(for: .milliseconds(changed ? 700 : 700 + quiet * 800))
+            let since = pump.lastSent
+            let hot = Date().timeIntervalSince(since) < 3
+            let wait = hot ? 250 : (changed ? 700 : 700 + quiet * 800)
+            var slept = 0
+            while slept < wait, !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(min(100, wait - slept)))
+                slept += 100
+                // Touched while waiting: go now, after a moment for the Mac to act.
+                if pump.lastSent != since, slept >= 100 { quiet = 0; break }
+            }
         }
     }
 
@@ -575,6 +652,8 @@ struct SimulatorMirror: View {
 enum MirrorFrames {
     static var page: [String: UIImage] = [:]
     static var sim: [String: UIImage] = [:]
+    /// Where the trackpad's pointer is on each conversation's page.
+    static var cursor: [String: CGPoint] = [:]
 }
 
 /// A page or the simulator as picture in picture, on a phone: a small card
@@ -803,4 +882,621 @@ struct MirrorPiP<Content: View>: View {
         .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
         .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
     }
+}
+
+// MARK: - Using the page from the phone
+
+/// How a finger works on the mirrored page. Touch: where you tap is where it
+/// clicks, a drag scrolls. Trackpad: a pointer on the page that one finger
+/// moves, like a laptop's trackpad.
+enum PageControlMode: String, CaseIterable {
+    case touch, trackpad
+}
+
+/// Where the picture of the page is on the phone's screen, and back: the maths
+/// between a finger and a point on the page. Points on the page are fractions
+/// of the picture (0...1), which is what the Mac takes (`browser.input`).
+enum PageMap {
+    /// The picture's place in the box, before any zoom: across the whole width
+    /// from the top (`fitWidth`, the docked strip, which may run past the
+    /// bottom), or all of it, centred across, from the top.
+    static func drawn(image: CGSize, in box: CGSize, fitWidth: Bool) -> CGRect {
+        guard image.width > 0, image.height > 0, box.width > 0, box.height > 0 else { return .zero }
+        let s = fitWidth ? box.width / image.width : min(box.width / image.width, box.height / image.height)
+        let w = image.width * s, h = image.height * s
+        return CGRect(x: (box.width - w) / 2, y: 0, width: w, height: h)
+    }
+
+    /// A point of the picture at rest, where it is with the picture zoomed
+    /// about the box's centre and moved by `pan` (SimulatorMirror.unzoom, the other way).
+    static func zoomed(_ p: CGPoint, in box: CGSize, zoom: CGFloat, pan: CGSize) -> CGPoint {
+        let c = CGPoint(x: box.width / 2, y: box.height / 2)
+        return CGPoint(x: (p.x - c.x) * zoom + c.x + pan.width, y: (p.y - c.y) * zoom + c.y + pan.height)
+    }
+
+    /// The point on the page under a finger, or nil off the picture.
+    static func fraction(of p: CGPoint, image: CGSize, box: CGSize, fitWidth: Bool,
+                         zoom: CGFloat = 1, pan: CGSize = .zero) -> CGPoint? {
+        let r = drawn(image: image, in: box, fitWidth: fitWidth)
+        guard r.width > 0, r.height > 0 else { return nil }
+        let q = SimulatorMirror.unzoom(p, in: box, zoom: zoom, pan: pan)
+        let f = CGPoint(x: (q.x - r.minX) / r.width, y: (q.y - r.minY) / r.height)
+        guard (0...1).contains(f.x), (0...1).contains(f.y) else { return nil }
+        return f
+    }
+
+    /// Where a point on the page is on the screen: where the pointer is drawn.
+    static func point(of f: CGPoint, image: CGSize, box: CGSize, fitWidth: Bool,
+                      zoom: CGFloat = 1, pan: CGSize = .zero) -> CGPoint {
+        let r = drawn(image: image, in: box, fitWidth: fitWidth)
+        return zoomed(CGPoint(x: r.minX + f.x * r.width, y: r.minY + f.y * r.height), in: box, zoom: zoom, pan: pan)
+    }
+
+    /// A finger's travel on the screen as a fraction of the picture: what a
+    /// scroll sends, and how far the page should move to stay under the finger.
+    static func travel(_ d: CGSize, image: CGSize, box: CGSize, fitWidth: Bool, zoom: CGFloat = 1) -> CGSize {
+        let r = drawn(image: image, in: box, fitWidth: fitWidth)
+        guard r.width > 0, r.height > 0, zoom > 0 else { return .zero }
+        return CGSize(width: d.width / (r.width * zoom), height: d.height / (r.height * zoom))
+    }
+
+    /// The trackpad's acceleration, as on a Mac: a slow finger is precise
+    /// (one point for one point), a quick one crosses the page. `speed` in points a second.
+    static func gain(speed: CGFloat) -> CGFloat {
+        guard speed.isFinite else { return 1 }
+        return min(3.5, max(1, 1 + (speed - 120) / 450))
+    }
+
+    /// The pointer moved by a finger's travel, held on the page. `span` is the
+    /// size, on the screen, that is the whole page: the picture as drawn.
+    static func moveCursor(_ c: CGPoint, by d: CGSize, speed: CGFloat, span: CGSize) -> CGPoint {
+        guard span.width > 0, span.height > 0 else { return c }
+        let g = gain(speed: speed)
+        return CGPoint(x: min(1, max(0, c.x + d.width * g / span.width)),
+                       y: min(1, max(0, c.y + d.height * g / span.height)))
+    }
+
+    /// Whether a tap is the second of a double-click: soon after the last, and close to it.
+    static func isSecondClick(at p: CGPoint, after last: (at: CGPoint, time: Date)?, now: Date = .now,
+                              within: TimeInterval = 0.35, distance: CGFloat = 0.03) -> Bool {
+        guard let last else { return false }
+        return now.timeIntervalSince(last.time) < within && hypot(p.x - last.at.x, p.y - last.at.y) < distance
+    }
+}
+
+/// What the phone sends the page, sent briskly but not wastefully: pointer
+/// moves keep only the latest and scrolls add up for one frame (about 30 a
+/// second), and anything else (a click, a key, text) goes at once, after
+/// whatever was waiting, so the order is the order you did things in.
+@MainActor
+final class PageInputPump {
+    var send: ((BrowserInput) async throws -> Void)?
+    /// The Mac is from before `browser.input`.
+    var onUnsupported: (() -> Void)?
+    /// When the phone last sent anything: the mirror refreshes briskly for a while after.
+    private(set) var lastSent: Date = .distantPast
+
+    private var move: CGPoint?
+    private var scrollAt: CGPoint?
+    private var scroll: CGSize = .zero
+    private var text = ""
+    private var timer: Task<Void, Never>?
+
+    func post(_ input: BrowserInput) {
+        switch input {
+        case .move(let p):
+            move = p
+            schedule()
+        case .scroll(let p, let d):
+            if move != nil { flushPointer() }
+            scrollAt = p
+            scroll.width += d.width
+            scroll.height += d.height
+            schedule()
+        case .text(let t):
+            flushPointer()
+            text += t
+            schedule()
+        default:
+            flush()
+            fire(input)
+        }
+    }
+
+    func flush() {
+        timer?.cancel()
+        timer = nil
+        flushPointer()
+        if !text.isEmpty { fire(.text(text)); text = "" }
+    }
+
+    private func flushPointer() {
+        if !text.isEmpty { fire(.text(text)); text = "" }
+        if let m = move { fire(.move(m)); move = nil }
+        if let at = scrollAt {
+            if abs(scroll.width) > 0.0005 || abs(scroll.height) > 0.0005 { fire(.scroll(at: at, delta: scroll)) }
+            scrollAt = nil
+            scroll = .zero
+        }
+    }
+
+    private func schedule() {
+        guard timer == nil else { return }
+        timer = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(33))
+            guard !Task.isCancelled else { return }
+            self?.timer = nil
+            self?.flush()
+        }
+    }
+
+    private func fire(_ input: BrowserInput) {
+        lastSent = .now
+        guard let send else { return }
+        // The request leaves before the first suspension (Connection.rpc), so
+        // tasks started in order put their frames on the socket in order.
+        Task { [weak self] in
+            do { try await send(input) } catch let e as RpcError where e.code == "bad-params" && e.message.contains("unknown method") {
+                self?.onUnsupported?()
+            } catch {}
+        }
+    }
+}
+
+/// The mirrored page as something to use: the picture, the pointer in
+/// trackpad mode, and every gesture turned into what the page should get.
+struct PageSurface: View {
+    let image: UIImage
+    let chatId: String
+    /// The docked strip: the page across its width, from the top.
+    let fitWidth: Bool
+    let mode: PageControlMode
+    let post: (BrowserInput) -> Void
+
+    @State private var zoom: CGFloat = 1
+    @State private var pan: CGSize = .zero
+    @State private var cursor = CGPoint(x: 0.5, y: 0.5)
+    @State private var holding = false
+    @State private var lastClick: (at: CGPoint, time: Date)?
+    @State private var scrollAt: CGPoint?
+    @State private var glide: Task<Void, Never>?
+    /// A tap's mark, briefly, where it landed: so you see it was taken.
+    @State private var ripple: CGPoint?
+
+    var body: some View {
+        GeometryReader { geo in
+            let box = geo.size
+            let r = PageMap.drawn(image: image.size, in: box, fitWidth: fitWidth)
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                Image(uiImage: image)
+                    .resizable()
+                    .frame(width: r.width, height: r.height)
+                    .offset(x: r.minX, y: r.minY)
+            }
+            .frame(width: box.width, height: box.height, alignment: .topLeading)
+            .scaleEffect(zoom)
+            .offset(pan)
+            .overlay(alignment: .topLeading) {
+                if let ripple {
+                    Circle().stroke(Theme.accent, lineWidth: 2)
+                        .frame(width: 26, height: 26)
+                        .position(ripple)
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if mode == .trackpad {
+                    PagePointer(pressed: holding)
+                        .offset(x: PageMap.point(of: cursor, image: image.size, box: box, fitWidth: fitWidth,
+                                                 zoom: zoom, pan: pan).x,
+                                y: PageMap.point(of: cursor, image: image.size, box: box, fitWidth: fitWidth,
+                                                 zoom: zoom, pan: pan).y)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .clipped()
+            .contentShape(Rectangle())
+            .overlay {
+                PageGestures(trackpad: mode == .trackpad) { event in
+                    handle(event, box: box, drawn: r)
+                }
+            }
+        }
+        .onAppear { if let c = MirrorFrames.cursor[chatId] { cursor = c } }
+        .onChange(of: cursor) { _, c in MirrorFrames.cursor[chatId] = c }
+        .onChange(of: mode) { _, _ in
+            // The pointer works on the page as it fits; a pinched-in picture is touch's.
+            withAnimation(.spring(response: 0.3)) { zoom = 1; pan = .zero }
+            if holding { post(.up(cursor)); holding = false }
+        }
+        .onDisappear {
+            glide?.cancel()
+            if holding { post(.up(cursor)); holding = false }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("The page on the Mac")
+        .accessibilityHint(mode == .touch ? "Tap to click, drag to scroll" : "Trackpad: move the pointer, tap to click")
+    }
+
+    private func at(_ p: CGPoint, _ box: CGSize) -> CGPoint? {
+        PageMap.fraction(of: p, image: image.size, box: box, fitWidth: fitWidth, zoom: zoom, pan: pan)
+    }
+
+    private func click(_ f: CGPoint, right: Bool, mark: CGPoint?) {
+        let second = !right && PageMap.isSecondClick(at: f, after: lastClick)
+        post(.click(f, right: right, count: second ? 2 : 1))
+        lastClick = second || right ? nil : (f, .now)
+        Haptics.tap()
+        if let mark {
+            withAnimation(.easeOut(duration: 0.12)) { ripple = mark }
+            Task {
+                try? await Task.sleep(for: .milliseconds(260))
+                withAnimation(.easeOut(duration: 0.2)) { ripple = nil }
+            }
+        }
+    }
+
+    private func handle(_ e: PageGestureEvent, box: CGSize, drawn r: CGRect) {
+        switch e {
+        case .tap(let p, let fingers):
+            glide?.cancel()
+            if mode == .touch {
+                guard let f = at(p, box) else { return }
+                click(f, right: fingers > 1, mark: p)
+            } else {
+                click(cursor, right: fingers > 1, mark: nil)
+            }
+        case .pan(let state, let p, let d, let v, let fingers):
+            if state == .began { glide?.cancel() }
+            if mode == .touch {
+                if zoom > 1, fingers == 1 {
+                    // Pinched in: one finger moves the picture, as it does at the Mac's photos.
+                    pan = SimulatorMirror.clampPan(CGSize(width: pan.width + d.width, height: pan.height + d.height),
+                                                   in: box, zoom: zoom)
+                    return
+                }
+                if state == .began { scrollAt = at(p, box) ?? CGPoint(x: 0.5, y: 0.5) }
+                scrollBy(d, at: scrollAt ?? CGPoint(x: 0.5, y: 0.5), box: box)
+                if state == .ended { fling(v, at: scrollAt ?? CGPoint(x: 0.5, y: 0.5), box: box) }
+            } else if fingers >= 2 {
+                // Two fingers scroll under the pointer, the page following them.
+                scrollBy(d, at: cursor, box: box)
+                if state == .ended { fling(v, at: cursor, box: box) }
+            } else {
+                let next = PageMap.moveCursor(cursor, by: d, speed: hypot(v.x, v.y),
+                                              span: CGSize(width: r.width * zoom, height: r.height * zoom))
+                if next != cursor {
+                    cursor = next
+                    post(.move(next))
+                }
+            }
+        case .hold(let state):
+            // Tap, then touch again and hold: the button stays down while the
+            // finger moves (select text, drag a slider), up when it lifts.
+            guard mode == .trackpad else { return }
+            if state == .began, !holding {
+                holding = true
+                post(.down(cursor))
+                Haptics.tap()
+            } else if state == .ended || state == .cancelled || state == .failed, holding {
+                holding = false
+                post(.up(cursor))
+            }
+        case .pinch(let state, let scale):
+            guard mode == .touch else { return }
+            zoom = min(5, max(1, zoom * scale))
+            pan = SimulatorMirror.clampPan(pan, in: box, zoom: zoom)
+            if state == .ended, zoom <= 1.02 {
+                withAnimation(.spring(response: 0.3)) { zoom = 1; pan = .zero }
+            }
+        }
+    }
+
+    private func scrollBy(_ d: CGSize, at f: CGPoint, box: CGSize) {
+        let t = PageMap.travel(d, image: image.size, box: box, fitWidth: fitWidth, zoom: zoom)
+        if t != .zero { post(.scroll(at: f, delta: t)) }
+    }
+
+    /// Let go mid-swipe: the page carries on and slows, as a flicked page does.
+    private func fling(_ v: CGPoint, at f: CGPoint, box: CGSize) {
+        var step = CGSize(width: v.x / 60, height: v.y / 60)
+        guard hypot(step.width, step.height) > 3 else { return }
+        glide = Task {
+            for _ in 0..<40 {
+                try? await Task.sleep(for: .milliseconds(16))
+                if Task.isCancelled { return }
+                step = CGSize(width: step.width * 0.9, height: step.height * 0.9)
+                if hypot(step.width, step.height) < 0.6 { return }
+                scrollBy(step, at: f, box: box)
+            }
+        }
+    }
+}
+
+/// The pointer drawn over the page in trackpad mode: the Mac's own arrow, its
+/// tip on the point the next click lands on.
+private struct PagePointer: View {
+    var pressed: Bool
+
+    var body: some View {
+        ArrowShape()
+            .fill(Color.black)
+            .overlay(ArrowShape().stroke(Color.white, style: StrokeStyle(lineWidth: 1.4, lineJoin: .round)))
+            .frame(width: 14, height: 21)
+            .scaleEffect(pressed ? 0.85 : 1, anchor: .topLeading)
+            .shadow(color: .black.opacity(0.35), radius: 1.5, y: 1)
+            .animation(.easeOut(duration: 0.1), value: pressed)
+    }
+
+    private struct ArrowShape: Shape {
+        func path(in r: CGRect) -> Path {
+            let sx = r.width / 14, sy = r.height / 21
+            func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+            var path = Path()
+            path.move(to: p(0, 0))
+            path.addLine(to: p(0, 17))
+            path.addLine(to: p(4.2, 13.2))
+            path.addLine(to: p(7, 20))
+            path.addLine(to: p(9.8, 18.8))
+            path.addLine(to: p(7.1, 12.3))
+            path.addLine(to: p(12.8, 12.3))
+            path.closeSubpath()
+            return path
+        }
+    }
+}
+
+enum PageGestureEvent {
+    case tap(CGPoint, fingers: Int)
+    /// `delta`: travel since the last change; `velocity` in points a second.
+    case pan(UIGestureRecognizer.State, CGPoint, delta: CGSize, velocity: CGPoint, fingers: Int)
+    case hold(UIGestureRecognizer.State)
+    /// `scale`: since the last change.
+    case pinch(UIGestureRecognizer.State, scale: CGFloat)
+}
+
+/// UIKit's recognisers over the page: SwiftUI has no two-finger tap or
+/// two-finger pan, which the trackpad's right-click and scroll are.
+private struct PageGestures: UIViewRepresentable {
+    var trackpad: Bool
+    var handle: (PageGestureEvent) -> Void
+
+    func makeUIView(context: Context) -> PageGestureView { PageGestureView() }
+
+    func updateUIView(_ view: PageGestureView, context: Context) {
+        view.handle = handle
+        view.trackpad = trackpad
+    }
+}
+
+final class PageGestureView: UIView, UIGestureRecognizerDelegate {
+    var handle: ((PageGestureEvent) -> Void)?
+    var trackpad = false { didSet { if trackpad != oldValue { configure() } } }
+
+    private let tap1 = UITapGestureRecognizer()
+    private let tap2 = UITapGestureRecognizer()
+    private let pan1 = UIPanGestureRecognizer()
+    private let pan2 = UIPanGestureRecognizer()
+    private let pinch = UIPinchGestureRecognizer()
+    private let hold = UILongPressGestureRecognizer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isMultipleTouchEnabled = true
+        tap2.numberOfTouchesRequired = 2
+        pan1.maximumNumberOfTouches = 1
+        pan2.minimumNumberOfTouches = 2
+        pan2.maximumNumberOfTouches = 2
+        // Tap, then touch again and stay: a held button. Not on a quick second
+        // tap, which is a double-click.
+        hold.numberOfTapsRequired = 1
+        hold.minimumPressDuration = 0.18
+        hold.allowableMovement = .greatestFiniteMagnitude
+        tap1.addTarget(self, action: #selector(onTap(_:)))
+        tap2.addTarget(self, action: #selector(onTap(_:)))
+        pan1.addTarget(self, action: #selector(onPan(_:)))
+        pan2.addTarget(self, action: #selector(onPan(_:)))
+        pinch.addTarget(self, action: #selector(onPinch(_:)))
+        hold.addTarget(self, action: #selector(onHold(_:)))
+        for g in [tap1, tap2, pan1, pan2, pinch, hold] as [UIGestureRecognizer] {
+            g.delegate = self
+            addGestureRecognizer(g)
+        }
+        // One finger's tap waits for two: a two-finger tap is not also two clicks.
+        tap1.require(toFail: tap2)
+        configure()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func configure() {
+        pan2.isEnabled = trackpad
+        hold.isEnabled = trackpad
+        pinch.isEnabled = !trackpad
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        // The held button and the finger moving it are one gesture; so are a pinch and its pan.
+        (g == hold || other == hold) || (g == pinch || other == pinch)
+    }
+
+    @objc private func onTap(_ g: UITapGestureRecognizer) {
+        guard g.state == .ended else { return }
+        handle?(.tap(g.location(in: self), fingers: g.numberOfTouchesRequired))
+    }
+
+    @objc private func onPan(_ g: UIPanGestureRecognizer) {
+        let t = g.translation(in: self)
+        g.setTranslation(.zero, in: self)
+        let v = g.velocity(in: self)
+        handle?(.pan(g.state, g.location(in: self), delta: CGSize(width: t.x, height: t.y),
+                     velocity: v, fingers: g == pan2 ? 2 : 1))
+    }
+
+    @objc private func onPinch(_ g: UIPinchGestureRecognizer) {
+        let s = g.scale
+        g.scale = 1
+        handle?(.pinch(g.state, scale: s))
+    }
+
+    @objc private func onHold(_ g: UILongPressGestureRecognizer) {
+        handle?(.hold(g.state))
+    }
+}
+
+/// Typing into the page: a responder that takes the keyboard and hands each
+/// key on as it is pressed, keeping no text of its own (the text is on the
+/// page). Over it, a row of the keys a phone's keyboard lacks.
+struct PageKeyboard: UIViewRepresentable {
+    @Binding var active: Bool
+    var post: (BrowserInput) -> Void
+
+    func makeUIView(context: Context) -> PageKeyCatcher {
+        let v = PageKeyCatcher()
+        v.onDone = { active = false }
+        return v
+    }
+
+    func updateUIView(_ v: PageKeyCatcher, context: Context) {
+        v.post = post
+        v.onDone = { active = false }
+        if active, !v.isFirstResponder {
+            DispatchQueue.main.async { v.becomeFirstResponder() }
+        } else if !active, v.isFirstResponder {
+            DispatchQueue.main.async { v.resignFirstResponder() }
+        }
+    }
+}
+
+final class PageKeyCatcher: UIView, UIKeyInput {
+    var post: ((BrowserInput) -> Void)?
+    var onDone: (() -> Void)?
+
+    // What the page gets is what was pressed: no corrections the page never sees.
+    var autocorrectionType: UITextAutocorrectionType = .no
+    var autocapitalizationType: UITextAutocapitalizationType = .none
+    var spellCheckingType: UITextSpellCheckingType = .no
+    var smartQuotesType: UITextSmartQuotesType = .no
+    var smartDashesType: UITextSmartDashesType = .no
+    var smartInsertDeleteType: UITextSmartInsertDeleteType = .no
+    var keyboardType: UIKeyboardType = .default
+    var returnKeyType: UIReturnKeyType = .default
+
+    override var canBecomeFirstResponder: Bool { true }
+    var hasText: Bool { true }
+
+    func insertText(_ text: String) {
+        switch text {
+        case "\n": post?(.key("Enter"))
+        case "\t": post?(.key("Tab"))
+        default: post?(.text(text))
+        }
+    }
+
+    func deleteBackward() { post?(.key("Backspace")) }
+
+    private lazy var strip: UIView = {
+        let host = UIHostingController(rootView: PageKeyStrip(press: { [weak self] key in
+            self?.post?(.key(key))
+        }, done: { [weak self] in
+            _ = self?.resignFirstResponder()
+            self?.onDone?()
+        }))
+        host.view.backgroundColor = .clear
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        let bar = UIInputView(frame: CGRect(x: 0, y: 0, width: 320, height: 46), inputViewStyle: .keyboard)
+        bar.allowsSelfSizing = false
+        bar.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+            host.view.topAnchor.constraint(equalTo: bar.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: bar.bottomAnchor)
+        ])
+        hostRef = host
+        return bar
+    }()
+    private var hostRef: UIViewController?
+
+    override var inputAccessoryView: UIView? { strip }
+
+    /// A hardware keyboard (an iPad's): the keys UIKeyInput does not hand on.
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var rest = Set<UIPress>()
+        for press in presses {
+            guard let k = press.key else { rest.insert(press); continue }
+            let shift = k.modifierFlags.contains(.shift)
+            let name: String? = switch k.keyCode {
+            case .keyboardLeftArrow: "ArrowLeft"
+            case .keyboardRightArrow: "ArrowRight"
+            case .keyboardUpArrow: "ArrowUp"
+            case .keyboardDownArrow: "ArrowDown"
+            case .keyboardEscape: "Escape"
+            case .keyboardHome: "Home"
+            case .keyboardEnd: "End"
+            case .keyboardPageUp: "PageUp"
+            case .keyboardPageDown: "PageDown"
+            case .keyboardDeleteForward: "Delete"
+            case .keyboardTab where shift: "Tab"
+            default: nil
+            }
+            if let name { post?(.key(name, shift: shift)) } else { rest.insert(press) }
+        }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+}
+
+/// The keys over the keyboard while typing into the page.
+private struct PageKeyStrip: View {
+    var press: (String) -> Void
+    var done: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            key("esc", "Escape")
+            key("tab", "Tab")
+            Spacer(minLength: 2)
+            key(Image(systemName: "arrow.left"), "ArrowLeft", label: "Left")
+            key(Image(systemName: "arrow.up"), "ArrowUp", label: "Up")
+            key(Image(systemName: "arrow.down"), "ArrowDown", label: "Down")
+            key(Image(systemName: "arrow.right"), "ArrowRight", label: "Right")
+            Spacer(minLength: 2)
+            key(Image(systemName: "return"), "Enter", label: "Return")
+            Button(action: done) {
+                Image(systemName: "keyboard.chevron.compact.down")
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(width: 40, height: 34)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Stop typing")
+        }
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func key(_ text: String, _ name: String) -> some View {
+        key(Text(text).font(.system(size: 13, weight: .medium)), name, label: name)
+    }
+
+    private func key<L: View>(_ face: L, _ name: String, label: String) -> some View {
+        Button { press(name); UIDevice.current.playInputClick() } label: {
+            face
+                .font(.system(size: 14, weight: .medium))
+                .frame(minWidth: 36, minHeight: 34)
+                .padding(.horizontal, 2)
+                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .accessibilityLabel(label)
+    }
+}
+
+extension PageKeyCatcher: UIInputViewAudioFeedback {
+    var enableInputClicksWhenVisible: Bool { true }
 }

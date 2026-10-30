@@ -653,6 +653,60 @@ struct WireSimulatorShot: Codable, Sendable {
     var digest: String?
 }
 
+/// `browser.input`: the phone using the page it mirrors (BrowserInputAction in
+/// the desktop's companion-protocol.ts). Points are fractions of the picture,
+/// 0...1 across and down; the Mac maps them onto its pane. A Mac from before
+/// 2.1 answers `bad-params` ("unknown method").
+enum BrowserInput: Equatable, Sendable {
+    /// The pointer moves there: hover, or a drag while a button is down.
+    case move(CGPoint)
+    /// Press and let go: a tap, the trackpad's click; `right` for a two-finger tap.
+    case click(CGPoint, right: Bool = false, count: Int = 1)
+    /// The left button goes down there and stays down until `up`: selecting, dragging.
+    case down(CGPoint)
+    case up(CGPoint)
+    /// The wheel at a point. `delta` is how far the finger moved, as a fraction of
+    /// the picture: the page follows the finger (positive y shows what is above).
+    case scroll(at: CGPoint, delta: CGSize)
+    case text(String)
+    /// One of the Mac's BROWSER_INPUT_KEYS: Enter, Backspace, Tab, Escape, ArrowUp…
+    case key(String, shift: Bool = false)
+
+    static let keys: Set<String> = ["Enter", "Backspace", "Delete", "Tab", "Escape", "ArrowUp", "ArrowDown",
+                                    "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]
+
+    /// Held inside the picture, as the Mac requires.
+    private static func clamp(_ v: CGFloat) -> JSONValue {
+        .number(Double(min(1, max(0, v.isFinite ? v : 0))))
+    }
+
+    var json: JSONValue {
+        func at(_ type: String, _ p: CGPoint) -> [String: JSONValue] {
+            ["type": .string(type), "x": Self.clamp(p.x), "y": Self.clamp(p.y)]
+        }
+        switch self {
+        case .move(let p): return .object(at("move", p))
+        case .click(let p, let right, let count):
+            var o = at("click", p)
+            if right { o["button"] = .string("right") }
+            if count > 1 { o["count"] = .number(Double(min(3, count))) }
+            return .object(o)
+        case .down(let p): return .object(at("down", p))
+        case .up(let p): return .object(at("up", p))
+        case .scroll(let p, let d):
+            var o = at("scroll", p)
+            o["dx"] = .number(Double(min(10, max(-10, d.width.isFinite ? d.width : 0))))
+            o["dy"] = .number(Double(min(10, max(-10, d.height.isFinite ? d.height : 0))))
+            return .object(o)
+        case .text(let t): return .object(["type": .string("text"), "text": .string(String(t.prefix(2000)))])
+        case .key(let k, let shift):
+            var o: [String: JSONValue] = ["type": .string("key"), "key": .string(k)]
+            if shift { o["shift"] = .bool(true) }
+            return .object(o)
+        }
+    }
+}
+
 struct WireBrowserShot: Codable, Sendable {
     var url: String
     var title: String

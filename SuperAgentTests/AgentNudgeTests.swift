@@ -166,3 +166,99 @@ struct StreamPaceTests {
         #expect(StreamPace.next(shown: 22, target: "The header was the pro", dtMs: 33, open: true) == 22)
     }
 }
+
+/// Using the Mac's page from the phone: a finger's place on the picture to a
+/// point on the page, and what is sent for it (`browser.input`).
+struct PageControlTests {
+    private let image = CGSize(width: 700, height: 500)
+
+    @Test("full screen, the page fits whole, centred across, from the top")
+    func drawnFit() {
+        let r = PageMap.drawn(image: image, in: CGSize(width: 390, height: 700), fitWidth: false)
+        #expect(r.minX == 0 && r.minY == 0)
+        #expect(abs(r.width - 390) < 0.001)
+        #expect(abs(r.height - 390 * 5 / 7) < 0.001)
+        // A box wider than the page's shape: centred across.
+        let wide = PageMap.drawn(image: image, in: CGSize(width: 1000, height: 250), fitWidth: false)
+        #expect(wide.height == 250 && wide.width == 350 && wide.minX == 325)
+        // Docked: across the strip, running past its bottom.
+        let strip = PageMap.drawn(image: image, in: CGSize(width: 1000, height: 250), fitWidth: true)
+        #expect(strip.width == 1000 && strip.minY == 0 && strip.height > 250)
+    }
+
+    @Test("a tap lands on the page where it is on the picture, zoomed or not")
+    func fraction() {
+        let box = CGSize(width: 700, height: 900)
+        // At rest the picture is 700×500 at the top: its middle is the page's middle.
+        #expect(PageMap.fraction(of: CGPoint(x: 350, y: 250), image: image, box: box, fitWidth: false) == CGPoint(x: 0.5, y: 0.5))
+        #expect(PageMap.fraction(of: CGPoint(x: 70, y: 50), image: image, box: box, fitWidth: false) == CGPoint(x: 0.1, y: 0.1))
+        // Under the picture: nothing.
+        #expect(PageMap.fraction(of: CGPoint(x: 350, y: 700), image: image, box: box, fitWidth: false) == nil)
+        // Pinched to twice its size about the box's centre (350, 450): the
+        // page's point (0.5, 0.5) is drawn at (350, 50).
+        #expect(PageMap.fraction(of: CGPoint(x: 350, y: 50), image: image, box: box, fitWidth: false, zoom: 2) == CGPoint(x: 0.5, y: 0.5))
+        // And there and back is the same point.
+        let f = CGPoint(x: 0.25, y: 0.75)
+        let p = PageMap.point(of: f, image: image, box: box, fitWidth: false, zoom: 2, pan: CGSize(width: 40, height: -30))
+        let back = PageMap.fraction(of: p, image: image, box: box, fitWidth: false, zoom: 2, pan: CGSize(width: 40, height: -30))
+        #expect(back.map { abs($0.x - f.x) < 1e-9 && abs($0.y - f.y) < 1e-9 } == true)
+    }
+
+    @Test("a drag is the same share of the page as it is of the picture")
+    func travel() {
+        let box = CGSize(width: 350, height: 900)
+        // The picture is drawn 350×250: a finger 25 points up is a tenth of the page up.
+        let t = PageMap.travel(CGSize(width: 0, height: -25), image: image, box: box, fitWidth: false)
+        #expect(t.width == 0 && abs(t.height + 0.1) < 1e-9)
+        // Zoomed in twice, the same finger is half as much of the page.
+        let z = PageMap.travel(CGSize(width: 0, height: -25), image: image, box: box, fitWidth: false, zoom: 2)
+        #expect(abs(z.height + 0.05) < 1e-9)
+    }
+
+    @Test("the trackpad: slow is exact, quick goes further, the pointer stays on the page")
+    func cursor() {
+        #expect(PageMap.gain(speed: 50) == 1)
+        #expect(PageMap.gain(speed: 2000) > 3)
+        #expect(PageMap.gain(speed: .infinity) == 1)
+        let span = CGSize(width: 400, height: 300)
+        let slow = PageMap.moveCursor(CGPoint(x: 0.5, y: 0.5), by: CGSize(width: 40, height: 0), speed: 60, span: span)
+        #expect(abs(slow.x - 0.6) < 1e-9 && slow.y == 0.5)
+        let quick = PageMap.moveCursor(CGPoint(x: 0.5, y: 0.5), by: CGSize(width: 40, height: 0), speed: 1500, span: span)
+        #expect(quick.x > 0.7)
+        let edge = PageMap.moveCursor(CGPoint(x: 0.95, y: 0.02), by: CGSize(width: 400, height: -400), speed: 60, span: span)
+        #expect(edge == CGPoint(x: 1, y: 0))
+    }
+
+    @Test("a second tap soon and close is a double-click; late or far, a new click")
+    func doubleClick() {
+        let t0 = Date(timeIntervalSince1970: 1000)
+        let last = (at: CGPoint(x: 0.5, y: 0.5), time: t0)
+        #expect(PageMap.isSecondClick(at: CGPoint(x: 0.51, y: 0.5), after: last, now: t0.addingTimeInterval(0.2)))
+        #expect(!PageMap.isSecondClick(at: CGPoint(x: 0.51, y: 0.5), after: last, now: t0.addingTimeInterval(0.6)))
+        #expect(!PageMap.isSecondClick(at: CGPoint(x: 0.7, y: 0.5), after: last, now: t0.addingTimeInterval(0.2)))
+        #expect(!PageMap.isSecondClick(at: CGPoint(x: 0.5, y: 0.5), after: nil))
+    }
+
+    @Test("what goes to the Mac is the shape its browser.input takes")
+    func wire() throws {
+        func json(_ i: BrowserInput) throws -> [String: Any] {
+            let data = try JSONEncoder().encode(i.json)
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        let click = try json(.click(CGPoint(x: 0.25, y: 0.5)))
+        #expect(click["type"] as? String == "click" && click["x"] as? Double == 0.25 && click["y"] as? Double == 0.5)
+        #expect(click["button"] == nil && click["count"] == nil)
+        let right = try json(.click(CGPoint(x: 0.1, y: 0.1), right: true, count: 2))
+        #expect(right["button"] as? String == "right" && right["count"] as? Double == 2)
+        // Never off the picture, whatever the maths gave: the Mac refuses those.
+        let off = try json(.move(CGPoint(x: 1.0000001, y: -0.2)))
+        #expect(off["x"] as? Double == 1 && off["y"] as? Double == 0)
+        let scroll = try json(.scroll(at: CGPoint(x: 0.5, y: 0.5), delta: CGSize(width: 0, height: -0.25)))
+        #expect(scroll["type"] as? String == "scroll" && scroll["dy"] as? Double == -0.25 && scroll["dx"] as? Double == 0)
+        let key = try json(.key("Tab", shift: true))
+        #expect(key["key"] as? String == "Tab" && key["shift"] as? Bool == true)
+        #expect(try json(.text("hé")) ["text"] as? String == "hé")
+        #expect(try json(.down(CGPoint(x: 0, y: 0)))["type"] as? String == "down")
+        #expect(BrowserInput.keys.contains("Enter") && BrowserInput.keys.contains("ArrowLeft"))
+    }
+}
