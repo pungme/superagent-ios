@@ -288,7 +288,11 @@ struct ChatView: View {
                 }
             }
             // Full screen owns the phone: no navigation or status bar over it.
-            .toolbar(theater || squeezed ? .hidden : .automatic, for: .navigationBar)
+            // Not hidden when short of room: on a folded Duo this bar is also
+            // what puts Back, Pin and ⋯ in the side rail, and hiding it left no
+            // way out of the conversation. The strips above the composer give
+            // way instead.
+            .toolbar(theater ? .hidden : .automatic, for: .navigationBar)
             .statusBarHidden(theater)
             // Nothing left to watch (closed on the Mac, put away here, or the
             // phone turned wide): back to the conversation.
