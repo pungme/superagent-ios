@@ -203,6 +203,10 @@ struct SidebarView: View {
             UsageFooter(connection: connection, chatId: openId)
                 .background(Theme.panel)
         }
+        // The keyboard belongs to the conversation beside it. Without this the
+        // foot rode up with an iPad's keyboard and sat over the middle of the
+        // list while the rows carried on under it.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         // Same treatment as the conversation: a status, not an obstruction. A
         // band across the top pushed every project down and drew the eye to the
         // one thing you cannot act on; floating it at the bottom keeps it

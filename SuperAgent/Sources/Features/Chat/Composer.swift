@@ -730,6 +730,17 @@ struct Composer: View {
                         // newline and never fires onSubmit, so on an iPad with
                         // a keyboard there was NO way to send by key at all.
                         // Shift+Return keeps the newline, same as the desktop.
+                        // ⌘V with an image on the clipboard (a hardware
+                        // keyboard on iPad): attach it, as on the Mac. Text
+                        // still pastes the normal way.
+                        .onKeyPress(characters: ["v"], phases: .down) { press in
+                            guard press.modifiers.contains(.command),
+                                  UIPasteboard.general.hasImages,
+                                  !UIPasteboard.general.hasStrings
+                            else { return .ignored }
+                            pasteImage()
+                            return .handled
+                        }
                         .onKeyPress(.return, phases: .down) { press in
                             if press.modifiers.contains(.shift) { return .ignored }
                             guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
