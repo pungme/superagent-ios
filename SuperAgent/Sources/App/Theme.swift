@@ -75,6 +75,10 @@ enum Theme {
     // Status — the same three as the desktop sidebar.
     static let working = Color(red: 0.243, green: 0.812, blue: 0.557)   // #3ecf8e
     static let needsYou = Color(red: 0.941, green: 0.706, blue: 0.161)  // #f0b429
+    /// The phone list's "look here" dot: new since you read it, or waiting on
+    /// you. The system blue, so it reads the way Mail's and Messages' do
+    /// whatever accent is chosen.
+    static let unread = Color(UIColor.systemBlue)
     static let danger = Color(red: 1.0, green: 0.42, blue: 0.42)
     static let added = Color(red: 0.24, green: 0.72, blue: 0.45)
     static let removed = Color(red: 0.9, green: 0.35, blue: 0.35)

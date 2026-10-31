@@ -1378,8 +1378,9 @@ extension Connection {
                               ])
             ]),
             WireGroup(id: "g1", name: "Superagent", color: "#fff", workspaces: ws.map { id, name, kind in
+                // mobile-app is waiting on an answer, so a list shows "wants you".
                 WireWorkspace(id: id, name: name, path: "/Users/you/" + name, kind: kind,
-                              status: .idle, branch: kind == "browser" ? nil : "main",
+                              status: id == "w-ios" ? .needsYou : .idle, branch: kind == "browser" ? nil : "main",
                               browserUrl: kind == "browser" ? "https://stripe.com" : nil, subrepos: [])
             })
         ]

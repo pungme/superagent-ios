@@ -86,3 +86,38 @@ struct SidebarSearchPromptTests {
         }
     }
 }
+
+/// The phone list's "project · status" line: the words come from state the
+/// app already has, so these are the rules that turn one into the other.
+struct ChatStatusTests {
+    private func chat(_ id: String, ws: String = "w1", at: Double = 100, live: Bool = false,
+                      preview: String? = "Done.") -> WireChat {
+        WireChat(id: id, workspaceId: ws, title: nil, updatedAt: at, live: live, preview: preview)
+    }
+
+    private func workspace(_ id: String, _ status: WorkspaceStatus) -> WireWorkspace {
+        WireWorkspace(id: id, name: id, path: "/" + id, kind: "app", status: status,
+                      branch: nil, browserUrl: nil, subrepos: [])
+    }
+
+    @Test func plainWords() {
+        #expect(ChatStatus.of(chat("a", live: true), wantsYou: false) == .working)
+        #expect(ChatStatus.of(chat("a"), wantsYou: false) == .finished)
+        #expect(ChatStatus.of(chat("a", preview: nil), wantsYou: false) == .new)
+        // Waiting on an answer is mid-turn on the Mac; it still reads as yours.
+        #expect(ChatStatus.of(chat("a", live: true), wantsYou: true) == .wantsYou)
+        #expect(ChatStatus.wantsYou.label == "wants you")
+    }
+
+    @Test func wantsYouLandsOnTheRunningConversation() {
+        let chats = [chat("a", at: 300), chat("b", at: 100, live: true), chat("c", ws: "w2", live: true)]
+        let ids = ChatStatus.wantingYou(chats: chats, workspaces: [workspace("w1", .needsYou), workspace("w2", .working)])
+        #expect(ids == ["b"])
+    }
+
+    @Test func withNothingRunningItIsTheLatest() {
+        let chats = [chat("a", at: 300), chat("b", at: 100)]
+        #expect(ChatStatus.wantingYou(chats: chats, workspaces: [workspace("w1", .needsYou)]) == ["a"])
+        #expect(ChatStatus.wantingYou(chats: chats, workspaces: [workspace("w1", .idle)]).isEmpty)
+    }
+}

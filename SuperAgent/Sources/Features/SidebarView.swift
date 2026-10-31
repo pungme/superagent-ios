@@ -117,6 +117,53 @@ struct SidebarView: View {
     /// five times — and that limit is a time limit: a slower machine gives up
     /// where this one does not, which is exactly what Xcode Cloud kept doing.
     private var listView: some View {
+        styledList(chromedList)
+    }
+
+    /// A phone draws the list as the landing page does: inset white cards on
+    /// the grey panel, each conversation a quiet two-line row. The iPad's
+    /// sidebar stays one flat surface beside the conversation, as the Mac's is.
+    @ViewBuilder
+    private func styledList(_ list: some View) -> some View {
+        if asSidebar {
+            list.listStyle(.plain)
+        } else {
+            // Compact: the small headers already part the cards; the
+            // default gap on top of them left a screen of grey.
+            list.listStyle(.insetGrouped).listSectionSpacing(.compact)
+        }
+    }
+
+    /// The large title a phone reads first: the tab it is on. The Mac it is
+    /// reading becomes the line under it; the iPad's narrow column keeps the
+    /// Mac's name, inline, as before.
+    private var listTitle: String {
+        if asSidebar || width == .regular { return connection.machine.name }
+        return mode == .activity ? "Activity" : "Projects"
+    }
+
+    @ViewBuilder
+    private func withMacSubtitle(_ view: some View) -> some View {
+        // With more than one Mac the title is the Mac menu; a subtitle under
+        // it would say the same name twice.
+        // navigationSubtitle is iOS 26 on a phone; see the toolbar below for
+        // why a compiler check, not #available, keeps Xcode Cloud building.
+        #if compiler(>=6.2)
+        if !asSidebar && width != .regular && app.machines.count <= 1 {
+            view.navigationSubtitle(connection.machine.name)
+        } else {
+            view
+        }
+        #else
+        view
+        #endif
+    }
+
+    private var chromedList: some View {
+        withMacSubtitle(baseList)
+    }
+
+    private var baseList: some View {
         List {
             Group {
             if !query.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -139,7 +186,6 @@ struct SidebarView: View {
             .listRowSeparator(asSidebar ? .hidden : .automatic)
             .listSectionSeparator(asSidebar ? .hidden : .automatic)
         }
-        .listStyle(.plain)
         .environment(\.inSidebar, asSidebar)
         .listRowSeparatorTint(Theme.border)
         // Beside a conversation it is a sidebar, as on the Mac: one surface,
@@ -171,7 +217,7 @@ struct SidebarView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
-        .navigationTitle(connection.machine.name)
+        .navigationTitle(listTitle)
         // A large title needs a phone's width to breathe; in an iPad's sidebar
         // column it truncates the Mac's name to make room for itself. Keep the
         // multi-Mac title inline on phones too: a large title's menu only becomes
@@ -518,9 +564,10 @@ struct SidebarView: View {
     @ViewBuilder
     private var chatsSection: some View {
         let chats = looseChats
+        let wants = wantsYouIds
         Section {
             if !chatsCollapsed {
-                ForEach(chats.prefix(Self.chatsShown)) { chat in activityRow(chat, project: nil, compact: true) }
+                ForEach(chats.prefix(Self.chatsShown)) { chat in activityRow(chat, project: nil, compact: true, wants: wants) }
                 if chats.count > Self.chatsShown, let c = computer {
                     Button {
                         path.append(WorkspacePanel(kind: .chats, workspace: c))
@@ -745,10 +792,11 @@ struct SidebarView: View {
     private var pinnedShortcutsSection: some View {
         let names = projectNames
         let pinned = pinnedChats
+        let wants = wantsYouIds
         if !pinned.isEmpty {
             // Small caps, like PROJECTS under it and the Mac's own Pinned label.
             Section {
-                ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId], pinned: pinned) }
+                ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId], pinned: pinned, wants: wants) }
             } header: { smallCapsHeader("Pinned") }
         }
     }
@@ -762,6 +810,7 @@ struct SidebarView: View {
         let names = projectNames
         let pinned = pinnedChats
         let rest = connection.chats.filter { !$0.isPinned }.sorted { $0.updatedAt > $1.updatedAt }
+        let wants = wantsYouIds
         if connection.chats.isEmpty {
             Section {
                 Text("Nothing here yet.").superFont(13).foregroundStyle(Theme.textTertiary)
@@ -773,12 +822,12 @@ struct SidebarView: View {
         // having done nothing at all. A real section makes it visible.
         if !pinned.isEmpty {
             Section {
-                ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId], pinned: pinned) }
+                ForEach(pinned) { chat in activityRow(chat, project: names[chat.workspaceId], pinned: pinned, wants: wants) }
             } header: { smallCapsHeader("Pinned") }
         }
         if !rest.isEmpty {
             Section {
-                ForEach(rest) { chat in activityRow(chat, project: names[chat.workspaceId]) }
+                ForEach(rest) { chat in activityRow(chat, project: names[chat.workspaceId], wants: wants) }
             } header: { if !pinned.isEmpty { smallCapsHeader("Chats") } }
         }
     }
@@ -791,40 +840,15 @@ struct SidebarView: View {
         return out
     }
 
-    /// One conversation, the way a message thread reads: who it is with (the
-    /// project), what was last said, when, and whether you have read it.
+    /// One conversation. On the iPad the way a message thread reads: who it
+    /// is with (the project), what was last said, when, and whether you have
+    /// read it. On a phone the landing page's row: its title, and one quiet
+    /// line saying where it lives and how it is doing.
     @ViewBuilder
-    private func activityRow(_ chat: WireChat, project: String?, pinned: [WireChat] = [], compact: Bool = false) -> some View {
+    private func activityRow(_ chat: WireChat, project: String?, pinned: [WireChat] = [], compact: Bool = false,
+                             wants: Set<String> = []) -> some View {
         Button { open(chat) } label: {
-            HStack(alignment: .top, spacing: 8) {
-                UnreadDot(on: connection.unread.isUnread(chat)).padding(.top, 5)
-                // Its project's icon, as the Mac's sidebar shows it: which app
-                // or site a conversation belongs to, at a glance.
-                SearchHitGlyph(connection: connection, workspaceId: chat.workspaceId)
-                    .padding(.top, compact ? 0 : 1)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(chat.title ?? "New chat")
-                            .superFont(14.5, weight: .medium)
-                            .foregroundStyle(Theme.textPrimary).lineLimit(1)
-                        if chat.isPinned { Image(systemName: "pin.fill").superFont(9).foregroundStyle(Theme.textTertiary) }
-                        if chat.live { ProgressView().controlSize(.mini) }
-                        Spacer(minLength: 4)
-                        Text(Date(timeIntervalSince1970: chat.updatedAt / 1000), format: .relative(presentation: .named))
-                            .superFont(11).foregroundStyle(Theme.textTertiary).lineLimit(1)
-                    }
-                    if let p = project, !p.isEmpty {
-                        Text(p).superFont(11.5).foregroundStyle(Theme.textTertiary).lineLimit(1)
-                    }
-                    // Compact: the title alone, for a list that sits above other
-                    // sections and must not push them off the screen.
-                    if !compact, let preview = chat.preview, !preview.isEmpty {
-                        Text(preview).superFont(12.5).foregroundStyle(Theme.textSecondary).lineLimit(2)
-                    }
-                }
-            }
-            .frame(minHeight: compact ? 30 : 40)
-            .contentShape(Rectangle())
+            chatLabel(chat, project: project, compact: compact, wantsYou: wants.contains(chat.id))
         }
         .buttonStyle(.plain)
         // Drag it onto the conversation column to open it beside (iPad split).
@@ -860,6 +884,60 @@ struct SidebarView: View {
                 Label(deleteLabel(chat), systemImage: "trash")
             }
         }
+    }
+
+    @ViewBuilder
+    private func chatLabel(_ chat: WireChat, project: String?, compact: Bool, wantsYou: Bool) -> some View {
+        if asSidebar {
+            sidebarChatLabel(chat, project: project, compact: compact)
+        } else {
+            PhoneChatRow(title: chat.title ?? "New chat",
+                         project: project,
+                         status: ChatStatus.of(chat, wantsYou: wantsYou),
+                         unread: connection.unread.isUnread(chat),
+                         pinned: chat.isPinned)
+        }
+    }
+
+    /// The iPad's row, as the Mac's sidebar draws it.
+    private func sidebarChatLabel(_ chat: WireChat, project: String?, compact: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            UnreadDot(on: connection.unread.isUnread(chat)).padding(.top, 5)
+            // Its project's icon, as the Mac's sidebar shows it: which app
+            // or site a conversation belongs to, at a glance.
+            SearchHitGlyph(connection: connection, workspaceId: chat.workspaceId)
+                .padding(.top, compact ? 0 : 1)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(chat.title ?? "New chat")
+                        .superFont(14.5, weight: .medium)
+                        .foregroundStyle(Theme.textPrimary).lineLimit(1)
+                    if chat.isPinned { Image(systemName: "pin.fill").superFont(9).foregroundStyle(Theme.textTertiary) }
+                    if chat.live { ProgressView().controlSize(.mini) }
+                    Spacer(minLength: 4)
+                    Text(Date(timeIntervalSince1970: chat.updatedAt / 1000), format: .relative(presentation: .named))
+                        .superFont(11).foregroundStyle(Theme.textTertiary).lineLimit(1)
+                }
+                if let p = project, !p.isEmpty {
+                    Text(p).superFont(11.5).foregroundStyle(Theme.textTertiary).lineLimit(1)
+                }
+                // Compact: the title alone, for a list that sits above other
+                // sections and must not push them off the screen.
+                if !compact, let preview = chat.preview, !preview.isEmpty {
+                    Text(preview).superFont(12.5).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                }
+            }
+        }
+        .frame(minHeight: compact ? 30 : 40)
+        .contentShape(Rectangle())
+    }
+
+    /// Which conversations are waiting on you. The Mac says so per project
+    /// (a status, not a chat), so it lands on the project's running
+    /// conversations — the one asking is mid-turn — or, with none running,
+    /// on the one that moved last.
+    private var wantsYouIds: Set<String> {
+        ChatStatus.wantingYou(chats: connection.chats, workspaces: connection.tree.flatMap(\.workspaces))
     }
 
     /// "Move to": under another project, or out into Chats. A chat on its own
@@ -1334,6 +1412,99 @@ struct UnreadDot: View {
             .frame(width: 7, height: 7)
             .opacity(on ? 1 : 0)
             .accessibilityLabel(on ? "Unread" : "")
+    }
+}
+
+/// How a conversation is doing, in the plain words the phone's row uses:
+/// "mobile-app · wants you".
+enum ChatStatus: Equatable {
+    case working, wantsYou, finished, new
+
+    var label: String {
+        switch self {
+        case .working: "working"
+        case .wantsYou: "wants you"
+        case .finished: "finished"
+        case .new: "new"
+        }
+    }
+
+    /// Wanting you outranks working: a turn waiting on an answer is still
+    /// running on the Mac, but the spinner would say there is nothing to do.
+    /// A chat nobody has written in yet has nothing to have finished.
+    static func of(_ chat: WireChat, wantsYou: Bool) -> ChatStatus {
+        if wantsYou { return .wantsYou }
+        if chat.live { return .working }
+        if (chat.preview ?? "").isEmpty { return .new }
+        return .finished
+    }
+
+    /// The Mac reports "needs you" per project, not per conversation. Put it
+    /// on that project's running conversations — the one asking is mid-turn —
+    /// or, when none is running, on the one that moved last.
+    static func wantingYou(chats: [WireChat], workspaces: [WireWorkspace]) -> Set<String> {
+        let waiting = Set(workspaces.filter { $0.status == .needsYou }.map(\.id))
+        guard !waiting.isEmpty else { return [] }
+        var out: Set<String> = []
+        for id in waiting {
+            let mine = chats.filter { $0.workspaceId == id }
+            let live = mine.filter(\.live)
+            if !live.isEmpty {
+                out.formUnion(live.map(\.id))
+            } else if let last = mine.max(by: { $0.updatedAt < $1.updatedAt }) {
+                out.insert(last.id)
+            }
+        }
+        return out
+    }
+}
+
+/// A conversation on the phone's list, drawn like the landing page: a bold
+/// title, one quiet "project · status" line under it, and on the right only
+/// what asks for a look — a spinner while it works, a blue dot when there is
+/// something new or it wants you. No icon, no preview, no time: air.
+struct PhoneChatRow: View {
+    let title: String
+    let project: String?
+    let status: ChatStatus
+    let unread: Bool
+    let pinned: Bool
+
+    private var line: String {
+        guard let p = project, !p.isEmpty else { return status.label }
+        return p + " · " + status.label
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    Text(title)
+                        .superFont(16, weight: .semibold)
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    if pinned {
+                        Image(systemName: "pin.fill").superFont(9)
+                            .foregroundStyle(Theme.textTertiary)
+                            .accessibilityLabel("Pinned")
+                    }
+                }
+                Text(line)
+                    .superFont(13)
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if status == .working {
+                ProgressView().controlSize(.small)
+            } else if status == .wantsYou || unread {
+                Circle().fill(Theme.unread).frame(width: 9, height: 9)
+                    .accessibilityLabel(status == .wantsYou ? "Wants you" : "Unread")
+            }
+        }
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
