@@ -1534,6 +1534,16 @@ struct ChatView: View {
         guard !items.isEmpty else { return }
         Task {
             for item in items {
+                // A video goes to the Mac as a file (the agent gets its path);
+                // a picture stays an image attachment, as before.
+                if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                    do {
+                        files.append(try await PickedVideo.load(item))
+                    } catch {
+                        self.error = error.localizedDescription
+                    }
+                    continue
+                }
                 if let data = try? await item.loadTransferable(type: Data.self), let a = Attachment(imageData: data) {
                     attachments.append(a)
                 }

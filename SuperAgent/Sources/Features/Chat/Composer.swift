@@ -1,5 +1,7 @@
+import AVFoundation
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The desktop composer, sized for a thumb: attachments above, the field with
 /// a mic and a send button, and the Model / Mode pills underneath. Typing "/"
@@ -660,7 +662,7 @@ struct Composer: View {
                         Label("Paste Image", systemImage: "doc.on.clipboard")
                     }
                     .disabled(!UIPasteboard.general.hasImages)
-                    Button { showPhotoPicker = true } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
+                    Button { showPhotoPicker = true } label: { Label("Photos & Videos", systemImage: "photo.on.rectangle") }
                     Button { showFilePicker = true } label: { Label("Choose a File", systemImage: "doc") }
                 } label: {
                     Image(systemName: "plus").superFont(15, weight: .semibold)
@@ -671,7 +673,7 @@ struct Composer: View {
                 .accessibilityLabel("Attach")
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .photosPicker(isPresented: $showPhotoPicker, selection: $pickerItems,
-                              maxSelectionCount: 10, matching: .images)
+                              maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
                 .fileImporter(isPresented: $showFilePicker,
                               allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                     guard case let .success(urls) = result else { return }
@@ -850,6 +852,49 @@ struct Composer: View {
             if !t.isEmpty { draft = t }
         }
         .onChange(of: dictation.listening) { _, on in if on { dictationSpent = false } }
+    }
+}
+
+/// A video from the photo library, on its way to the Mac as a file. Kept as it
+/// is when it fits the 25 MB the upload carries; otherwise made smaller first
+/// (720p), so a minute-long clip still gets there instead of being refused.
+enum PickedVideo {
+    static let limit = 25 * 1024 * 1024
+
+    struct Movie: Transferable {
+        let url: URL
+        static var transferRepresentation: some TransferRepresentation {
+            FileRepresentation(contentType: .movie) { SentTransferredFile($0.url) } importing: { received in
+                let copy = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                    .appendingPathExtension(received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension)
+                try FileManager.default.copyItem(at: received.file, to: copy)
+                return Movie(url: copy)
+            }
+        }
+    }
+
+    struct TooBig: LocalizedError {
+        var errorDescription: String? { "That video is too long to send from the phone, even made smaller. Trim it in Photos and try again." }
+    }
+
+    static func load(_ item: PhotosPickerItem) async throws -> PickedFile {
+        guard let movie = try await item.loadTransferable(type: Movie.self) else { throw TooBig() }
+        defer { try? FileManager.default.removeItem(at: movie.url) }
+        let size = (try? movie.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false))
+            .replacingOccurrences(of: ":", with: "-")
+        if size > 0, size <= limit {
+            return PickedFile(name: "video-\(stamp).\(movie.url.pathExtension)", data: try Data(contentsOf: movie.url))
+        }
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
+        defer { try? FileManager.default.removeItem(at: out) }
+        guard let export = AVAssetExportSession(asset: AVURLAsset(url: movie.url), presetName: AVAssetExportPreset1280x720)
+        else { throw TooBig() }
+        try await export.export(to: out, as: .mp4)
+        let data = try Data(contentsOf: out)
+        guard data.count <= limit else { throw TooBig() }
+        return PickedFile(name: "video-\(stamp).mp4", data: data)
     }
 }
 
