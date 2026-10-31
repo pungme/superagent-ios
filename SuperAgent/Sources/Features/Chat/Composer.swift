@@ -100,7 +100,11 @@ struct Composer: View {
 
     /// The composer's own width, to fold into the mini layout when a column
     /// is too narrow for the pills, as the Mac's does (its container query).
-    @State private var width: CGFloat = 0
+    /// Whether the column is narrower than `miniWidth`. A yes/no, not the width:
+    /// keeping the width itself rebuilt the composer on every point of every
+    /// layout pass, and on a phone (build 182) that ran into an 8 s hang that
+    /// iOS killed the app for.
+    @State private var narrow = false
     /// Narrower than this on an iPad (a Stage Manager window, a column beside
     /// a page) and the pills would wrap onto two lines. Below an 11-inch
     /// iPad's portrait chat column with the sidebar out (about 514 pt) and an
@@ -110,7 +114,7 @@ struct Composer: View {
     /// every setting in the logo's menu. In a split window always; elsewhere
     /// on an iPad when the column is narrow. A phone keeps its own layout.
     private var mini: Bool {
-        compact || (sizeClass == .regular && width > 0 && width < Self.miniWidth)
+        compact || (sizeClass == .regular && narrow)
     }
 
     /// The agent's logo in the box, with the usage limit as a ring round it.
@@ -807,7 +811,10 @@ struct Composer: View {
         }
         .padding(.top, 8).padding(.bottom, 8)
         .background(Theme.content)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        // Only an iPad folds by width; a phone never measures at all.
+        .onGeometryChange(for: Bool.self) { proxy in
+            sizeClass == .regular && proxy.size.width > 0 && proxy.size.width < Self.miniWidth
+        } action: { narrow = $0 }
         .onAppear { loadDraft() }
         .onDisappear { saveDraft() }
         // Reused across a chat switch: keep the old chat's words, load the new
