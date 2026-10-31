@@ -113,8 +113,9 @@ private func shortWindow(_ label: String) -> String {
         : label.hasSuffix(" weekly") ? String(label.dropLast(7)) + " week" : label
 }
 
-/// A thin bar of how much is LEFT, coloured by how much is used.
-struct UsageLeftBar: View {
+/// A thin bar of how much is USED, filling up as it is spent: quiet, then
+/// amber from 75%, red from 90%, as on the Mac.
+struct UsageBar: View {
     let used: Int
     var body: some View {
         Capsule().fill(Theme.border)
@@ -122,16 +123,16 @@ struct UsageLeftBar: View {
             .overlay(alignment: .leading) {
                 GeometryReader { geo in
                     Capsule().fill(used >= 75 ? usageColour(used) : Theme.textTertiary)
-                        .frame(width: geo.size.width * Double(max(0, 100 - used)) / 100)
+                        .frame(width: geo.size.width * Double(min(100, max(0, used))) / 100)
                 }
             }
             .accessibilityHidden(true)
     }
 }
 
-/// How much of the allowance is left, at the foot of the sidebar — the Mac's
+/// How much of the allowance is used, at the foot of the sidebar — the Mac's
 /// UsageFooter: the account the conversation on screen is on (or, with none,
-/// the one a new chat would start on), its logo, a bar and "NN% left". A tap
+/// the one a new chat would start on), its logo, a bar and "NN% used". A tap
 /// opens every account the Mac has, by agent. Hidden until the Mac says which
 /// account is current, so a Mac too old to say shows nothing.
 struct UsageFooter: View {
@@ -168,9 +169,9 @@ struct UsageFooter: View {
                         Text(current.shortName).superFont(13).foregroundStyle(Theme.textSecondary)
                             .lineLimit(1).truncationMode(.tail)
                             .layoutPriority(-1)
-                        UsageLeftBar(used: used ?? 100).frame(minWidth: 24, maxWidth: 64)
+                        UsageBar(used: used ?? 0).frame(minWidth: 24, maxWidth: 64)
                             .opacity(used == nil ? 0.4 : 1)
-                        Text(used.map { "\(max(0, 100 - $0))% left" } ?? "—")
+                        Text(used.map { "\($0)% used" } ?? "—")
                             .superFont(13, weight: .medium).monospacedDigit()
                             .foregroundStyle(used.map { $0 >= 75 ? usageColour($0) : Theme.textTertiary } ?? Theme.textTertiary)
                             .fixedSize()
@@ -188,7 +189,7 @@ struct UsageFooter: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 12).padding(.top, 4).padding(.bottom, 6)
                 .accessibilityIdentifier("usage-footer")
-                .accessibilityLabel("\(current.shortName), \(used.map { "\(max(0, 100 - $0))% left" } ?? "usage not read yet")")
+                .accessibilityLabel("\(current.shortName), \(used.map { "\($0)% used" } ?? "usage not read yet")")
                 .accessibilityHint("Shows every account's allowance")
                 .sheet(isPresented: $showing) {
                     UsageSheet(connection: connection, currentId: current.id)
@@ -210,7 +211,7 @@ struct UsageFooter: View {
     }
 }
 
-/// Every account on the Mac, under its agent, with how much is left of each
+/// Every account on the Mac, under its agent, with how much is used of each
 /// limit and when it resets. Read-only: a conversation is moved to another
 /// account from its own Account pill.
 struct UsageSheet: View {
@@ -261,7 +262,7 @@ struct UsageSheet: View {
         let status: String =
             a.needsAuth != nil ? "Needs sign-in"
             : blocked ? "Blocked · " + (reset.map { "resets " + usageResetLabel($0) } ?? "waiting for reset")
-            : used.map { "\(max(0, 100 - $0))% left · \(limit!.label)" } ?? "Usage not read yet"
+            : used.map { "\($0)% used · \(limit!.label)" } ?? "Usage not read yet"
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 if a.id == currentId {
@@ -281,11 +282,11 @@ struct UsageSheet: View {
                 HStack(spacing: 8) {
                     Text(w.label).superFont(12).foregroundStyle(Theme.textSecondary)
                         .frame(width: 92, alignment: .leading).lineLimit(1)
-                    UsageLeftBar(used: w.percent)
-                    Text("\(max(0, 100 - w.percent))% left").superFont(12, weight: .medium)
+                    UsageBar(used: w.percent)
+                    Text("\(w.percent)% used").superFont(12, weight: .medium)
                         .foregroundStyle(w.percent >= 75 ? usageColour(w.percent) : Theme.textSecondary)
                         .monospacedDigit()
-                        .frame(width: 62, alignment: .trailing)
+                        .frame(width: 70, alignment: .trailing)
                     Text(w.resetsAt.map { usageResetLabel($0) } ?? "").superFont(11)
                         .foregroundStyle(Theme.textTertiary)
                         .frame(width: 78, alignment: .trailing)
