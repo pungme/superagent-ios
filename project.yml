@@ -42,6 +42,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: Superagent uses the camera only to scan the pairing code shown on your Mac.
+        NSFaceIDUsageDescription: Superagent asks for Face ID before it lets this phone start controlling your Mac.
         NSMicrophoneUsageDescription: Superagent listens only while you hold the microphone button, to dictate a message.
         NSSpeechRecognitionUsageDescription: Your dictation is transcribed on this device when possible, so you can review it before sending.
         NSPhotoLibraryAddUsageDescription: Superagent saves a picture to your photos only when you tap Save on it.

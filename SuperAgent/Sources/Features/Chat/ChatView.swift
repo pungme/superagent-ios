@@ -81,6 +81,7 @@ struct ChatView: View {
     /// pull the page bigger, it goes bigger.
     @State private var pageResized = false
     @State private var showBrowserSheet = false
+    @State private var showRemote = false
     /// Full screen, like a stream: the page or simulator fills the phone, the
     /// conversation floats over it (FloatingChat) and the composer stays.
     @State private var theater = false
@@ -311,6 +312,9 @@ struct ChatView: View {
                 BrowserSheet(connection: connection, chat: chat) { data in
                     if let a = Attachment(imageData: data) { attachments.append(a) }
                 }
+            }
+            .fullScreenCover(isPresented: $showRemote) {
+                RemoteControlView(connection: connection) { showRemote = false }
             }
             .sheet(isPresented: $showTasks) {
                 TasksView(tasks: tasks, onWorkOn: { send(text: $0, fromComposer: false) })
@@ -693,6 +697,12 @@ struct ChatView: View {
                 Label(pageShown ? "Hide the page" : "Show the page", systemImage: "safari")
             }
             .disabled(connection.state != .connected)
+            // Only when the Mac has Remote control switched on (it says so itself).
+            if connection.remoteAvailable {
+                Button { showRemote = true } label: {
+                    Label("Control this Mac", systemImage: "display")
+                }
+            }
             if let b = workspace.branch, !b.isEmpty {
                 Button { showBranches = true } label: {
                     Label("Branch: \(b)", systemImage: "arrow.triangle.branch")

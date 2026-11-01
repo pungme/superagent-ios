@@ -18,7 +18,7 @@ struct ProtocolTests {
 
     @Test func decodesEveryServerFrame() throws {
         let f = try JSONDecoder().decode(Frames.self, from: fixture("frames"))
-        #expect(f.server.count == 10)
+        #expect(f.server.count == 17)
         guard case let .welcome(machine, tree, chats) = f.server[0] else { Issue.record("welcome"); return }
         #expect(machine.name == "Fixture Mac")
         #expect(machine.protocolVersion == 1)

@@ -376,7 +376,10 @@ struct WireMachine: Codable, Hashable, Sendable {
     var name: String
     var appVersion: String
     var protocolVersion: Int
-    enum CodingKeys: String, CodingKey { case name, appVersion, protocolVersion = "protocol" }
+    /// Present, and true, only while Remote control is switched on at the Mac.
+    /// A Mac from before, or with it off, leaves it out: no "Control this Mac".
+    var remoteControl: Bool?
+    enum CodingKeys: String, CodingKey { case name, appVersion, protocolVersion = "protocol", remoteControl }
 }
 
 // MARK: - Frames
@@ -402,6 +405,12 @@ enum ServerFrame: Sendable {
     case chats([WireChat])
     case browser(WireBrowser)
     case simulator(WireSimulator)
+    /// Remote control: where it stands (see RemoteFrames.swift).
+    case remote(WireRemote)
+    /// Remote control: a piece of the Mac's screen. Normally taken off the
+    /// socket before it gets here (Connection.handle), so the main thread never
+    /// parses one; decoded here for the fixtures.
+    case screen(WireScreenFrame)
     /// The agent called `open_file`: show this file, as the Mac just did.
     case openFile(workspaceId: String, path: String, chatId: String?)
     case res(id: String, result: Result<Data, RpcError>)
@@ -410,7 +419,7 @@ enum ServerFrame: Sendable {
 }
 
 extension ServerFrame: Decodable {
-    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser, simulator, path }
+    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser, simulator, path, remote, frame }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -439,6 +448,10 @@ extension ServerFrame: Decodable {
             self = .browser(try c.decode(WireBrowser.self, forKey: .browser))
         case "simulator":
             self = .simulator(try c.decode(WireSimulator.self, forKey: .simulator))
+        case "remote":
+            self = .remote(try c.decode(WireRemote.self, forKey: .remote))
+        case "screen":
+            self = .screen(try c.decode(WireScreenFrame.self, forKey: .frame))
         case "chats":
             self = .chats(try c.decode([WireChat].self, forKey: .chats))
         case "openFile":

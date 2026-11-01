@@ -173,6 +173,21 @@ final class Connection {
     private(set) var remoteDrafts: [String: RemoteDraft] = [:]
     /// What each conversation has open in the Mac's simulator pane.
     private(set) var simulators: [String: WireSimulator] = [:]
+    /// Remote control, as the Mac last said (nil until it says, or when it is off).
+    private(set) var remote: WireRemote?
+    /// The Mac's screen while a remote session runs. Frames are taken off the
+    /// socket into this and never go through the observed properties above.
+    let remoteScreen = RemoteScreenPipeline()
+    #if DEBUG
+    /// The harness: what the phone sent a made-up Mac, and the pictures it is shown.
+    var harnessRemoteInputs: [RemoteAction] = []
+    @ObservationIgnored var harnessFeeder: Task<Void, Never>?
+    #endif
+    /// Whether to offer "Control this Mac": the Mac has it switched on, and is reachable.
+    /// Hidden for a Mac from before, and for one with it off.
+    var remoteAvailable: Bool {
+        state == .connected && (remote?.available ?? (info?.remoteControl == true))
+    }
 
     /// What the relay says today has cost, so it can be seen climbing rather
     /// than discovered as an outage when the budget runs out. Sent by the room
@@ -475,6 +490,8 @@ final class Connection {
                 return
             }
             guard let plain = opener.open(text) else { return }
+            // The Mac's screen: decoded and drawn on its own queue, never parsed here.
+            if plain.hasPrefix("{\"t\":\"screen\"") { remoteScreen.ingest(plain); return }
             guard let data = plain.data(using: .utf8), let frame = try? JSONDecoder().decode(ServerFrame.self, from: data) else { return }
             apply(frame)
         case .closed(let code, let reason):
@@ -528,6 +545,7 @@ final class Connection {
             // from .opened — see the note there. A storm of reconnects that
             // never reach welcome must keep backing off.)
             attempt = 0
+            remote = nil
             info = machineInfo
             self.tree = tree
             self.chats = chats
@@ -600,6 +618,11 @@ final class Connection {
             if b.open { browsers[b.chatId] = b } else { browsers[b.chatId] = nil }
         case .simulator(let sim):
             if sim.open { simulators[sim.chatId] = sim } else { simulators[sim.chatId] = nil }
+        case .remote(let r):
+            remote = r
+            if r.state != .active || r.paused != nil { remoteScreen.forgetPicture() }
+        case .screen(let f):
+            remoteScreen.ingest(f)
         case let .openFile(workspaceId, path, chatId):
             openFileRequest = OpenFileRequest(workspaceId: workspaceId, path: path, chatId: chatId)
         case .chats(let list):
@@ -1304,6 +1327,59 @@ extension Connection {
     }
     #endif
 
+    // MARK: Remote control
+
+    /// Ask to control this Mac. The Mac asks someone AT the Mac; nothing here can answer for them.
+    func remoteRequest() async throws {
+        #if DEBUG
+        if machine.id == "harness" { return harnessRemoteRequest() }
+        #endif
+        remote = try await rpc("remote.request", .object([:]), as: WireRemote.self)
+    }
+
+    /// The code the Mac's second dialog shows.
+    func remoteCode(_ code: String) async throws {
+        #if DEBUG
+        if machine.id == "harness" { return try harnessRemoteCode(code) }
+        #endif
+        remote = try await rpc("remote.code", .object(["code": .string(code)]), as: WireRemote.self)
+    }
+
+    func remoteEnd() async throws {
+        #if DEBUG
+        if machine.id == "harness" { return harnessRemoteEnd() }
+        #endif
+        remote = try await rpc("remote.end", .object([:]), as: WireRemote.self)
+    }
+
+    /// How the phone wants the stream, and "still here": sent every few seconds while it is up.
+    func remoteView(visible: Bool? = nil, maxWidth: Int? = nil, key: Bool? = nil) async throws {
+        #if DEBUG
+        if machine.id == "harness" { return }
+        #endif
+        var o: [String: JSONValue] = [:]
+        if let visible { o["visible"] = .bool(visible) }
+        if let maxWidth { o["maxWidth"] = .number(Double(maxWidth)) }
+        if let key { o["key"] = .bool(key) }
+        remote = try await rpc("remote.view", .object(o), as: WireRemote.self)
+    }
+
+    /// Taps, moves, scrolls, text and keys for the Mac. Applied there in the order sent.
+    func remoteInput(_ actions: [RemoteAction]) async throws {
+        #if DEBUG
+        if machine.id == "harness" {
+            harnessRemoteInputs.append(contentsOf: actions)
+            // Looked at from outside the app, in a simulator that shares /tmp.
+            let line = actions.map { "\($0)" }.joined(separator: "\n") + "\n"
+            if let h = FileHandle(forWritingAtPath: "/tmp/rc-inputs.log") ?? { FileManager.default.createFile(atPath: "/tmp/rc-inputs.log", contents: nil); return FileHandle(forWritingAtPath: "/tmp/rc-inputs.log") }() {
+                h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
+            }
+            return
+        }
+        #endif
+        _ = try await rpc("remote.input", .object(["actions": .array(actions.map(\.json))]))
+    }
+
     func browserNav(chatId: String, action: String) async throws {
         _ = try await rpc("browser.nav", .object(["chatId": .string(chatId), "action": .string(action)]))
     }
@@ -1730,3 +1806,115 @@ struct OpenFileRequest: Identifiable, Equatable, Sendable {
     var chatId: String?
     var id: String { "\(workspaceId)|\(path)|\(chatId ?? "")" }
 }
+
+#if DEBUG
+// MARK: - Remote control harness
+//
+// A Mac that is not there: asks, shows a code (123456), then a drawn desktop,
+// so the whole flow and both layouts can be looked at and tested without one.
+// Launch with `-remoteHarness` (and `-remoteState idle|asking|code|active|paused|ended`).
+extension Connection {
+    func harnessRemoteRequest() {
+        remote = WireRemote(available: true, state: .asking)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(1200))
+            if self?.remote?.state == .asking { self?.remote = WireRemote(available: true, state: .code, triesLeft: 3) }
+        }
+    }
+
+    func harnessRemoteCode(_ code: String) throws {
+        guard code == "123456" else {
+            let left = max(0, (remote?.triesLeft ?? 3) - 1)
+            remote = WireRemote(available: true, state: .code, triesLeft: left)
+            throw RpcError(code: "bad-params", message: "That is not the code on the Mac. \(left) tries left.")
+        }
+        harnessStartScreen()
+    }
+
+    func harnessRemoteEnd() {
+        harnessFeeder?.cancel()
+        remote = WireRemote(available: true, state: .idle, ended: "stopped-on-phone")
+    }
+
+    func harnessSetRemote(_ r: WireRemote) { remote = r }
+    func harnessConnected() { state = .connected }
+
+    func harnessStartScreen(paused: Bool = false) {
+        remote = WireRemote(available: true, state: .active,
+                            display: .init(name: "Built-in Retina Display", width: 1512, height: 982),
+                            paused: paused ? "secret" : nil, pausedBy: paused ? "1Password" : nil)
+        harnessFeeder?.cancel()
+        let pipe = remoteScreen
+        harnessFeeder = Task.detached(priority: .utility) {
+            let desktop = Self.harnessDesktop(blink: false)
+            func frame(_ jpeg: Data, key: Bool, x: Int, y: Int, w: Int, h: Int, seq: Int, cursor: (Double, Double)) -> WireScreenFrame {
+                WireScreenFrame(seq: seq, w: 1440, h: 900, x: x, y: y, rw: w, rh: h, key: key,
+                                jpeg: jpeg.base64EncodedString(), cursor: .init(x: cursor.0, y: cursor.1))
+            }
+            var seq = 1
+            var tick = 0
+            while !Task.isCancelled {
+                if tick < 3 || tick % 40 == 0 {
+                    // A whole picture, now and then, as the Mac sends.
+                    if !paused { pipe.ingest(frame(desktop, key: true, x: 0, y: 0, w: 1440, h: 900, seq: seq, cursor: (0.5, 0.45))) }
+                } else if !paused {
+                    // A piece: the text cursor blinking in the note.
+                    let on = tick % 2 == 0
+                    let piece = Self.harnessBlink(on: on)
+                    pipe.ingest(frame(piece, key: false, x: 640, y: 312, w: 16, h: 32, seq: seq,
+                                      cursor: (0.5 + 0.04 * sin(Double(tick) / 6), 0.45)))
+                }
+                seq += 1; tick += 1
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    nonisolated static func harnessDesktop(blink: Bool) -> Data {
+        let size = CGSize(width: 1440, height: 900)
+        let r = UIGraphicsImageRenderer(size: size, format: { let f = UIGraphicsImageRendererFormat(); f.scale = 1; return f }())
+        let img = r.image { g in
+            let c = g.cgContext
+            let space = CGColorSpaceCreateDeviceRGB()
+            let grad = CGGradient(colorsSpace: space, colors: [UIColor(red: 0.98, green: 0.62, blue: 0.5, alpha: 1).cgColor,
+                                                               UIColor(red: 0.35, green: 0.3, blue: 0.62, alpha: 1).cgColor] as CFArray, locations: [0, 1])!
+            c.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: 900), options: [])
+            // menu bar
+            UIColor(white: 1, alpha: 0.55).setFill(); c.fill(CGRect(x: 0, y: 0, width: 1440, height: 30))
+            let bar: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 15, weight: .semibold), .foregroundColor: UIColor.black]
+            "  Notes    File    Edit    View    Window    Help".draw(at: CGPoint(x: 12, y: 6), withAttributes: bar)
+            "Sun 1 Nov  11:57".draw(at: CGPoint(x: 1290, y: 6), withAttributes: bar)
+            // a window
+            let w = CGRect(x: 360, y: 150, width: 720, height: 480)
+            UIColor.black.withAlphaComponent(0.25).setFill(); c.fill(w.offsetBy(dx: 0, dy: 14).insetBy(dx: 6, dy: 0))
+            UIColor(white: 0.97, alpha: 1).setFill(); UIBezierPath(roundedRect: w, cornerRadius: 12).fill()
+            UIColor(white: 0.9, alpha: 1).setFill(); c.fill(CGRect(x: w.minX, y: w.minY + 12, width: w.width, height: 28))
+            for (i, col) in [UIColor.systemRed, .systemYellow, .systemGreen].enumerated() {
+                col.setFill(); c.fillEllipse(in: CGRect(x: w.minX + 14 + CGFloat(i) * 22, y: w.minY + 16, width: 13, height: 13))
+            }
+            let h1: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 34, weight: .bold), .foregroundColor: UIColor.black]
+            let body: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 22), .foregroundColor: UIColor(white: 0.2, alpha: 1)]
+            "Shopping list".draw(at: CGPoint(x: w.minX + 40, y: w.minY + 70), withAttributes: h1)
+            for (i, line) in ["Oat milk", "Coffee beans", "Lemons", "Superagent stickers"].enumerated() {
+                line.draw(at: CGPoint(x: w.minX + 40, y: w.minY + 140 + CGFloat(i) * 38), withAttributes: body)
+            }
+            // dock
+            UIColor(white: 1, alpha: 0.45).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 470, y: 820, width: 500, height: 70), cornerRadius: 22).fill()
+            for i in 0..<8 {
+                UIColor(hue: CGFloat(i) / 8, saturation: 0.55, brightness: 0.95, alpha: 1).setFill()
+                UIBezierPath(roundedRect: CGRect(x: 488 + CGFloat(i) * 60, y: 832, width: 48, height: 48), cornerRadius: 11).fill()
+            }
+        }
+        return img.jpegData(compressionQuality: 0.8) ?? Data()
+    }
+
+    nonisolated static func harnessBlink(on: Bool) -> Data {
+        let r = UIGraphicsImageRenderer(size: CGSize(width: 16, height: 32), format: { let f = UIGraphicsImageRendererFormat(); f.scale = 1; return f }())
+        return r.image { g in
+            UIColor(white: 0.97, alpha: 1).setFill(); g.fill(CGRect(x: 0, y: 0, width: 16, height: 32))
+            if on { UIColor.systemBlue.setFill(); g.fill(CGRect(x: 7, y: 2, width: 2, height: 28)) }
+        }.jpegData(compressionQuality: 0.9) ?? Data()
+    }
+}
+#endif

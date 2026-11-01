@@ -35,6 +35,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Superagent uses the camera only to scan the pairing code shown on your Mac.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Superagent asks for Face ID before it lets this phone start controlling your Mac.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Superagent listens only while you hold the microphone button, to dictate a message.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
