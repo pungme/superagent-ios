@@ -805,7 +805,7 @@ struct ConnectionFloat: View {
                 .superFont(12.5, weight: .medium)
                 .foregroundStyle(Theme.textSecondary)
             if connection.state != .connecting {
-                Button("Retry") { connection.connect() }
+                Button("Retry") { connection.retryNow() }
                     .superFont(12.5, weight: .semibold)
                     .tint(Theme.textPrimary)
             }

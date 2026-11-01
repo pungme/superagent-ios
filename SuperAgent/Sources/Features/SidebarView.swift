@@ -298,7 +298,7 @@ struct SidebarView: View {
             await loadWorktrees()
         }
         .refreshable {
-            connection.connect()
+            connection.retryNow()
             await connection.refreshTree()
             await connection.loadSplits()
             await loadRoutines()

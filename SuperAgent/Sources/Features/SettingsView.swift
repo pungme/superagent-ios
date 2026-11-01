@@ -56,7 +56,10 @@ struct SettingsView: View {
                             if app.selectedMachineId == m.id { Image(systemName: "checkmark").foregroundStyle(.tint) }
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture { app.switchTo(m.id) }
+                        // Tapping the Mac in use reconnects it now; another Mac switches.
+                        .onTapGesture {
+                            if app.selectedMachineId == m.id { c?.retryNow() } else { app.switchTo(m.id) }
+                        }
                         .swipeActions {
                             Button(role: .destructive) { app.remove(m) } label: { Label("Remove", systemImage: "trash") }
                         }

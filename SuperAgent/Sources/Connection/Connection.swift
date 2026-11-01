@@ -380,6 +380,16 @@ final class Connection {
         open()
     }
 
+    /// Someone asked for it (a tap on the Mac, pull to refresh, Retry): try now,
+    /// from the shortest wait, even if an attempt is under way and stuck.
+    func retryNow() {
+        wantConnected = true
+        attempt = 0
+        if state == .connected { checkAlive(); return }
+        reconnectTask?.cancel()
+        open()
+    }
+
     func disconnect() {
         browsers.removeAll()
         simulators.removeAll()
@@ -509,7 +519,19 @@ final class Connection {
     private func scheduleReconnect() {
         guard wantConnected else { return }
         reconnectTask?.cancel()
-        let delay = min(30.0, pow(2.0, Double(min(attempt, 5)))) * (state == .machineOffline || state == .quotaExhausted ? 3 : 1)
+        // The phone only reconnects while the app is in front (it lets go of the
+        // socket in the background), so these waits are what someone looking at
+        // "Connecting" sits through. They used to reach 90 s after the Mac app
+        // restarted; a Mac back in seconds then looked dead for a minute and a
+        // half. Short caps still back off, at a few hundred relay requests an
+        // hour at most while the app is open and the Mac is away.
+        let base = pow(2.0, Double(min(attempt, 5)))
+        let delay: Double
+        switch state {
+        case .quotaExhausted: delay = min(60, base * 3)
+        case .machineOffline: delay = min(15, base * 3)
+        default: delay = min(10, base)
+        }
         attempt += 1
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))

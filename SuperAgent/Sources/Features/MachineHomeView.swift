@@ -121,7 +121,7 @@ struct ConnectionBanner: View {
                 if !stacked { Spacer() }
             }
             if connection.state != .connecting {
-                Button("Retry") { connection.connect() }.font(.caption.weight(.semibold)).tint(Theme.textPrimary)
+                Button("Retry") { connection.retryNow() }.font(.caption.weight(.semibold)).tint(Theme.textPrimary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
