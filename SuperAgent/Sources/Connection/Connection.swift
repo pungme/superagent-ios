@@ -1501,6 +1501,41 @@ extension Connection {
                 }
             }
         }
+        // `-heavyTranscript`: what a real working session looks like: long replies
+        // with headings, tables, lists full of inline code and links, code blocks.
+        if ProcessInfo.processInfo.arguments.contains("-heavyTranscript") {
+            func reply(_ n: Int) -> String {
+                var r = "## Round \(n): findings\n\n"
+                r += "I read **`Sources/Features/Home/Hero.swift`** and *three* neighbours. The header collapses below 400 pt because the nav wraps, see [the design note](https://example.com/design/\(n)) and `HeroView.body`.\n\n"
+                r += "| File | Lines | Change |\n|---|---|---|\n"
+                for i in 0..<8 { r += "| `Hero\(i).swift` | \(i * 12 + 40) | Tighten **padding** and drop the `fixedSize` on row \(i) |\n" }
+                r += "\n| Device | Width | Class | Header | Buttons | Notes |\n|---|---|---|---|---|---|\n"
+                for i in 0..<6 { r += "| iPhone \(i + 13) | \(320 + i * 20) | compact | one line | stacked | the *subhead* wraps at \(i + 2) lines |\n" }
+                r += "\n"
+                for i in 0..<7 { r += "- Item \(i): change `padding(\(i))` to **\(i + 1)** in [Hero\(i)](https://example.com/\(i)), then re-run `swift test --filter Hero\(i)Tests`\n" }
+                r += "\n```swift\nstruct Hero: View {\n    var body: some View {\n        VStack(spacing: 12) {\n            Text(\"Round \(n)\").font(.largeTitle)\n            Button(\"Start\") { start() }\n        }\n        .padding(24)\n    }\n}\n```\n\n"
+                r += "The first paragraph explains why the nav wrapped: the logo took a fixed width and the links had no room to shrink, so the last link wrapped onto a second line and pushed the buttons down. The second paragraph explains the fix: let the links shrink first, then truncate. Nothing else needed to change, and the screenshots in the pane next door show the result at 320, 375 and 430 points.\n\n"
+                for i in 0..<4 { r += "\(i + 1). Step \(i + 1): open `Hero\(i).swift`, make the change, build, and look at the pane.\n" }
+                r += "\n```json\n{\"width\": 320, \"header\": \"one line\", \"buttons\": \"stacked\", \"round\": \(n)}\n```\n"
+                return r
+            }
+            while seq < 400 {
+                seq += 1
+                t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                          data: .user(id: "u\(seq)", text: "Round \(seq): check the layout again and fix anything that wraps.", images: [], from: .ios, replyTo: nil)))
+                for step in 0..<6 where seq < 400 {
+                    seq += 1
+                    t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                              data: .tool(id: "t\(seq)", name: step % 2 == 0 ? "Read" : "Edit",
+                                                          detail: "Sources/Features/Home/Hero.swift", task: nil)))
+                }
+                if seq < 400 {
+                    seq += 1
+                    t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                              data: .assistant(id: "a\(seq)", text: reply(seq))))
+                }
+            }
+        }
         t.lastSeq = seq
         // Claude's line-up as the Mac sends it: the current versions, then the
         // older ones the CLI still offers, marked for the picker to fold away.
@@ -1512,6 +1547,13 @@ extension Connection {
             .init(id: "claude-opus-5", label: "Opus 5", hint: "Best for everyday, complex tasks", older: true),
             .init(id: "claude-opus-4-6", label: "Opus 4.6", hint: "Best for everyday, complex tasks", older: true)
         ]
+        // `-realChat`: the events in Documents/realchat.json (rows for chat "c1") instead.
+        if ProcessInfo.processInfo.arguments.contains("-realChat"), let real = realTranscript(), !real.isEmpty {
+            var r = Transcript()
+            for e in real { _ = r.apply(e) }
+            r.models = t.models
+            t = r
+        }
         c.transcripts["c1"] = t
         c.transcripts["c2"] = Transcript(models: [
             .init(id: "gpt-5.6-codex", label: "GPT-5.6 Codex", hint: "Best coding model"),

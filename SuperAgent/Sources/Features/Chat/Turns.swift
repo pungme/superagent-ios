@@ -12,22 +12,7 @@ struct Turn: Identifiable, Equatable {
     var endedAt: Double?
     /// Roughly how much this turn has to lay out: the characters it says, and a
     /// little for each step. `utf8.count` is constant time on a native string.
-    var weight: Int {
-        items.reduce(0) { sum, item in
-            switch item {
-            case .steps(let g): return sum + 120 * min(g.events.count, 20)
-            case .event(let e):
-                switch e.data {
-                case .user(_, let t, _, _, _), .assistant(_, let t), .thinking(_, let t), .notice(let t):
-                    return sum + t.utf8.count
-                case .toolResult(_, _, let summary, _): return sum + min(summary.utf8.count, 400)
-                case .diff(_, _, let hunks):
-                    return sum + min(hunks.reduce(0) { $0 + $1.added.count + $1.removed.count } * 80, 6_000)
-                default: return sum + 120
-                }
-            }
-        }
-    }
+    var weight: Int { items.reduce(0) { $0 + $1.weight } }
 
     var duration: TimeInterval? {
         guard let s = startedAt, let e = endedAt, e >= s else { return nil }
@@ -38,6 +23,32 @@ struct Turn: Identifiable, Equatable {
 enum TurnItem: Identifiable, Equatable {
     case event(WireEvent)
     case steps(StepGroup)
+
+    /// A table cell is a view of its own with a few characters in it, and laid
+    /// out nested inside stacks that measure it more than once: measured on a
+    /// simulator a table costs several times a paragraph of the same length. A
+    /// pipe is one cell edge, so it counts for extra.
+    static func textWeight(_ text: String) -> Int {
+        var pipes = 0
+        for b in text.utf8 where b == UInt8(ascii: "|") { pipes += 1 }
+        return text.utf8.count + 3 * pipes
+    }
+
+    /// Roughly how much this row has to lay out (see `Turn.weight`).
+    var weight: Int {
+        switch self {
+        case .steps(let g): return 120 * min(g.events.count, 20)
+        case .event(let e):
+            switch e.data {
+            case .user(_, let t, _, _, _), .assistant(_, let t), .thinking(_, let t), .notice(let t):
+                return Self.textWeight(t)
+            case .toolResult(_, _, let summary, _): return min(summary.utf8.count, 400)
+            case .diff(_, _, let hunks):
+                return min(hunks.reduce(0) { $0 + $1.added.count + $1.removed.count } * 80, 6_000)
+            default: return 120
+            }
+        }
+    }
 
     var id: String {
         switch self {
@@ -162,4 +173,64 @@ extension WireEvent {
         }
     }
     var isThinking: Bool { if case .thinking = data { return true }; return false }
+}
+
+
+/// Which rows of a conversation are laid out.
+///
+/// The transcript is a non-lazy stack (see ChatView.transcript), so every row
+/// in it is measured on every layout pass, and iOS makes several of those when
+/// the app is put away (one per snapshot, in each appearance). The window is
+/// cut by how much the rows SAY, newest first, and the cut can fall inside a
+/// turn: a turn is everything the agent did for one message, and in a real
+/// working session that is most of the conversation (110 000 characters in two
+/// turns), so cutting only between turns cut nothing.
+enum TurnWindow {
+    struct Result {
+        var turns: [Turn]
+        /// Rows left out, for the "Show earlier" button.
+        var hidden: Int
+        /// The oldest row shown, nil when there is nothing.
+        var firstItemId: String?
+    }
+
+    /// - maxTurns: never more turns than this are touched.
+    /// - budget: stop once the rows taken weigh more than this...
+    /// - leastItems: ...but always take at least this many, newest first.
+    /// - floor: a row that stays shown even if the budget would cut it (what
+    ///   the reader was looking at, see ChatView.windowFloor).
+    static func visible(_ turns: [Turn], maxTurns: Int, budget: Int, leastItems: Int,
+                        floor: String? = nil) -> Result {
+        var used = 0
+        var taken = 0
+        var touched = 0
+        var start: (turn: Int, item: Int)?
+        outer: for ti in turns.indices.reversed() {
+            if touched >= maxTurns { break }
+            touched += 1
+            let items = turns[ti].items
+            for ii in items.indices.reversed() {
+                if used > budget, taken >= leastItems { break outer }
+                used += items[ii].weight
+                taken += 1
+                start = (ti, ii)
+            }
+        }
+        // What the reader was looking at stays, wherever the budget would cut.
+        if let floor, let s = start {
+            search: for ti in turns.indices where ti <= s.turn {
+                for ii in turns[ti].items.indices where turns[ti].items[ii].id == floor {
+                    if ti < s.turn || ii < s.item { start = (ti, ii) }
+                    break search
+                }
+            }
+        }
+        guard let start else { return Result(turns: [], hidden: turns.reduce(0) { $0 + $1.items.count }, firstItemId: nil) }
+        var out = Array(turns[start.turn...])
+        if start.item > 0 {
+            out[0].items = Array(out[0].items[start.item...])
+        }
+        let hidden = turns[..<start.turn].reduce(0) { $0 + $1.items.count } + start.item
+        return Result(turns: out, hidden: hidden, firstItemId: out.first?.items.first?.id)
+    }
 }

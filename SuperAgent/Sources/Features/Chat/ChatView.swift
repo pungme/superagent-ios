@@ -148,23 +148,26 @@ struct ChatView: View {
     /// The newest turns are laid out by how much they SAY, not only how many:
     /// forty turns of long replies took the main thread past the ten seconds
     /// iOS allows (the app was killed, 0x8BADF00D, 2026-10-24 and 26) while
-    /// forty short ones are nothing. At least `leastTurns` show.
-    private var textBudget: Int { safeMode ? 5_000 : 16_000 }
-    private var leastTurns: Int { safeMode ? 2 : 3 }
+    /// forty short ones are nothing. The cut falls between rows, not turns (see
+    /// TurnWindow). 8 000, not 16 000: on a simulator with a real conversation
+    /// (two turns, 110 000 characters) the app-switcher snapshot cost 1.26 s of
+    /// main thread at 16 000 before rows were cut, 0.47 s with them, and 0.31 s,
+    /// the cost of an empty chat, at 8 000.
+    private var textBudget: Int { (safeMode ? 5_000 : 8_000) * (1 + extraTurns / Self.moreTurns) }
+    /// Rows, not turns: a turn is everything the agent did for one message and
+    /// can be most of the conversation, so the cut falls inside it if it must.
+    private var leastItems: Int { safeMode ? 4 : 8 }
     /// Events older than this are not even grouped: the phone keeps the newest few hundred.
     private static let eventCap = 600
-    private var visibleTurns: ArraySlice<Turn> {
-        var used = 0
-        var n = 0
-        for turn in turns.reversed() {
-            used += turn.weight
-            n += 1
-            if n >= initialTurns { break }
-            if used > textBudget, n >= leastTurns { break }
-        }
-        return turns.suffix(min(turns.count, n + extraTurns))
+    /// The rows that are laid out; see TurnWindow.
+    private var window: TurnWindow.Result {
+        TurnWindow.visible(turns, maxTurns: initialTurns + extraTurns, budget: textBudget,
+                           leastItems: leastItems, floor: atBottom ? nil : windowFloor)
     }
-    private var hiddenTurns: Int { turns.count - visibleTurns.count }
+    /// The oldest row on screen when the reader scrolled away from the end. While
+    /// they are reading, a new row arriving must not drop the oldest one off the
+    /// top (the page would jump under their thumb); at the end it can.
+    @State private var windowFloor: String?
     /// Every picture in the conversation, for the viewer's swipe.
     @State private var gallerySources: [ChatImageSource] = []
     private var chatGallery: ChatGallery {
@@ -450,11 +453,12 @@ struct ChatView: View {
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .accessibilityIdentifier("safe-mode-banner")
                 }
-                if hiddenTurns > 0 {
+                let window = self.window
+                if window.hidden > 0 {
                     Button {
                         extraTurns += Self.moreTurns
                     } label: {
-                        Text("Show \(hiddenTurns) earlier \(hiddenTurns == 1 ? "message" : "messages")")
+                        Text("Show \(window.hidden) earlier \(window.hidden == 1 ? "message" : "messages")")
                             .font(.footnote.weight(.medium))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
@@ -462,7 +466,7 @@ struct ChatView: View {
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("show-earlier")
                 }
-                ForEach(visibleTurns) { turn in
+                ForEach(window.turns) { turn in
                     TurnView(connection: connection, turn: turn, pendingApprovals: pendingApprovals,
                              timeIds: timeIds, answer: answer,
                              choose: { pick($0) },
@@ -548,7 +552,11 @@ struct ChatView: View {
             // Folded away while typing over the page, the list reads as "not at
             // the end" and would stop following new messages once it's back.
             guard !chatFloats else { return }
-            if atBottom != isAtEnd { atBottom = isAtEnd }
+            if atBottom != isAtEnd {
+                // Leaving the end: what is on screen now stays on screen (windowFloor).
+                if !isAtEnd { windowFloor = window.firstItemId }
+                atBottom = isAtEnd
+            }
         }
         .background(Theme.content)
         .contentShape(Rectangle())

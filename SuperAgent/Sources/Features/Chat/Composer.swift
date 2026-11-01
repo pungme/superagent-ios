@@ -138,6 +138,13 @@ struct Composer: View {
         .contentShape(Circle())
     }
 
+    /// Whether the clipboard holds a picture, for the Paste Image item. Read
+    /// from `UIPasteboard.general` it is a round trip to the pasteboard daemon
+    /// (and with Universal Clipboard, to the Mac): it was made on every
+    /// evaluation of this body, eleven times in one app-switcher snapshot.
+    /// Asked when the composer appears, when the clipboard changes and when the
+    /// app comes back, not while drawing.
+    @State private var pasteboardHasImages = false
     @State private var showPhotoPicker = false
     @State private var showFilePicker = false
     /// Nothing the recogniser says after a send belongs in the emptied composer;
@@ -661,7 +668,7 @@ struct Composer: View {
                     Button(action: pasteImage) {
                         Label("Paste Image", systemImage: "doc.on.clipboard")
                     }
-                    .disabled(!UIPasteboard.general.hasImages)
+                    .disabled(!pasteboardHasImages)
                     Button { showPhotoPicker = true } label: { Label("Photos & Videos", systemImage: "photo.on.rectangle") }
                     Button { showFilePicker = true } label: { Label("Choose a File", systemImage: "doc") }
                 } label: {
@@ -828,8 +835,14 @@ struct Composer: View {
         .onGeometryChange(for: Bool.self) { proxy in
             sizeClass == .regular && proxy.size.width > 0 && proxy.size.width < Self.miniWidth
         } action: { narrow = $0 }
-        .onAppear { loadDraft() }
+        .onAppear { loadDraft(); pasteboardHasImages = UIPasteboard.general.hasImages }
         .onDisappear { saveDraft() }
+        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
+            pasteboardHasImages = UIPasteboard.general.hasImages
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            pasteboardHasImages = UIPasteboard.general.hasImages
+        }
         // Reused across a chat switch: keep the old chat's words, load the new
         // chat's. (id is set on ChatView today, so this is belt-and-braces.)
         .onChange(of: remoteDraft) { _, r in applyRemoteDraft(r) }
