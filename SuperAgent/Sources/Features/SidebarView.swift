@@ -208,17 +208,17 @@ struct SidebarView: View {
             #if compiler(>=6.2)
             if #available(iOS 26.0, *) {
                 ToolbarItem(placement: .topBarLeading) {
-                    ConnectionPill(state: connection.state).fixedSize()
+                    statusAndBattery
                 }
                 .sharedBackgroundVisibility(.hidden)
             } else {
                 ToolbarItem(placement: .topBarLeading) {
-                    ConnectionPill(state: connection.state).fixedSize()
+                    statusAndBattery
                 }
             }
             #else
             ToolbarItem(placement: .topBarLeading) {
-                ConnectionPill(state: connection.state).fixedSize()
+                statusAndBattery
             }
             #endif
             // Talk to the Mac without picking a project (or a group) first: a
@@ -234,6 +234,15 @@ struct SidebarView: View {
                 .disabled(computer == nil || connection.state != .connected || busy)
             }
         }
+    }
+
+    /// Whether it is live, and the Mac's battery beside it (a Mac with none shows only the first).
+    private var statusAndBattery: some View {
+        HStack(spacing: 8) {
+            ConnectionPill(state: connection.state)
+            if connection.state == .connected { MacBatteryBadge(battery: connection.battery) }
+        }
+        .fixedSize()
     }
 
     private var machineMenu: some View {
@@ -1559,4 +1568,37 @@ extension EnvironmentValues {
     /// The chat is a window of the iPad's split: no navigation bar of its
     /// own, so its ⋯ menu sits in the window's corner.
     @Entry var inSplitTile: Bool = false
+}
+
+/// The Mac's battery, small, beside its name: a glyph (a bolt while it is on the
+/// charger) and the percent. Nothing for a Mac with no battery.
+struct MacBatteryBadge: View {
+    let battery: WireBattery?
+
+    var body: some View {
+        if let b = battery {
+            HStack(spacing: 2) {
+                Image(systemName: symbol(b))
+                    .symbolRenderingMode(.hierarchical)
+                Text("\(b.percent)%")
+                    .monospacedDigit()
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(b.percent <= 20 && !b.pluggedIn ? Theme.danger : Theme.textSecondary)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Mac battery \(b.percent) percent\(b.pluggedIn ? ", charging" : "")")
+            .accessibilityIdentifier("mac-battery")
+        }
+    }
+
+    private func symbol(_ b: WireBattery) -> String {
+        if b.pluggedIn { return "battery.100.bolt" }
+        switch b.percent {
+        case ..<13: return "battery.0"
+        case ..<38: return "battery.25"
+        case ..<63: return "battery.50"
+        case ..<88: return "battery.75"
+        default: return "battery.100"
+        }
+    }
 }

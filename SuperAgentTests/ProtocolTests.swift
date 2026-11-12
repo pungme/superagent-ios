@@ -95,4 +95,12 @@ struct ProtocolTests {
         #expect(parsed.secret?.count == 32)
         #expect(PairPayload.parse("https://example.com") == nil)
     }
+
+    @Test func decodesTheMacBattery() throws {
+        func frame(_ json: String) throws -> ServerFrame { try JSONDecoder().decode(ServerFrame.self, from: Data(json.utf8)) }
+        guard case .battery(let b) = try frame(#"{"t":"battery","battery":{"percent":83,"pluggedIn":true}}"#) else { Issue.record("not a battery frame"); return }
+        #expect(b == WireBattery(percent: 83, pluggedIn: true))
+        guard case .battery(let none) = try frame(#"{"t":"battery","battery":null}"#) else { Issue.record("not a battery frame"); return }
+        #expect(none == nil)
+    }
 }

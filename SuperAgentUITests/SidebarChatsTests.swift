@@ -50,4 +50,11 @@ final class SidebarChatsTests: XCTestCase {
         all.tap()
         XCTAssertTrue(app.staticTexts["Loose chat 8"].waitForExistence(timeout: 5), "the full list has the rest")
     }
+
+    func testTheMacsBatteryIsShownBesideTheLivePill() {
+        let app = launch(["-withBattery"])
+        let battery = app.descendants(matching: .any).matching(identifier: "mac-battery").firstMatch
+        XCTAssertTrue(battery.waitForExistence(timeout: 10))
+        XCTAssertEqual(battery.label, "Mac battery 83 percent")
+    }
 }

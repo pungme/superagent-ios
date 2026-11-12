@@ -175,6 +175,8 @@ final class Connection {
     private(set) var simulators: [String: WireSimulator] = [:]
     /// Remote control, as the Mac last said (nil until it says, or when it is off).
     private(set) var remote: WireRemote?
+    /// The Mac's battery, as it last said (nil until it says, or for a Mac with none).
+    private(set) var battery: WireBattery?
     /// The Mac's screen while a remote session runs. Frames are taken off the
     /// socket into this and never go through the observed properties above.
     let remoteScreen = RemoteScreenPipeline()
@@ -568,6 +570,7 @@ final class Connection {
             // never reach welcome must keep backing off.)
             attempt = 0
             remote = nil
+            battery = nil
             info = machineInfo
             self.tree = tree
             self.chats = chats
@@ -640,6 +643,8 @@ final class Connection {
             if b.open { browsers[b.chatId] = b } else { browsers[b.chatId] = nil }
         case .simulator(let sim):
             if sim.open { simulators[sim.chatId] = sim } else { simulators[sim.chatId] = nil }
+        case .battery(let b):
+            battery = b
         case .remote(let r):
             remote = r
             if r.state != .active || r.paused != nil { remoteScreen.forgetPicture() }
@@ -1681,6 +1686,10 @@ extension Connection {
                     try? await Task.sleep(for: .milliseconds(450))
                 }
             }
+        }
+        // `-withBattery`: the Mac says its battery level.
+        if ProcessInfo.processInfo.arguments.contains("-withBattery") {
+            c.battery = WireBattery(percent: 83, pluggedIn: false)
         }
         // `-withSim`: and the simulator, for its picture in picture.
         if ProcessInfo.processInfo.arguments.contains("-withSim") {

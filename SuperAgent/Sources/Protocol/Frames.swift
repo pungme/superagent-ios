@@ -372,6 +372,13 @@ struct WireLoop: Codable, Hashable, Sendable {
     }
 }
 
+/// The Mac's battery. The Mac leaves it out when it has none (a desktop).
+struct WireBattery: Codable, Hashable, Sendable {
+    var percent: Int
+    /// On the charger (the battery may still be filling).
+    var pluggedIn: Bool
+}
+
 struct WireMachine: Codable, Hashable, Sendable {
     var name: String
     var appVersion: String
@@ -407,6 +414,8 @@ enum ServerFrame: Sendable {
     case simulator(WireSimulator)
     /// Remote control: where it stands (see RemoteFrames.swift).
     case remote(WireRemote)
+    /// The Mac's battery, after welcome and when it changes; nil: this Mac has none.
+    case battery(WireBattery?)
     /// Remote control: a piece of the Mac's screen. Normally taken off the
     /// socket before it gets here (Connection.handle), so the main thread never
     /// parses one; decoded here for the fixtures.
@@ -419,7 +428,7 @@ enum ServerFrame: Sendable {
 }
 
 extension ServerFrame: Decodable {
-    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser, simulator, path, remote, frame }
+    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser, simulator, path, remote, frame, battery }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -450,6 +459,8 @@ extension ServerFrame: Decodable {
             self = .simulator(try c.decode(WireSimulator.self, forKey: .simulator))
         case "remote":
             self = .remote(try c.decode(WireRemote.self, forKey: .remote))
+        case "battery":
+            self = .battery(try c.decodeIfPresent(WireBattery.self, forKey: .battery))
         case "screen":
             self = .screen(try c.decode(WireScreenFrame.self, forKey: .frame))
         case "chats":
