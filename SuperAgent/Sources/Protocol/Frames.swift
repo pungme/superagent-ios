@@ -372,6 +372,24 @@ struct WireLoop: Codable, Hashable, Sendable {
     }
 }
 
+/// A prompt set aside with Save for later; a chat's list is newest first.
+struct WireSavedPrompt: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var text: String
+    /// When it was set aside, ms since 1970.
+    var at: Double
+}
+
+/// A skill or slash command an agent on the Mac can run (`skills.list`).
+struct WireSkill: Codable, Hashable, Sendable {
+    var name: String
+    var description: String
+    /// "claude.ai" (synced from the account, managed there), "global" or "project".
+    var scope: String
+    /// "skill" or "command".
+    var kind: String
+}
+
 /// The Mac's battery. The Mac leaves it out when it has none (a desktop).
 struct WireBattery: Codable, Hashable, Sendable {
     var percent: Int
@@ -416,6 +434,8 @@ enum ServerFrame: Sendable {
     case remote(WireRemote)
     /// The Mac's battery, after welcome and when it changes; nil: this Mac has none.
     case battery(WireBattery?)
+    /// Save for later: a chat's list, whenever it changes on the Mac or a phone.
+    case saved(chatId: String, prompts: [WireSavedPrompt])
     /// Remote control: a piece of the Mac's screen. Normally taken off the
     /// socket before it gets here (Connection.handle), so the main thread never
     /// parses one; decoded here for the fixtures.
@@ -428,7 +448,7 @@ enum ServerFrame: Sendable {
 }
 
 extension ServerFrame: Decodable {
-    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser, simulator, path, remote, frame, battery }
+    private enum K: String, CodingKey { case t, machine, tree, chats, token, reason, event, chatId, text, workspaceId, status, id, ok, result, error, browser, simulator, path, remote, frame, battery, prompts }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -459,6 +479,9 @@ extension ServerFrame: Decodable {
             self = .simulator(try c.decode(WireSimulator.self, forKey: .simulator))
         case "remote":
             self = .remote(try c.decode(WireRemote.self, forKey: .remote))
+        case "saved":
+            self = .saved(chatId: try c.decode(String.self, forKey: .chatId),
+                          prompts: try c.decodeIfPresent([WireSavedPrompt].self, forKey: .prompts) ?? [])
         case "battery":
             self = .battery(try c.decodeIfPresent(WireBattery.self, forKey: .battery))
         case "screen":

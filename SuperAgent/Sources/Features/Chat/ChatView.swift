@@ -381,7 +381,8 @@ struct ChatView: View {
                     // Side by side: either can take a while on a slow relay.
                     async let browsers: Void = connection.loadBrowserChoices(chatId: chat.id)
                     async let accounts: Void = connection.loadAccounts(chatId: chat.id)
-                    _ = await (browsers, accounts)
+                    async let saved: Void = connection.loadSaved(chatId: chat.id)
+                    _ = await (browsers, accounts, saved)
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
@@ -796,6 +797,9 @@ struct ChatView: View {
             heldSends: connection.transcripts[chat.id]?.heldSends ?? [],
             onQueue: { text in Task { try? await connection.queueSend(chatId: chat.id, text: text) } },
             onCancelQueue: { id in Task { try? await connection.cancelQueuedSend(chatId: chat.id, id: id) } },
+            saved: connection.savedPrompts[chat.id] ?? [],
+            onSaveForLater: { text in Task { try? await connection.addSaved(chatId: chat.id, text: text) } },
+            onRemoveSaved: { id in Task { try? await connection.removeSaved(chatId: chat.id, id: id) } },
             focused: $composerFocused)
     }
 

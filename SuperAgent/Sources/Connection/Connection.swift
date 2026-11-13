@@ -177,6 +177,8 @@ final class Connection {
     private(set) var remote: WireRemote?
     /// The Mac's battery, as it last said (nil until it says, or for a Mac with none).
     private(set) var battery: WireBattery?
+    /// Save for later, per chat: the same list as the Mac's composer.
+    private(set) var savedPrompts: [String: [WireSavedPrompt]] = [:]
     /// The Mac's screen while a remote session runs. Frames are taken off the
     /// socket into this and never go through the observed properties above.
     let remoteScreen = RemoteScreenPipeline()
@@ -645,6 +647,8 @@ final class Connection {
             if sim.open { simulators[sim.chatId] = sim } else { simulators[sim.chatId] = nil }
         case .battery(let b):
             battery = b
+        case let .saved(chatId, prompts):
+            savedPrompts[chatId] = prompts
         case .remote(let r):
             remote = r
             if r.state != .active || r.paused != nil { remoteScreen.forgetPicture() }
@@ -902,6 +906,55 @@ final class Connection {
     func cancelQueuedSend(chatId: String, id: String) async throws {
         transcripts[chatId]?.heldSends.removeAll { $0.id == id }
         _ = try await rpc("chat.cancelQueuedSend", .object(["chatId": .string(chatId), "id": .string(id)]))
+    }
+
+    // MARK: Save for later
+
+    /// A chat's saved prompts, asked for when it opens (later changes are pushed).
+    func loadSaved(chatId: String) async {
+        #if DEBUG
+        if machine.id == "harness" { return }
+        #endif
+        if let list = try? await rpc("saved.list", .object(["chatId": .string(chatId)]), as: [WireSavedPrompt].self) {
+            savedPrompts[chatId] = list
+        }
+    }
+
+    func addSaved(chatId: String, text: String) async throws {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        // Shown at once; the Mac's answer (and its push) is the word that stands.
+        let now = Date().timeIntervalSince1970 * 1000
+        savedPrompts[chatId] = [WireSavedPrompt(id: "local-\(UUID().uuidString)", text: t, at: now)]
+            + (savedPrompts[chatId] ?? []).filter { $0.text != t }
+        #if DEBUG
+        if machine.id == "harness" { return }
+        #endif
+        let list = try await rpc("saved.add", .object(["chatId": .string(chatId), "text": .string(t)]), as: [WireSavedPrompt].self)
+        savedPrompts[chatId] = list
+    }
+
+    func removeSaved(chatId: String, id: String) async throws {
+        savedPrompts[chatId]?.removeAll { $0.id == id }
+        #if DEBUG
+        if machine.id == "harness" { return }
+        #endif
+        let list = try await rpc("saved.remove", .object(["chatId": .string(chatId), "id": .string(id)]), as: [WireSavedPrompt].self)
+        savedPrompts[chatId] = list
+    }
+
+    /// The skills and slash commands an agent on the Mac can run.
+    func listSkills(provider: String) async throws -> [WireSkill] {
+        #if DEBUG
+        if machine.id == "harness" {
+            return [
+                WireSkill(name: "pdf", description: "Read, fill and make PDFs", scope: "claude.ai", kind: "skill"),
+                WireSkill(name: "release", description: "Cut a beta of the Mac app", scope: "global", kind: "skill"),
+                WireSkill(name: "review", description: "Review the current branch", scope: "global", kind: "command")
+            ]
+        }
+        #endif
+        return try await rpc("skills.list", .object(["provider": .string(provider)]), as: [WireSkill].self)
     }
 
     func answerApproval(id: String, approve: Bool, trustRest: Bool = false) async throws {
@@ -1690,6 +1743,13 @@ extension Connection {
         // `-withBattery`: the Mac says its battery level.
         if ProcessInfo.processInfo.arguments.contains("-withBattery") {
             c.battery = WireBattery(percent: 83, pluggedIn: false)
+        }
+        // `-withSaved`: two prompts set aside in the first chat.
+        if ProcessInfo.processInfo.arguments.contains("-withSaved") {
+            c.savedPrompts["c1"] = [
+                WireSavedPrompt(id: "s1", text: "Make the pricing cards yearly by default", at: 2),
+                WireSavedPrompt(id: "s2", text: "Check the sign-up form on a phone", at: 1)
+            ]
         }
         // `-withSim`: and the simulator, for its picture in picture.
         if ProcessInfo.processInfo.arguments.contains("-withSim") {

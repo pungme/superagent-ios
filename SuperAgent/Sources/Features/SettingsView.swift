@@ -67,6 +67,16 @@ struct SettingsView: View {
                     Button { onPair() } label: { Label("Pair another Mac", systemImage: "plus") }
                 }
                 if let c = app.connections[app.selectedMachineId ?? ""] {
+                    Section {
+                        NavigationLink {
+                            SkillsView(connection: c)
+                        } label: {
+                            Label("Skills", systemImage: "wand.and.stars")
+                        }
+                        .accessibilityIdentifier("settings-skills")
+                    } footer: {
+                        Text("What the agents on \(c.machine.name) can run, your claude.ai skills included.")
+                    }
                     AccountsUsageSection(connection: c)
                 }
                 // What today has cost on the relay. It has a daily ceiling per Mac,
@@ -102,6 +112,86 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { if showsDone { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } } }
+        }
+    }
+}
+
+/// Settings → Skills: what an agent on the Mac can run, as the Mac's Settings →
+/// Skills lists it. The claude.ai ones are synced from the account and managed
+/// there; adding and removing the rest is done on the Mac.
+struct SkillsView: View {
+    let connection: Connection
+    @State private var provider = "claude"
+    @State private var skills: [WireSkill]?
+    @State private var error: String?
+
+    private var groups: [(title: String, items: [WireSkill])] {
+        let all = skills ?? []
+        return [
+            ("From claude.ai", all.filter { $0.scope == "claude.ai" }),
+            ("Skills", all.filter { $0.scope != "claude.ai" && $0.kind == "skill" }),
+            ("Commands", all.filter { $0.scope != "claude.ai" && $0.kind == "command" })
+        ].filter { !$0.items.isEmpty }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Picker("Agent", selection: $provider) {
+                    Text("Claude").tag("claude")
+                    Text("Codex").tag("codex")
+                    Text("Antigravity").tag("antigravity")
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            }
+            if let error {
+                Section { Text(error).foregroundStyle(Theme.danger) }
+            } else if skills == nil {
+                Section { HStack { Spacer(); ProgressView(); Spacer() } }
+            } else if groups.isEmpty {
+                Section { Text("No skills yet.").foregroundStyle(.secondary) }
+            }
+            ForEach(groups, id: \.title) { g in
+                Section(g.title) {
+                    ForEach(g.items, id: \.self) { s in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("/" + s.name).font(.body.monospaced())
+                            if !s.description.isEmpty {
+                                Text(s.description).font(.footnote).foregroundStyle(.secondary).lineLimit(3)
+                            }
+                            if s.scope == "project" {
+                                Text("This project").font(.caption2).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+                .listRowBackground(Theme.card)
+            }
+            Section {
+            } footer: {
+                Text("Type / in a chat to use one. Add or remove skills on the Mac in Settings → Skills; the claude.ai ones are managed at claude.ai.")
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.panel)
+        .navigationTitle("Skills")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await load() }
+        .task(id: provider) { await load() }
+    }
+
+    private func load() async {
+        do {
+            skills = try await connection.listSkills(provider: provider)
+            error = nil
+        } catch {
+            self.error = connection.state == .connected
+                ? "The Mac could not list them. It may need a newer Superagent."
+                : "Not connected to the Mac."
         }
     }
 }

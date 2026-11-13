@@ -57,4 +57,19 @@ final class SidebarChatsTests: XCTestCase {
         XCTAssertTrue(battery.waitForExistence(timeout: 10))
         XCTAssertEqual(battery.label, "Mac battery 83 percent")
     }
+
+    func testSettingsListsTheMacsSkillsClaudeAiIncluded() {
+        let app = launch()
+        let settings = app.buttons["Settings"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.tap()
+        let skills = app.buttons["settings-skills"]
+        // Below the accounts' usage: scrolled to.
+        for _ in 0..<6 where !skills.isHittable { app.swipeUp() }
+        XCTAssertTrue(skills.waitForExistence(timeout: 5))
+        skills.tap()
+        XCTAssertTrue(app.staticTexts["From claude.ai"].waitForExistence(timeout: 5) || app.staticTexts["FROM CLAUDE.AI"].exists)
+        XCTAssertTrue(app.staticTexts["/pdf"].exists)
+        XCTAssertTrue(app.staticTexts["/release"].exists)
+    }
 }

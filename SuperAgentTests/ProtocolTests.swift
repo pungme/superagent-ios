@@ -103,4 +103,13 @@ struct ProtocolTests {
         guard case .battery(let none) = try frame(#"{"t":"battery","battery":null}"#) else { Issue.record("not a battery frame"); return }
         #expect(none == nil)
     }
+
+    @Test func decodesSavedPromptsAndSkills() throws {
+        let f = try JSONDecoder().decode(ServerFrame.self, from: Data(#"{"t":"saved","chatId":"c1","prompts":[{"id":"a","text":"later","at":1731400000000}]}"#.utf8))
+        guard case let .saved(chatId, prompts) = f else { Issue.record("not a saved frame"); return }
+        #expect(chatId == "c1")
+        #expect(prompts.map(\.text) == ["later"])
+        let skills = try JSONDecoder().decode([WireSkill].self, from: Data(#"[{"name":"pdf","description":"PDFs","scope":"claude.ai","kind":"skill"}]"#.utf8))
+        #expect(skills.first?.scope == "claude.ai")
+    }
 }

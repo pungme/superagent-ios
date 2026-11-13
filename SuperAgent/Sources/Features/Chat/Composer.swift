@@ -72,6 +72,11 @@ struct Composer: View {
     let heldSends: [HeldSend]
     let onQueue: (String) -> Void
     let onCancelQueue: (String) -> Void
+    /// Save for later: this chat's prompts set aside, the same list as the
+    /// Mac's composer. ChatView owns the RPCs; this view shows and asks.
+    var saved: [WireSavedPrompt] = []
+    var onSaveForLater: (String) -> Void = { _ in }
+    var onRemoveSaved: (String) -> Void = { _ in }
 
     /// Owned by ChatView. The chat needs to know when the keyboard is up: it
     /// gives the docked page's room back to the transcript, pauses the mirror,
@@ -534,6 +539,67 @@ struct Composer: View {
     /// it's the Mac's turn-end, not this phone, that actually sends it.
     /// Text only — an attachment mid-run is rare and the composer's images live
     /// on ChatView, which send() reads at flush time anyway.
+    /// Save for later: what is being written goes aside for this chat and the
+    /// box is cleared for another prompt (⌘S on a keyboard, or the send menu).
+    private func setAside() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        onSaveForLater(text)
+        dictationSpent = true
+        draft = ""
+        saveDraft()
+        Haptics.tap()
+    }
+
+    /// Back in the box; whatever was there is set aside in its place.
+    private func useSaved(_ p: WireSavedPrompt) {
+        let current = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !current.isEmpty, current != p.text { onSaveForLater(current) }
+        onRemoveSaved(p.id)
+        dictationSpent = true
+        draft = p.text
+        saveDraft()
+        Haptics.tap()
+    }
+
+    private func sendSaved(_ p: WireSavedPrompt) {
+        onRemoveSaved(p.id)
+        onSend(p.text)
+        Haptics.tap()
+    }
+
+    /// "2 saved" above the box: each prompt set aside, to put back, send or drop.
+    private var savedChip: some View {
+        HStack {
+            Menu {
+                ForEach(saved) { p in
+                    Menu {
+                        Button { useSaved(p) } label: { Label("Put in the message box", systemImage: "square.and.pencil") }
+                        Button { sendSaved(p) } label: { Label("Send", systemImage: "arrow.up") }
+                            .disabled(!connected)
+                        Button(role: .destructive) { onRemoveSaved(p.id) } label: { Label("Remove", systemImage: "trash") }
+                    } label: {
+                        Text(p.text)
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "bookmark").superFont(11, weight: .semibold)
+                    Text("\(saved.count) saved").superFont(12.5, weight: .medium)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Theme.panel, in: Capsule())
+                .overlay(Capsule().stroke(Theme.border))
+                .foregroundStyle(Theme.textSecondary)
+            }
+            .menuOrder(.fixed)
+            .accessibilityLabel("\(saved.count) saved for later")
+            .accessibilityIdentifier("saved-chip")
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+    }
+
     private func holdForLater() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -605,6 +671,7 @@ struct Composer: View {
                 }
                 .padding(.horizontal, 12)
             }
+            if !saved.isEmpty { savedChip }
             if !matchingCommands.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -750,6 +817,14 @@ struct Composer: View {
                             pasteImage()
                             return .handled
                         }
+                        // ⌘S sets what is written aside, as on the Mac.
+                        .onKeyPress(characters: ["s"], phases: .down) { press in
+                            guard press.modifiers.contains(.command),
+                                  !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            else { return .ignored }
+                            setAside()
+                            return .handled
+                        }
                         .onKeyPress(.return, phases: .down) { press in
                             if press.modifiers.contains(.shift) { return .ignored }
                             guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -813,6 +888,7 @@ struct Composer: View {
                 .overlay(alignment: .bottomTrailing) {
                     if sendMenu {
                         SendMenu(
+                            onSave: { sendMenu = false; setAside() },
                             onLater: { sendMenu = false; holdForLater() },
                             onNow: { sendMenu = false; submit() },
                             onDismiss: { sendMenu = false }
@@ -946,12 +1022,20 @@ struct ProviderMark: View {
 /// Send. Inline (an overlay), not a system context menu, so the keyboard is not
 /// dismissed while you decide.
 private struct SendMenu: View {
+    let onSave: () -> Void
     let onLater: () -> Void
     let onNow: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Button(action: onSave) {
+                Label("Save for later", systemImage: "bookmark")
+                    .superFont(14).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+            }
+            .accessibilityIdentifier("save-for-later")
+            Divider()
             Button(action: onLater) {
                 Label("Send when it finishes", systemImage: "clock")
                     .superFont(14).frame(maxWidth: .infinity, alignment: .leading)

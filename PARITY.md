@@ -94,6 +94,8 @@ asked what exists rather than the app trusting what it recorded).
 | Search across conversations | ✅ | phone-only convenience |
 | Optimistic send, offline queue | ✅ | phone-only |
 | Voice dictation | ✅ | phone-only |
+| Save for later (⌘S, "N saved") | ✅ | the same list as the Mac's (`saved.*`, `saved` frame); hold Send → Save for later, or ⌘S on a keyboard |
+| Mac battery | ✅ | beside the Live pill (`battery` frame) |
 | Agent's `open_file` opens the viewer | ✅ | `openFile` push frame; opens only while you are in the chat that asked |
 
 ## Computer (`ComputerPanel`, `DesktopBrowser`, `DesktopWindow`, `FolderView`)
@@ -109,7 +111,7 @@ asked what exists rather than the app trusting what it recorded).
 |---|---|---|
 | Dashboard (usage, trends) | ❌ | `getDashboard()` exists; needs an RPC + a screen |
 | Calendar | ❌ | `calendar:*` IPC exists; needs RPCs + a screen |
-| Skills panel | ❌ | `skills.ts`; needs RPCs + a screen |
+| Skills panel | 🟡 | Settings → Skills lists them per agent (`skills.list`), claude.ai ones included; adding and removing stay on the Mac |
 | Settings: appearance, notifications, advanced, about | 🟡 | phone has its own; Mac-side settings aren't editable from the phone |
 | Settings → Phone (pair, test notification, keep-awake) | ➖ | Mac-side by nature |
 | Onboarding / intro / hook consent / updates | ➖ | |
@@ -132,5 +134,5 @@ asked what exists rather than the app trusting what it recorded).
 3. `files.write` (editor), PDF in the viewer.
 4. `@` file mentions.
 5. Routine run viewer; simulator mirror; background/ports strips.
-6. Dashboard, Calendar, Skills screens.
+6. Dashboard, Calendar screens; adding skills from the phone.
 7. Reorder by drag.
