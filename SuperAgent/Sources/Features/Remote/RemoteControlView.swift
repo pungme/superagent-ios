@@ -351,7 +351,7 @@ enum FaceID {
     enum Outcome { case ok, cancelled, unavailable(String), failed(String) }
 
     @MainActor
-    static func confirm(connection: Connection) async -> Outcome {
+    static func confirm(connection: Connection, reason: String = "Control your Mac from this phone") async -> Outcome {
         #if DEBUG
         if connection.machine.id == "harness" { return .ok }
         #endif
@@ -363,7 +363,7 @@ enum FaceID {
             return .unavailable("Set a passcode on this phone to use it as a remote for your Mac.")
         }
         do {
-            let ok = try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Control your Mac from this phone")
+            let ok = try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
             return ok ? .ok : .cancelled
         } catch let e as LAError where [.userCancel, .systemCancel, .appCancel].contains(e.code) {
             return .cancelled

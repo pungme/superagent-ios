@@ -436,7 +436,15 @@ struct EventRow: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 6)
         case let .approval(id, toolName, preview, kind, _):
-            ApprovalCard(id: id, toolName: toolName, preview: preview, kind: kind, pending: pending, answer: answer)
+            ApprovalCard(id: id, toolName: toolName, preview: preview, kind: kind, pending: pending, answer: answer,
+                         verify: {
+                             // Letting an agent use the Mac's mouse and keyboard: Face ID
+                             // (or the passcode) first, so a phone left unlocked is not enough.
+                             let r = await FaceID.confirm(connection: connection, reason: "Let Claude use your Mac")
+                             guard case .ok = r else { return false }
+                             connection.noteFaceIdChecked(id)
+                             return true
+                         })
         case let .approvalEnd(_, outcome, by):
             Text("\(outcome == .approved ? "Approved" : outcome == .denied ? "Denied" : "Expired") · \(by == .ios ? "from \(thisDevice)" : "on the Mac")")
                 .superFont(11).foregroundStyle(Theme.textTertiary)
@@ -560,6 +568,8 @@ struct ApprovalCard: View {
     var kind: String = "guardrail"
     let pending: Bool
     let answer: (String, Bool) -> Void
+    /// Face ID before a yes that needs it (`isMacOnly`); true when it passed.
+    var verify: () async -> Bool = { true }
 
     var body: some View {
         if kind == "handoff" { handoff } else { approval }
@@ -599,15 +609,21 @@ struct ApprovalCard: View {
                 HStack(spacing: 8) {
                     Button { answer(id, false) } label: { Text("Deny").frame(maxWidth: .infinity) }
                         .buttonStyle(.bordered).tint(Theme.danger)
-                    if !Self.isMacOnly(toolName) {
-                        Button { answer(id, true) } label: { Text("Approve").frame(maxWidth: .infinity) }
-                            .buttonStyle(.borderedProminent).tint(Theme.accent).foregroundStyle(Theme.accentFg)
+                    Button {
+                        Task {
+                            if Self.isMacOnly(toolName) { guard await verify() else { return } }
+                            answer(id, true)
+                        }
+                    } label: {
+                        Label("Approve", systemImage: Self.isMacOnly(toolName) ? "faceid" : "checkmark")
+                            .labelStyle(.titleOnly).frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.borderedProminent).tint(Theme.accent).foregroundStyle(Theme.accentFg)
                 }
-                // The Mac takes this yes only from someone at it, who can see
-                // the screen and stop the agent; the phone can still say no.
+                // Control of the Mac's mouse and keyboard: this phone's Face ID
+                // comes first, and ⌥Esc at the Mac stops it at any time.
                 if Self.isMacOnly(toolName) {
-                    Text("Allow this on your Mac.")
+                    Text("Face ID first. ⌥Esc on your Mac stops it at any time.")
                         .superFont(12).foregroundStyle(Theme.textSecondary)
                         .accessibilityIdentifier("approval-mac-only")
                 }

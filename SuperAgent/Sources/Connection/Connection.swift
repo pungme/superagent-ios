@@ -957,8 +957,16 @@ final class Connection {
         return try await rpc("skills.list", .object(["provider": .string(provider)]), as: [WireSkill].self)
     }
 
+    /// Approvals this phone checked with Face ID (or the passcode) just now. The
+    /// Mac takes a phone's yes to "use your Mac" only with that, and only for the
+    /// one it was asked for.
+    private var faceIdChecked: Set<String> = []
+    func noteFaceIdChecked(_ id: String) { faceIdChecked.insert(id) }
+
     func answerApproval(id: String, approve: Bool, trustRest: Bool = false) async throws {
-        _ = try await rpc("approval.answer", .object(["id": .string(id), "approve": .bool(approve), "trustRest": .bool(trustRest)]))
+        var params: [String: JSONValue] = ["id": .string(id), "approve": .bool(approve), "trustRest": .bool(trustRest)]
+        if approve, faceIdChecked.remove(id) != nil { params["faceId"] = .bool(true) }
+        _ = try await rpc("approval.answer", .object(params))
     }
 
     func reportPresence(active: Bool, pushToken: String? = nil) {
