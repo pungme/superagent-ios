@@ -581,7 +581,11 @@ struct ChatView: View {
             }
         )
         .overlay(alignment: .bottomTrailing) {
-            if !atBottom {
+            // Only once the reader has scrolled away (`following` is their own
+            // scrolling's doing). `atBottom` alone goes false for a frame as a
+            // batch lands and while a reply grows, and the button then sat over
+            // the end of the last option and took the tap meant for it.
+            if !atBottom && !following {
                 Button { following = true; scrollToEnd() } label: {
                     Image(systemName: "arrow.down").superFont(13, weight: .semibold)
                         .frame(width: well, height: well)
@@ -589,6 +593,8 @@ struct ChatView: View {
                         .overlay(Circle().stroke(Theme.border))
                         .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
                 }
+                .accessibilityLabel("Scroll to the latest")
+                .accessibilityIdentifier("scroll-to-latest")
                 .padding(14)
                 .transition(.scale.combined(with: .opacity))
             }

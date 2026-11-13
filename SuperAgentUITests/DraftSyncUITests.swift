@@ -64,6 +64,22 @@ final class DraftSyncUITests: XCTestCase {
         XCTAssertNotEqual(composer().value as? String, "Make the pricing cards yearly by default")
         XCUIScreen.main.screenshot().pngRepresentation.write(toFileSafely: "saved-chip")
     }
+
+    /// The scroll-to-the-end button stays away while the transcript is at its
+    /// end: it used to sit over the end of the last option and take the tap
+    /// meant for it. An option is then answerable all along its width.
+    func testTheLastOptionIsTappableAlongItsWholeWidth() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-sidebarHarness", "-openChat", "c1", "-tab", "projects", "-withAsk"]
+        app.launch()
+        let wait = app.buttons["Wait"]
+        XCTAssertTrue(wait.waitForExistence(timeout: 15))
+        sleep(2)
+        XCTAssertFalse(app.buttons["scroll-to-latest"].exists, "nothing over the options while at the end")
+        // Its right-hand end, where the arrow is.
+        wait.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
+        XCTAssertTrue(app.staticTexts["Sending"].waitForExistence(timeout: 5), "the answer went out as a message")
+    }
 }
 
 private extension Data {
