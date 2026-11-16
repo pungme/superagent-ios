@@ -1049,6 +1049,31 @@ final class Connection {
         (try? await rpc("chat.draft", .object(["chatId": .string(chatId), "text": .string(text)]))) != nil
     }
 
+    /// A copy of a conversation (transcript, agent and model; pinned when it is).
+    /// Returns the copy's id once it is in the list, ready to open.
+    func duplicateChat(chatId: String) async throws -> String {
+        struct R: Decodable { var chatId: String; var workspaceId: String }
+        #if DEBUG
+        if machine.id == "harness" {
+            guard let src = chats.first(where: { $0.id == chatId }) else { throw RpcError(code: "not-found", message: "no such chat") }
+            var copy = src
+            copy.id = "\(chatId)-copy"
+            copy.title = src.title.map { $0 + " (copy)" }
+            chats.append(copy)
+            return copy.id
+        }
+        #endif
+        let r = try await rpc("chat.duplicate", .object(["chatId": .string(chatId)]), as: R.self)
+        if !chats.contains(where: { $0.id == r.chatId }) {
+            let src = chats.first(where: { $0.id == chatId })
+            var copy = WireChat(id: r.chatId, workspaceId: r.workspaceId, title: src?.title.map { $0 + " (copy)" },
+                                updatedAt: Date().timeIntervalSince1970 * 1000, live: false)
+            copy.pinned = src?.pinned ?? false
+            chats.append(copy)
+        }
+        return r.chatId
+    }
+
     func pinChat(chatId: String, pinned: Bool) async throws {
         #if DEBUG
         if machine.id == "harness" {

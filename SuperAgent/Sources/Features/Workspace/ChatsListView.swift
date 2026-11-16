@@ -64,6 +64,7 @@ struct ChatsListView: View {
         .buttonStyle(.plain)
         .listRowBackground(Theme.card)
         .contextMenu {
+            Button { duplicate(chat) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
             Button { togglePin(chat) } label: {
                 Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
             }
@@ -160,6 +161,16 @@ struct ChatsListView: View {
             defer { creating = false }
             do {
                 let id = try await connection.createChat(workspaceId: workspace.id)
+                if let c = connection.chats.first(where: { $0.id == id }) { open(c) }
+                Haptics.tap()
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    private func duplicate(_ chat: WireChat) {
+        Task {
+            do {
+                let id = try await connection.duplicateChat(chatId: chat.id)
                 if let c = connection.chats.first(where: { $0.id == id }) { open(c) }
                 Haptics.tap()
             } catch { self.error = error.localizedDescription }

@@ -56,6 +56,21 @@ final class ContextMenuTests: XCTestCase {
         )
     }
 
+    /// Hold a conversation: Duplicate makes a copy under the original's name (that the Mac pins a copy of a pinned chat is covered by its own tests).
+    func testDuplicateMakesACopyOfAPinnedConversation() {
+        let pricing = app.staticTexts["Read the pricing page back to me"]
+        XCTAssertTrue(pricing.waitForExistence(timeout: 10))
+        pricing.press(forDuration: 1.2)
+        let duplicate = app.buttons["Duplicate"]
+        XCTAssertTrue(duplicate.waitForExistence(timeout: 5), "the hold menu offers Duplicate")
+        duplicate.tap()
+        // The harness answers at once; the copy opens, so go back to the list to see both.
+        let back = app.navigationBars.buttons.firstMatch
+        if back.waitForExistence(timeout: 5) { back.tap() }
+        let copies = app.staticTexts.matching(NSPredicate(format: "label == 'Read the pricing page back to me (copy)'"))
+        XCTAssertTrue(copies.firstMatch.waitForExistence(timeout: 5), "the copy is in the list under the original's name")
+    }
+
     /// Pins keep the order you set, and the hold menu moves them. The harness
     /// pins "Read the pricing page…" above "Why is the staging deploy slow?"
     /// even though the second had newer activity: the pin order wins.

@@ -721,6 +721,7 @@ struct SidebarView: View {
                 if let chat {
                     // A conversation on a branch is still a conversation: it
                     // pins like any other. Its menu offered only Delete.
+                    Button { duplicate(chat) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
                     Button { togglePin(chat) } label: {
                         Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
                     }
@@ -851,6 +852,7 @@ struct SidebarView: View {
                     Label("Open in Split", systemImage: "rectangle.split.2x1")
                 }
             }
+            Button { duplicate(chat) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
             Button { togglePin(chat) } label: {
                 Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
             }
@@ -923,6 +925,7 @@ struct SidebarView: View {
                         Label("Open in Split", systemImage: "rectangle.split.2x1")
                     }
                 }
+                Button { duplicate(chat) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
                 Button { togglePin(chat) } label: {
                     Label(chat.isPinned ? "Unpin" : "Pin", systemImage: chat.isPinned ? "pin.slash" : "pin")
                 }
@@ -1013,6 +1016,7 @@ struct SidebarView: View {
             // The row is the project's own conversation, so it pins like one —
             // the Mac pins it from the same row.
             if let root = folderChat(of: ws) {
+                Button { duplicate(root) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
                 Button { togglePin(root) } label: {
                     Label(root.isPinned ? "Unpin" : "Pin", systemImage: root.isPinned ? "pin.slash" : "pin")
                 }
@@ -1273,6 +1277,16 @@ struct SidebarView: View {
         var ids = pinned.map(\.id)
         ids.insert(ids.remove(at: from), at: to)
         Task { await run { try await connection.reorderPinned(chatIds: ids) } }
+    }
+
+    /// A copy of the conversation, opened.
+    private func duplicate(_ chat: WireChat) {
+        Task {
+            await run {
+                let id = try await connection.duplicateChat(chatId: chat.id)
+                if let c = connection.chats.first(where: { $0.id == id }) { open(c) }
+            }
+        }
     }
 
     private func togglePin(_ chat: WireChat) {
