@@ -1422,6 +1422,10 @@ struct ChatView: View {
     /// Mac: opening a conversation is so you can type in it. Without one this
     /// would throw the on-screen keyboard over a conversation you came to read.
     private func focusForKeyboard() {
+        #if DEBUG
+        // `-noKeyboard`: a conversation to look at (the store screenshots), not to type in.
+        if ProcessInfo.processInfo.arguments.contains("-noKeyboard") { return }
+        #endif
         guard KeyboardRoom.hardwareAttached || hardwareKeyboardAttached || keyboardStrip else { return }
         Task { @MainActor in
             // The composer may still be mounting as the conversation appears.

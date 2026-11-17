@@ -182,11 +182,9 @@ final class Connection {
     /// The Mac's screen while a remote session runs. Frames are taken off the
     /// socket into this and never go through the observed properties above.
     let remoteScreen = RemoteScreenPipeline()
-    #if DEBUG
     /// The harness: what the phone sent a made-up Mac, and the pictures it is shown.
     var harnessRemoteInputs: [RemoteAction] = []
     @ObservationIgnored var harnessFeeder: Task<Void, Never>?
-    #endif
     /// Whether to offer "Control this Mac": the Mac has it switched on, and is reachable.
     /// Hidden for a Mac from before, and for one with it off.
     var remoteAvailable: Bool {
@@ -912,9 +910,7 @@ final class Connection {
 
     /// A chat's saved prompts, asked for when it opens (later changes are pushed).
     func loadSaved(chatId: String) async {
-        #if DEBUG
         if machine.id == "harness" { return }
-        #endif
         if let list = try? await rpc("saved.list", .object(["chatId": .string(chatId)]), as: [WireSavedPrompt].self) {
             savedPrompts[chatId] = list
         }
@@ -927,25 +923,20 @@ final class Connection {
         let now = Date().timeIntervalSince1970 * 1000
         savedPrompts[chatId] = [WireSavedPrompt(id: "local-\(UUID().uuidString)", text: t, at: now)]
             + (savedPrompts[chatId] ?? []).filter { $0.text != t }
-        #if DEBUG
         if machine.id == "harness" { return }
-        #endif
         let list = try await rpc("saved.add", .object(["chatId": .string(chatId), "text": .string(t)]), as: [WireSavedPrompt].self)
         savedPrompts[chatId] = list
     }
 
     func removeSaved(chatId: String, id: String) async throws {
         savedPrompts[chatId]?.removeAll { $0.id == id }
-        #if DEBUG
         if machine.id == "harness" { return }
-        #endif
         let list = try await rpc("saved.remove", .object(["chatId": .string(chatId), "id": .string(id)]), as: [WireSavedPrompt].self)
         savedPrompts[chatId] = list
     }
 
     /// The skills and slash commands an agent on the Mac can run.
     func listSkills(provider: String) async throws -> [WireSkill] {
-        #if DEBUG
         if machine.id == "harness" {
             return [
                 WireSkill(name: "pdf", description: "Read, fill and make PDFs", scope: "claude.ai", kind: "skill"),
@@ -953,7 +944,6 @@ final class Connection {
                 WireSkill(name: "review", description: "Review the current branch", scope: "global", kind: "command")
             ]
         }
-        #endif
         return try await rpc("skills.list", .object(["provider": .string(provider)]), as: [WireSkill].self)
     }
 
@@ -992,12 +982,10 @@ final class Connection {
     }
 
     func renameChat(chatId: String, title: String) async throws {
-        #if DEBUG
         if machine.id == "harness" {
             chats = chats.map { var c = $0; if c.id == chatId { c.title = title }; return c }
             return
         }
-        #endif
         _ = try await rpc("chat.rename", .object(["chatId": .string(chatId), "title": .string(title)]))
         chats = chats.map { var c = $0; if c.id == chatId { c.title = title }; return c }
     }
@@ -1010,9 +998,7 @@ final class Connection {
     private(set) var accounts: [String: WireAccounts] = [:]
 
     func loadAccounts(chatId: String? = nil) async {
-        #if DEBUG
         if machine.id == "harness" { accounts[chatId ?? ""] = Self.harnessAccounts(current: accounts[chatId ?? ""]?.current); return }
-        #endif
         let params: JSONValue = chatId.map { .object(["chatId": .string($0)]) } ?? .object([:])
         guard let a = try? await rpc("accounts.list", params, as: WireAccounts.self) else { return }
         let key = chatId ?? ""
@@ -1022,9 +1008,7 @@ final class Connection {
     /// Move a conversation to another account. A Mac with it open restarts its
     /// agent on it when idle; otherwise its next start uses it.
     func pickAccount(chatId: String, accountId: String) async throws {
-        #if DEBUG
         if machine.id == "harness" { accounts[chatId]?.current = accountId; return }
-        #endif
         _ = try await rpc("accounts.pick", .object(["chatId": .string(chatId), "accountId": .string(accountId)]))
         accounts[chatId]?.current = accountId
     }
@@ -1053,7 +1037,6 @@ final class Connection {
     /// Returns the copy's id once it is in the list, ready to open.
     func duplicateChat(chatId: String) async throws -> String {
         struct R: Decodable { var chatId: String; var workspaceId: String }
-        #if DEBUG
         if machine.id == "harness" {
             guard let src = chats.first(where: { $0.id == chatId }) else { throw RpcError(code: "not-found", message: "no such chat") }
             var copy = src
@@ -1062,7 +1045,6 @@ final class Connection {
             chats.append(copy)
             return copy.id
         }
-        #endif
         let r = try await rpc("chat.duplicate", .object(["chatId": .string(chatId)]), as: R.self)
         if !chats.contains(where: { $0.id == r.chatId }) {
             let src = chats.first(where: { $0.id == chatId })
@@ -1075,12 +1057,10 @@ final class Connection {
     }
 
     func pinChat(chatId: String, pinned: Bool) async throws {
-        #if DEBUG
         if machine.id == "harness" {
             chats = chats.map { var c = $0; if c.id == chatId { c.pinned = pinned }; return c }
             return
         }
-        #endif
         _ = try await rpc("chat.pin", .object(["chatId": .string(chatId), "pinned": .bool(pinned)]))
         chats = chats.map { var c = $0; if c.id == chatId { c.pinned = pinned }; return c }
     }
@@ -1136,24 +1116,19 @@ extension Connection {
     /// writes there and nowhere else, so asking for the project's files would
     /// show main and none of what the agent just made.
     func listFiles(workspaceId: String, chatId: String? = nil) async throws -> WireFileList {
-        #if DEBUG
         if machine.id == "harness" { return WireFileList(root: "/harness", files: [Self.harnessFile]) }
-        #endif
         return try await rpc("files.list", fileParams(workspaceId, chatId), as: WireFileList.self)
     }
 
     func readFile(workspaceId: String, path: String, chatId: String? = nil) async throws -> WireFileContent {
-        #if DEBUG
         // One small file, so the viewer and its Save can be driven without a Mac.
         if machine.id == "harness" {
             return .text(path: path, size: Self.harnessFileText.utf8.count, text: Self.harnessFileText, truncated: false)
         }
-        #endif
         let p = fileParams(workspaceId, chatId, extra: ["path": .string(path)])
         return try await rpc("files.read", p, as: WireFileContent.self)
     }
 
-    #if DEBUG
     /// Three Claude accounts and a Codex login, one of them nearly out.
     static func harnessAccounts(current: String?) -> WireAccounts {
         let soon = (Date.now.timeIntervalSince1970 + 2 * 3600) * 1000
@@ -1182,7 +1157,6 @@ extension Connection {
 
     static let harnessFile = "notes.md"
     static let harnessFileText = "# Notes\n\nThe headline holds at two lines down to 320pt.\n"
-    #endif
 
     /// Send a file to the Mac for the agent, in relay-sized slices. Returns the
     /// absolute path the Mac wrote — which travels to the agent as text, the
@@ -1234,12 +1208,10 @@ extension Connection {
 
     /// One slice of a file's bytes. `files.read` says how many there are.
     func readFileChunk(workspaceId: String, path: String, index: Int, chatId: String? = nil) async throws -> WireFileChunk {
-        #if DEBUG
         if machine.id == "harness" {
             return WireFileChunk(path: path, index: 0, chunks: 1,
                                  data: Data(Self.harnessFileText.utf8).base64EncodedString())
         }
-        #endif
         let p = fileParams(workspaceId, chatId,
                            extra: ["path": .string(path), "index": .number(Double(index))])
         return try await rpc("files.chunk", p, as: WireFileChunk.self)
@@ -1293,9 +1265,7 @@ extension Connection {
 
     /// The day's calendar and every project's open to-dos, from the Mac.
     func loadToday(date: String) async throws -> WireToday {
-        #if DEBUG
         if machine.id == "harness" { return Self.harnessToday(date: date) }
-        #endif
         return try await rpc("today.get", .object(["date": .string(date)]), as: WireToday.self)
     }
 
@@ -1311,9 +1281,7 @@ extension Connection {
 
     /// Hand a to-do to an agent: a chat of its own in its project works on it. Returns that chat.
     func handToAgent(card: WireCard) async throws -> String {
-        #if DEBUG
         if machine.id == "harness" { return noteStarted(StartedChat(chatId: "hand-\(card.id)", workspaceId: card.workspaceId), title: card.title) }
-        #endif
         let r = try await rpc("today.hand", .object(["cardId": .string(card.id)]), as: StartedChat.self)
         return noteStarted(r, title: card.title)
     }
@@ -1324,22 +1292,30 @@ extension Connection {
         return noteStarted(r, title: String(text.prefix(60)))
     }
 
-    #if DEBUG
     static func harnessToday(date: String) -> WireToday {
         func card(_ id: String, _ ws: String, _ title: String) -> WireCard {
             WireCard(id: id, workspaceId: ws, title: title, body: "", status: .todo, chatId: nil, branch: nil,
                      images: [], tags: [], position: 0, createdAt: 0, updatedAt: 0)
         }
+        // Times follow the clock, so the demo always has something coming up soon,
+        // something later and something this evening, whenever it is opened.
+        func hhmm(_ minutes: Int) -> String {
+            let m = max(0, min(minutes, 23 * 60 + 30))
+            return String(format: "%@T%02d:%02d", date, m / 60, m % 60)
+        }
+        let c = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        let now = (c.hour ?? 9) * 60 + (c.minute ?? 0)
+        let first = min(((now + 45) / 30 + 1) * 30, 20 * 60)
         return WireToday(date: date, events: [
-            WireCalendarEvent(id: "e1", title: "Lunch with Devan", start: "\(date)T13:00", end: "\(date)T14:00", allDay: false, notes: "Schwabing", color: "#22b573"),
-            WireCalendarEvent(id: "e2", title: "Dashboard review", start: "\(date)T15:00", end: "\(date)T15:45", allDay: false, notes: "Google Meet", color: nil),
-            WireCalendarEvent(id: "e3", title: "Festival jury call", start: "\(date)T23:00", end: "\(date)T23:50", allDay: false, notes: "", color: "#a855f7")
+            WireCalendarEvent(id: "e0", title: "Standup", start: hhmm(9 * 60 + 30), end: hhmm(9 * 60 + 45), allDay: false, notes: "Zoltan, Laci, Ceren", color: nil),
+            WireCalendarEvent(id: "e1", title: "Lunch with Devan", start: hhmm(first), end: hhmm(first + 60), allDay: false, notes: "Schwabing", color: "#22b573"),
+            WireCalendarEvent(id: "e2", title: "Dashboard review", start: hhmm(first + 150), end: hhmm(first + 195), allDay: false, notes: "Google Meet", color: nil),
+            WireCalendarEvent(id: "e3", title: "Festival jury call", start: hhmm(first + 300), end: hhmm(first + 360), allDay: false, notes: "", color: "#a855f7")
         ], cards: [
             card("k1", "w-site", "Fix the header below 400px"),
             card("k2", "w-site", "Reply to Helloprint")
         ])
     }
-    #endif
 
     func listRoutines() async throws -> [WireRoutine] {
         try await rpc("routines.list", nil, as: [WireRoutine].self)
@@ -1372,9 +1348,7 @@ extension Connection {
     }
 
     func loadSplits() async {
-        #if DEBUG
         if machine.id == "harness" { return }
-        #endif
         struct R: Decodable { var splits: [WireSplit] }
         // Asked again until it answers: the first ask can go out before the
         // connection is up, or to a Mac too old to know it, and then the phone
@@ -1440,7 +1414,6 @@ extension Connection {
     }
 
     func simShot(chatId: String, have: String? = nil) async throws -> WireSimulatorShot {
-        #if DEBUG
         // As for the page below: a still dropped into Documents as
         // `harness-sim.jpg` goes through the simulator's mirror as a frame
         // from the Mac would.
@@ -1450,7 +1423,6 @@ extension Connection {
             return WireSimulatorShot(udid: "harness", device: "iPhone 17 Pro",
                                      url: "data:image/jpeg;base64," + data.base64EncodedString(), unchanged: false)
         }
-        #endif
         var params: [String: JSONValue] = ["chatId": .string(chatId)]
         if let have, !have.isEmpty { params["have"] = .string(have) }
         return try await rpc("sim.screenshot", .object(params), as: WireSimulatorShot.self)
@@ -1468,60 +1440,48 @@ extension Connection {
     /// `nudge`: a Mac from before digests cannot be told we hold nothing; asked
     /// for a picture one pixel narrower it makes different bytes, and sends them.
     func browserShot(chatId: String, sharp: Bool = false, have: String? = nil, nudge: Bool = false) async throws -> WireBrowserShot {
-        #if DEBUG
         // The harness has no Mac to ask. A real page dropped into the app's
         // Documents as `harness-page.jpg` goes through the mirror exactly as a
         // frame from the Mac would — same decode, same layout, same chrome —
         // which is what makes a screenshot of it worth taking.
         if machine.id == "harness", let shot = Self.harnessShot() { return shot }
-        #endif
         var params: [String: JSONValue] = ["chatId": .string(chatId), "maxWidth": .number(sharp ? (nudge ? 1399 : 1400) : (nudge ? 699 : 700))]
         if let have, !have.isEmpty { params["have"] = .string(have) }
         return try await rpc("browser.screenshot", .object(params), as: WireBrowserShot.self)
     }
 
-    #if DEBUG
     private static func harnessShot() -> WireBrowserShot? {
         guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
               let data = try? Data(contentsOf: dir.appendingPathComponent("harness-page.jpg")),
               let image = UIImage(data: data) else { return nil }
-        return WireBrowserShot(url: "https://stripe.com/en-us", title: "Stripe | Financial Infrastructure",
+        return WireBrowserShot(url: "https://superagent.computer", title: "Superagent — a home for your agent",
                                canGoBack: false, canGoForward: false,
                                width: Int(image.size.width), height: Int(image.size.height),
                                jpeg: data.base64EncodedString(), unchanged: false)
     }
-    #endif
 
     // MARK: Remote control
 
     /// Ask to control this Mac. The Mac asks someone AT the Mac; nothing here can answer for them.
     func remoteRequest() async throws {
-        #if DEBUG
         if machine.id == "harness" { return harnessRemoteRequest() }
-        #endif
         remote = try await rpc("remote.request", .object([:]), as: WireRemote.self)
     }
 
     /// The code the Mac's second dialog shows.
     func remoteCode(_ code: String) async throws {
-        #if DEBUG
         if machine.id == "harness" { return try harnessRemoteCode(code) }
-        #endif
         remote = try await rpc("remote.code", .object(["code": .string(code)]), as: WireRemote.self)
     }
 
     func remoteEnd() async throws {
-        #if DEBUG
         if machine.id == "harness" { return harnessRemoteEnd() }
-        #endif
         remote = try await rpc("remote.end", .object([:]), as: WireRemote.self)
     }
 
     /// How the phone wants the stream, and "still here": sent every few seconds while it is up.
     func remoteView(visible: Bool? = nil, maxWidth: Int? = nil, key: Bool? = nil) async throws {
-        #if DEBUG
         if machine.id == "harness" { return }
-        #endif
         var o: [String: JSONValue] = [:]
         if let visible { o["visible"] = .bool(visible) }
         if let maxWidth { o["maxWidth"] = .number(Double(maxWidth)) }
@@ -1531,7 +1491,6 @@ extension Connection {
 
     /// Taps, moves, scrolls, text and keys for the Mac. Applied there in the order sent.
     func remoteInput(_ actions: [RemoteAction]) async throws {
-        #if DEBUG
         if machine.id == "harness" {
             harnessRemoteInputs.append(contentsOf: actions)
             // Looked at from outside the app, in a simulator that shares /tmp.
@@ -1541,7 +1500,6 @@ extension Connection {
             }
             return
         }
-        #endif
         _ = try await rpc("remote.input", .object(["actions": .array(actions.map(\.json))]))
     }
 
@@ -1553,9 +1511,7 @@ extension Connection {
     /// conversation. Frames go out in the order they are called, and the Mac
     /// plays each conversation's input in that order.
     func browserInput(chatId: String, _ input: BrowserInput) async throws {
-        #if DEBUG
         if machine.id == "harness" { return }
-        #endif
         _ = try await rpc("browser.input", .object(["chatId": .string(chatId), "action": input.json]))
     }
 }
@@ -1568,7 +1524,6 @@ extension Bundle {
     var buildNumber: String { infoDictionary?["CFBundleVersion"] as? String ?? "0" }
 }
 
-#if DEBUG
 // MARK: - Scroll harness
 //
 // Debug-only scaffolding so the transcript's scrolling can be exercised in the
@@ -1602,7 +1557,7 @@ extension Connection {
             ("w-site", "landing-page", "app"),
             ("w-ios", "mobile-app", "app"),
             ("w-api", "api", "app"),
-            ("w-tab", "Stripe", "browser")
+            ("w-tab", "superagent.computer", "browser")
         ]
         c.tree = [
             WireGroup(id: "computer", name: "Computer", color: "#fff", workspaces: [
@@ -1621,7 +1576,7 @@ extension Connection {
             WireGroup(id: "g1", name: "Superagent", color: "#fff", workspaces: ws.map { id, name, kind in
                 WireWorkspace(id: id, name: name, path: "/Users/you/" + name, kind: kind,
                               status: .idle, branch: kind == "browser" ? nil : "main",
-                              browserUrl: kind == "browser" ? "https://stripe.com" : nil, subrepos: [])
+                              browserUrl: kind == "browser" ? "https://superagent.computer" : nil, subrepos: [])
             })
         ]
         let now = Date().timeIntervalSince1970 * 1000
@@ -1679,6 +1634,41 @@ extension Connection {
             t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at,
                                       data: mine ? .user(id: "u\(seq)", text: text, images: [], from: .ios, replyTo: nil)
                                                  : .assistant(id: "a\(seq)", text: text)))
+        }
+        // `-storeChat`: one conversation as it looks when it has gone well (the
+        // store screenshots): a request, the work, the answer, and a question.
+        if ProcessInfo.processInfo.arguments.contains("-storeChat") {
+            t.events = []
+            seq = 0
+            func add(_ data: WireEventData) {
+                seq += 1
+                t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at - Double(40 - seq) * 20_000, data: data))
+            }
+            add(.user(id: "u1", text: "The header on the landing page collapses below 400px. Can you fix it and check it on a phone?", images: [], from: .ios, replyTo: nil))
+            add(.assistant(id: "a1", text: "On it. Reading the header first."))
+            for (i, (name, file)) in [("Read", "src/components/Header.tsx"), ("Read", "src/styles/header.css"),
+                                      ("Edit", "src/styles/header.css"), ("Edit", "src/components/Header.tsx")].enumerated() {
+                add(.tool(id: "t\(i)", name: name, detail: file, task: nil))
+                add(.toolResult(toolId: "t\(i)", ok: true, summary: name == "Read" ? "Read \(file)" : "Edited \(file)", images: []))
+            }
+            add(.assistant(id: "a2", text: """
+            Fixed. The nav wrapped under 400 px and pushed the logo off the screen. Three changes:
+
+            - **Logo** has a fixed width, so it is never squeezed
+            - **Links** shrink instead of wrapping
+            - **Buttons** stack below 360 px
+
+            ```css
+            .nav { flex-wrap: nowrap; min-width: 0; }
+            .logo { flex: 0 0 120px; }
+            ```
+
+            It is open in the pane next door. I checked it at 320, 375 and 430 points.
+            """))
+            if !ProcessInfo.processInfo.arguments.contains("-toolApproval") {
+                add(.assistant(id: "a3", text: "Ready when you are.\n\n```ask\n{\"question\":\"What next?\",\"multiple\":false,\"options\":[{\"label\":\"Open a pull request\",\"hint\":\"fix/header-collapse into main\"},{\"label\":\"Check the footer too\"},{\"label\":\"Not now\"}]}\n```"))
+            }
+            if let i = c.chats.firstIndex(where: { $0.id == "c1" }) { c.chats[i].live = false }
         }
         // `-withLoop`: and a round the loop sent, with the instructions that
         // go to the agent on the end of it, as the Mac records one.
@@ -1806,8 +1796,8 @@ extension Connection {
         // `-withPage` puts a page on that conversation, to see the mirror
         // beside it rather than only reasoning about the layout.
         if ProcessInfo.processInfo.arguments.contains("-withPage") {
-            c.browsers["c1"] = WireBrowser(chatId: "c1", open: true, url: "https://stripe.com/en-us",
-                                           title: "Stripe", canGoBack: false, canGoForward: false, loading: false)
+            c.browsers["c1"] = WireBrowser(chatId: "c1", open: true, url: "https://superagent.computer",
+                                           title: "Superagent", canGoBack: false, canGoForward: false, loading: false)
         }
         // `-streamReply`: the agent is writing an answer, in bursts as a real
         // one arrives: a few words, a pause, a long run at once.
@@ -1964,14 +1954,13 @@ extension Connection {
         }
         if ProcessInfo.processInfo.arguments.contains("-withPage") {
             c.browsers[chatId] = WireBrowser(chatId: chatId, open: true,
-                                         url: "https://stripe.com/en-us", title: "Stripe",
+                                         url: "https://superagent.computer", title: "Superagent",
                                              canGoBack: false, canGoForward: false, loading: false)
         }
         return c
     }
 }
 
-#endif
 
 /// A file the agent asked to show, from the Mac's `open_file` tool.
 struct OpenFileRequest: Identifiable, Equatable, Sendable {
@@ -1983,7 +1972,6 @@ struct OpenFileRequest: Identifiable, Equatable, Sendable {
     var id: String { "\(workspaceId)|\(path)|\(chatId ?? "")" }
 }
 
-#if DEBUG
 // MARK: - Remote control harness
 //
 // A Mac that is not there: asks, shows a code (123456), then a drawn desktop,
@@ -2093,4 +2081,3 @@ extension Connection {
         }.jpegData(compressionQuality: 0.9) ?? Data()
     }
 }
-#endif

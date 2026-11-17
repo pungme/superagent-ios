@@ -50,9 +50,9 @@ final class AppState {
         machineSwitches += 1
     }
 
-    #if DEBUG
-    /// Put a made-up Mac in front of the real RootView, so the layout can be
-    /// looked at — on a phone or an iPad — without pairing anything.
+    /// Put a made-up Mac in front of the real RootView: the screenshots and the
+    /// layout checks use it, and so does the demo in the Welcome screen, which is
+    /// how someone without a Mac (App Review, a curious download) can look around.
     func useHarness() {
         // An explicit flag wins even on a phone with a real Mac paired: the
         // point is to look at the app with known contents. Nothing here is
@@ -81,7 +81,14 @@ final class AppState {
             }
         }
     }
-    #endif
+
+    /// Back to the Welcome screen: the demo's made-up Mac goes, nothing was saved for it.
+    func leaveDemo(_ machine: PairedMachine) {
+        guard machine.id == "harness" else { return }
+        connections[machine.id] = nil
+        machines.removeAll { $0.id == machine.id }
+        selectedMachineId = machines.first?.id
+    }
 
     func connection(for machine: PairedMachine) -> Connection {
         if let c = connections[machine.id] { return c }

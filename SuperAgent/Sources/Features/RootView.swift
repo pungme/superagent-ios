@@ -61,7 +61,7 @@ struct RootView: View {
                 let c = app.connection(for: machine)
                 if width == .regular { split(c) } else { tabs(c) }
             } else {
-                NavigationStack { WelcomeView(onPair: { showPair = true }).toolbar { settingsButton } }
+                NavigationStack { WelcomeView(onPair: { showPair = true }, onDemo: { app.useHarness() }).toolbar { settingsButton } }
             }
         }
         // ⌘K, from anywhere in the app, as on the Mac. A button the eye never
@@ -552,6 +552,8 @@ extension RootView {
 
 struct WelcomeView: View {
     var onPair: () -> Void
+    /// Look around with a made-up Mac: for anyone who has no Mac to pair yet.
+    var onDemo: () -> Void = {}
 
     var body: some View {
         // Centred by the spacers while it fits, scrolling once it doesn't —
@@ -594,6 +596,21 @@ struct WelcomeView: View {
             .padding(.horizontal, 24)
             Text("On the Mac: Settings → Phone → Show pairing code")
                 .font(.footnote)
+                .foregroundStyle(Theme.textTertiary)
+            // The app works with a Mac running Superagent; this shows what that
+            // looks like without one: sample projects, chats, calendar and to-dos.
+            Button(action: onDemo) {
+                Text("Try the demo")
+                    .superFont(15, weight: .semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 24)
+            .accessibilityIdentifier("try-demo")
+            Text("Sample data on this phone only. Nothing is sent anywhere.")
+                .font(.caption)
                 .foregroundStyle(Theme.textTertiary)
                 .padding(.bottom, 24)
         }

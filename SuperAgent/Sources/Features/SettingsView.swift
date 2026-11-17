@@ -64,7 +64,13 @@ struct SettingsView: View {
                             Button(role: .destructive) { app.remove(m) } label: { Label("Remove", systemImage: "trash") }
                         }
                     }
-                    Button { onPair() } label: { Label("Pair another Mac", systemImage: "plus") }
+                    Button { onPair() } label: { Label(app.machines.allSatisfy { $0.id == "harness" } ? "Pair a Mac" : "Pair another Mac", systemImage: "plus") }
+                    if app.machines.contains(where: { $0.id == "harness" }) {
+                        Button(role: .destructive) {
+                            if let m = app.machines.first(where: { $0.id == "harness" }) { app.leaveDemo(m) }
+                        } label: { Label("Leave the demo", systemImage: "xmark.circle") }
+                            .accessibilityIdentifier("leave-demo")
+                    }
                 }
                 if let c = app.connections[app.selectedMachineId ?? ""] {
                     Section {

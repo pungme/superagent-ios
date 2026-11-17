@@ -85,4 +85,25 @@ final class TabBarTests: XCTestCase {
         // Like ⌘K: recent conversations and actions are there before a word is typed.
         XCTAssertTrue(app.buttons["palette-row"].firstMatch.waitForExistence(timeout: 5))
     }
+
+    /// Someone with no Mac (App Review, a first look) gets the real app with a made-up Mac:
+    /// Try the demo from the first screen, and a way back out of it.
+    func testTheDemoOpensTheAppWithoutAMacAndCanBeLeft() throws {
+        try XCTSkipIf(isPad, "covered on the phone; the iPad shows the same screens in its split layout")
+        let fresh = XCUIApplication()
+        fresh.launch()  // no harness: the first screen of an app with nothing paired
+        let demo = fresh.buttons["try-demo"]
+        XCTAssertTrue(demo.waitForExistence(timeout: 10), "the first screen offers the demo")
+        XCTAssertTrue(fresh.buttons["Pair a Mac"].exists, "next to pairing a real Mac")
+        demo.tap()
+        let today = fresh.tabBars.buttons["Today"]
+        XCTAssertTrue(today.waitForExistence(timeout: 10), "the app opens with its tabs")
+        today.tap()
+        XCTAssertTrue(fresh.staticTexts["Dashboard review"].waitForExistence(timeout: 5), "with sample calendar and to-dos")
+        fresh.tabBars.buttons["Settings"].tap()
+        let leave = fresh.buttons["leave-demo"]
+        XCTAssertTrue(leave.waitForExistence(timeout: 5), "Settings offers a way out")
+        leave.tap()
+        XCTAssertTrue(fresh.buttons["try-demo"].waitForExistence(timeout: 5), "and it is the first screen again")
+    }
 }
