@@ -155,14 +155,11 @@ extension RootView {
                     )
                 }
             }
-            Tab("Activity", systemImage: "clock", value: AppTab.activity) {
+            // Today took Activity's place (and its stack: a chat opened from a
+            // notification still lands here); its Recent list is what Activity showed.
+            Tab("Today", systemImage: "sun.max", value: AppTab.activity) {
                 NavigationStack(path: $activityPath) {
-                    destinations(
-                        SidebarView(connection: c, path: $activityPath,
-                                    open: { activityPath.append($0) }, openId: nil,
-                                    fixedMode: .activity, showsSearch: false),
-                        c, $activityPath
-                    )
+                    destinations(TodayTab(connection: c, path: $activityPath), c, $activityPath)
                 }
             }
             Tab("Chat", systemImage: "bubble.left", value: AppTab.chat) {

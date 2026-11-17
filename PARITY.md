@@ -95,6 +95,7 @@ asked what exists rather than the app trusting what it recorded).
 | Optimistic send, offline queue | ✅ | phone-only |
 | Voice dictation | ✅ | phone-only |
 | Save for later (⌘S, "N saved") | ✅ | the same list as the Mac's (`saved.*`, `saved` frame); hold Send → Save for later, or ⌘S on a keyboard |
+| Today (calendar, every project's open to-dos, agents, ask box) | ✅ | the Today tab, where Activity was; its Recent list is Activity's feed. `today.get` / `today.hand` / `today.ask`. Needs-you shows which project and opens it; Allow/Deny stays in the chat |
 | Mac battery | ✅ | beside the Live pill (`battery` frame) |
 | Agent's `open_file` opens the viewer | ✅ | `openFile` push frame; opens only while you are in the chat that asked |
 

@@ -894,6 +894,34 @@ struct WireCard: Codable, Hashable, Sendable, Identifiable {
     var updatedAt: Double
 }
 
+/// An event on Superagent's calendar on the Mac (`today.get`).
+struct WireCalendarEvent: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var title: String
+    /// YYYY-MM-DD (all day) or YYYY-MM-DDTHH:mm, in the Mac's local time.
+    var start: String
+    var end: String?
+    var allDay: Bool
+    var notes: String
+    var color: String?
+
+    /// Minutes past midnight, for a timed event.
+    var startMinutes: Int { Self.minutes(start) }
+    var endMinutes: Int { end.map(Self.minutes) ?? startMinutes + 30 }
+    static func minutes(_ iso: String) -> Int {
+        guard iso.count >= 16 else { return 0 }
+        let t = iso.dropFirst(11)
+        return (Int(t.prefix(2)) ?? 0) * 60 + (Int(t.dropFirst(3).prefix(2)) ?? 0)
+    }
+}
+
+/// `today.get`: the day's events and every project's open to-dos.
+struct WireToday: Codable, Hashable, Sendable {
+    var date: String
+    var events: [WireCalendarEvent]
+    var cards: [WireCard]
+}
+
 struct WireRoutine: Codable, Hashable, Sendable, Identifiable {
     var id: String
     var workspaceId: String

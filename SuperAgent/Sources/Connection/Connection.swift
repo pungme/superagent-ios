@@ -1289,6 +1289,58 @@ extension Connection {
         try await rpc("board.move", .object(["id": .string(id), "status": .string(status.rawValue), "beforeId": .null]), as: WireCard.self)
     }
 
+    // MARK: Today
+
+    /// The day's calendar and every project's open to-dos, from the Mac.
+    func loadToday(date: String) async throws -> WireToday {
+        #if DEBUG
+        if machine.id == "harness" { return Self.harnessToday(date: date) }
+        #endif
+        return try await rpc("today.get", .object(["date": .string(date)]), as: WireToday.self)
+    }
+
+    private struct StartedChat: Decodable { var chatId: String; var workspaceId: String }
+
+    private func noteStarted(_ r: StartedChat, title: String) -> String {
+        if !chats.contains(where: { $0.id == r.chatId }) {
+            chats.append(WireChat(id: r.chatId, workspaceId: r.workspaceId, title: title,
+                                  updatedAt: Date().timeIntervalSince1970 * 1000, live: true))
+        }
+        return r.chatId
+    }
+
+    /// Hand a to-do to an agent: a chat of its own in its project works on it. Returns that chat.
+    func handToAgent(card: WireCard) async throws -> String {
+        #if DEBUG
+        if machine.id == "harness" { return noteStarted(StartedChat(chatId: "hand-\(card.id)", workspaceId: card.workspaceId), title: card.title) }
+        #endif
+        let r = try await rpc("today.hand", .object(["cardId": .string(card.id)]), as: StartedChat.self)
+        return noteStarted(r, title: card.title)
+    }
+
+    /// Today's ask box: a new chat under Chats with this as its first message.
+    func askToday(_ text: String) async throws -> String {
+        let r = try await rpc("today.ask", .object(["text": .string(text)]), as: StartedChat.self)
+        return noteStarted(r, title: String(text.prefix(60)))
+    }
+
+    #if DEBUG
+    static func harnessToday(date: String) -> WireToday {
+        func card(_ id: String, _ ws: String, _ title: String) -> WireCard {
+            WireCard(id: id, workspaceId: ws, title: title, body: "", status: .todo, chatId: nil, branch: nil,
+                     images: [], tags: [], position: 0, createdAt: 0, updatedAt: 0)
+        }
+        return WireToday(date: date, events: [
+            WireCalendarEvent(id: "e1", title: "Lunch with Devan", start: "\(date)T13:00", end: "\(date)T14:00", allDay: false, notes: "Schwabing", color: "#22b573"),
+            WireCalendarEvent(id: "e2", title: "Dashboard review", start: "\(date)T15:00", end: "\(date)T15:45", allDay: false, notes: "Google Meet", color: nil),
+            WireCalendarEvent(id: "e3", title: "Festival jury call", start: "\(date)T23:00", end: "\(date)T23:50", allDay: false, notes: "", color: "#a855f7")
+        ], cards: [
+            card("k1", "w-site", "Fix the header below 400px"),
+            card("k2", "w-site", "Reply to Helloprint")
+        ])
+    }
+    #endif
+
     func listRoutines() async throws -> [WireRoutine] {
         try await rpc("routines.list", nil, as: [WireRoutine].self)
     }

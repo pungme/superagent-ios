@@ -1,6 +1,6 @@
 import XCTest
 
-/// The bottom bar, on a phone: Projects, Activity, Chat, Search, Settings.
+/// The bottom bar, on a phone: Projects, Today, Chat, Search, Settings.
 /// Each tab is its own stack; these check every tab lands on its screen.
 final class TabBarTests: XCTestCase {
     private var app: XCUIApplication!
@@ -33,9 +33,22 @@ final class TabBarTests: XCTestCase {
         // Projects is the default: the sidebar's rows are already here.
         XCTAssertTrue(app.staticTexts["landing-page"].waitForExistence(timeout: 10))
 
-        select("Activity")
-        XCTAssertTrue(app.staticTexts["Fix the flaky auth test"].waitForExistence(timeout: 5),
-                      "Activity is the flat feed of every conversation")
+        // Today: the Mac's day (calendar, to-dos) and, under Recent, the feed
+        // of every conversation that Activity used to be.
+        select("Today")
+        XCTAssertTrue(app.staticTexts["Dashboard review"].waitForExistence(timeout: 5), "today's events")
+        XCTAssertTrue(app.staticTexts["Fix the header below 400px"].exists, "every project's open to-dos")
+        let hand = app.buttons["hand-k1"]
+        XCTAssertTrue(hand.exists, "a to-do can be handed to an agent")
+        hand.tap()
+        XCTAssertTrue(app.buttons["Working"].waitForExistence(timeout: 5), "and then says an agent is on it")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "today-tab"
+        shot.lifetime = .keepAlways
+        add(shot)
+        let feed = app.staticTexts["Fix the flaky auth test"]
+        for _ in 0..<5 where !feed.exists { app.swipeUp() }
+        XCTAssertTrue(feed.exists, "Recent is the flat feed of every conversation")
 
         // Chat is the Computer's conversation list; a session is chosen from
         // here rather than the tab unexpectedly opening the newest one.
