@@ -14,7 +14,7 @@ def font(size, weight="Bold"):
     return f
 
 
-def background(w, h, glow_at=None, glow_r=None):
+def background(w, h, glow_at=None, glow_r=None, glow=None):
     """Graphite, a little lighter toward the bottom, with a soft blue glow behind the phone."""
     top, bottom = (11, 13, 19), (24, 29, 42)
     img = Image.new("RGB", (w, h))
@@ -27,7 +27,7 @@ def background(w, h, glow_at=None, glow_r=None):
         gx, gy = glow_at
         r = glow_r or round(w * 0.6)
         blob = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        ImageDraw.Draw(blob).ellipse([gx - r, gy - r, gx + r, gy + r], fill=GLOW + (95,))
+        ImageDraw.Draw(blob).ellipse([gx - r, gy - r, gx + r, gy + r], fill=(glow or GLOW) + (105,))
         img.alpha_composite(blob.filter(ImageFilter.GaussianBlur(round(r * 0.55))))
     return img
 
@@ -53,8 +53,12 @@ def framed_phone(path, width, bezel=None):
     return card, outer_r
 
 
-def paste_phone(canvas, path, x, y, width, shadow=True):
+def paste_phone(canvas, path, x, y, width, shadow=True, halo=None):
     card, r = framed_phone(path, width)
+    if halo:
+        hl = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        ImageDraw.Draw(hl).rounded_rectangle([x - 14, y - 14, x + card.width + 14, y + card.height + 14], r + 14, fill=halo + (170,))
+        canvas.alpha_composite(hl.filter(ImageFilter.GaussianBlur(46)))
     if shadow:
         sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         ImageDraw.Draw(sh).rounded_rectangle([x, y + 40, x + card.width, y + card.height + 40], r, fill=(0, 0, 0, 150))
@@ -63,16 +67,16 @@ def paste_phone(canvas, path, x, y, width, shadow=True):
     return card
 
 
-def headline(canvas, title, sub, y, size, sub_size=None, align="center", x=None):
+def headline(canvas, title, sub, y, size, sub_size=None, align="center", x=None, accent=None):
     """Title lines; a word between *stars* is the accent colour. Returns the y below the block."""
     d = ImageDraw.Draw(canvas)
     big = font(size)
-    small = font(sub_size or round(size * 0.42), "Medium")
+    small = font(sub_size or round(size * 0.46), "Medium")
     w = canvas.width
     gap = round(size * 1.12)
     for line in title.split("\n"):
         parts = line.split("*")
-        segs = [(t, ACCENT if i % 2 else INK) for i, t in enumerate(parts) if t]
+        segs = [(t, (accent or ACCENT) if i % 2 else INK) for i, t in enumerate(parts) if t]
         total = sum(d.textlength(t, font=big) for t, _ in segs)
         cx = x if (align == "left" and x is not None) else (w - total) / 2
         for t, c in segs:
@@ -82,6 +86,6 @@ def headline(canvas, title, sub, y, size, sub_size=None, align="center", x=None)
     if sub:
         tw = d.textlength(sub, font=small)
         sx = x if (align == "left" and x is not None) else (w - tw) / 2
-        d.text((sx, y + round(size * 0.04)), sub, font=small, fill=MUTED)
-        y += round((sub_size or size * 0.42) * 1.5)
+        d.text((sx, y + round(size * 0.12)), sub, font=small, fill=(196, 202, 218))
+        y += round((sub_size or size * 0.42) * 1.6)
     return y
