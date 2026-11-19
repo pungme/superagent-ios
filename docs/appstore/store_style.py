@@ -1,14 +1,17 @@
-"""Shared look for the App Store artwork: dark, one accent colour, device-framed screens."""
+"""Shared look for the App Store artwork: the landing page's (superagent.computer), an Apple-style
+product page: white and #f5f5f7 bands, #1d1d1f headlines in SF Display semibold, #6e6e73
+subtitles, one blue (#0071e3), the device big and unframed by anything but itself."""
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 FRAME = Path(__file__).parent / "frame"
 
 SF = "/System/Library/Fonts/SFNS.ttf"
-INK = (255, 255, 255)
-ACCENT = (150, 176, 255)   # the highlighted word
-MUTED = (160, 168, 188)
-GLOW = (70, 96, 255)
+INK = (29, 29, 31)         # --ink
+ACCENT = (0, 113, 227)     # --blue
+MUTED = (110, 110, 115)    # --ink-2
+GLOW = (0, 113, 227)
+BANDS = ((255, 255, 255), (245, 245, 247))  # white and the landing page's .alt
 
 
 def font(size, weight="Bold"):
@@ -17,22 +20,9 @@ def font(size, weight="Bold"):
     return f
 
 
-def background(w, h, glow_at=None, glow_r=None, glow=None):
-    """Graphite, a little lighter toward the bottom, with a soft blue glow behind the phone."""
-    top, bottom = (11, 13, 19), (24, 29, 42)
-    img = Image.new("RGB", (w, h))
-    px = ImageDraw.Draw(img)
-    for y in range(h):
-        t = y / (h - 1)
-        px.line([(0, y), (w, y)], fill=tuple(round(a + (b - a) * t) for a, b in zip(top, bottom)))
-    img = img.convert("RGBA")
-    if glow_at:
-        gx, gy = glow_at
-        r = glow_r or round(w * 0.6)
-        blob = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        ImageDraw.Draw(blob).ellipse([gx - r, gy - r, gx + r, gy + r], fill=(glow or GLOW) + (105,))
-        img.alpha_composite(blob.filter(ImageFilter.GaussianBlur(round(r * 0.55))))
-    return img
+def background(w, h, glow_at=None, glow_r=None, glow=None, band=0):
+    """A flat landing-page band: white, or #f5f5f7 for the alternate. No glow: Apple's pages have none."""
+    return Image.new("RGBA", (w, h), BANDS[band % 2] + (255,))
 
 
 def framed_phone(path, width, bezel=None):
@@ -108,8 +98,8 @@ def paste_phone(canvas, path, x, y, width, shadow=True, halo=None, real=False):
         canvas.alpha_composite(hl.filter(ImageFilter.GaussianBlur(46)))
     if shadow:
         sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-        ImageDraw.Draw(sh).rounded_rectangle([x, y + 40, x + card.width, y + card.height + 40], r, fill=(0, 0, 0, 150))
-        canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(60)))
+        ImageDraw.Draw(sh).rounded_rectangle([x, y + 40, x + card.width, y + card.height + 40], r, fill=(0, 0, 0, 70))
+        canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(70)))
     canvas.alpha_composite(card, (x, y))
     return card
 
@@ -117,8 +107,8 @@ def paste_phone(canvas, path, x, y, width, shadow=True, halo=None, real=False):
 def headline(canvas, title, sub, y, size, sub_size=None, align="center", x=None, accent=None):
     """Title lines; a word between *stars* is the accent colour. Returns the y below the block."""
     d = ImageDraw.Draw(canvas)
-    big = font(size)
-    small = font(sub_size or round(size * 0.46), "Medium")
+    big = font(size, "Semibold")
+    small = font(sub_size or round(size * 0.46), "Regular")
     w = canvas.width
     gap = round(size * 1.12)
     for line in title.split("\n"):
@@ -133,6 +123,6 @@ def headline(canvas, title, sub, y, size, sub_size=None, align="center", x=None,
     if sub:
         tw = d.textlength(sub, font=small)
         sx = x if (align == "left" and x is not None) else (w - tw) / 2
-        d.text((sx, y + round(size * 0.12)), sub, font=small, fill=(196, 202, 218))
+        d.text((sx, y + round(size * 0.12)), sub, font=small, fill=MUTED)
         y += round((sub_size or size * 0.42) * 1.6)
     return y
