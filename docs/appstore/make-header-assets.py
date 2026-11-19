@@ -34,8 +34,8 @@ def header():
     img.alpha_composite(icon(190), (640, 330))
     headline(img, "Your coding agents,\n*in your pocket*", "Follow, answer and approve from your iPhone.", 590, 170, 68, align="left", x=640)
     # Two screens, cropped by the bottom edge, on the right of the middle.
-    paste_phone(img, RAW / "iphone/d-01-today.png", 2350, 210, 680)
-    paste_phone(img, RAW / "iphone/f-chat.png", 2900, 120, 720)
+    paste_phone(img, RAW / "iphone/d-01-today.png", 2350, 210, 680, real=True)
+    paste_phone(img, RAW / "iphone/f-chat.png", 2900, 120, 720, real=True)
     OUT.mkdir(parents=True, exist_ok=True)
     img.convert("RGB").save(OUT / "header.png", optimize=True)
 
@@ -50,9 +50,9 @@ def search_results():
     sub = "Your Mac's coding agents, in your pocket"
     f = font(84, "Medium")
     d.text(((w - d.textlength(sub, font=f)) / 2, 740), sub, font=f, fill=MUTED)
-    paste_phone(img, RAW / "iphone/g-approval.png", 560, 1010, 760)
-    paste_phone(img, RAW / "iphone/d-01-today.png", 1530, 930, 780)
-    paste_phone(img, RAW / "iphone/f-chat.png", 2520, 1010, 760)
+    paste_phone(img, RAW / "iphone/g-approval.png", 560, 1010, 760, real=True)
+    paste_phone(img, RAW / "iphone/d-01-today.png", 1530, 930, 780, real=True)
+    paste_phone(img, RAW / "iphone/f-chat.png", 2520, 1010, 760, real=True)
     OUT.mkdir(parents=True, exist_ok=True)
     img.convert("RGB").save(OUT / "search-results.png", optimize=True)
 

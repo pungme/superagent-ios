@@ -1,5 +1,8 @@
 """Shared look for the App Store artwork: dark, one accent colour, device-framed screens."""
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+FRAME = Path(__file__).parent / "frame"
 
 SF = "/System/Library/Fonts/SFNS.ttf"
 INK = (255, 255, 255)
@@ -53,8 +56,52 @@ def framed_phone(path, width, bezel=None):
     return card, outer_r
 
 
-def paste_phone(canvas, path, x, y, width, shadow=True, halo=None):
-    card, r = framed_phone(path, width)
+def real_iphone(path, width):
+    """
+    The screen in Apple's own iPhone 17 Pro Max frame (Xcode's DeviceKit art, rendered
+    to frame/ by pdf2png.swift): side buttons under the body, the screen clipped to the
+    display's rounded shape, the frame on top, and the Dynamic Island. Everything is
+    laid out at 3x (1422 x 2970 body, screen inset 51 px) and scaled to `width`.
+    """
+    body = Image.open(FRAME / "iphone-17-pro-max-frame.png").convert("RGBA")
+    bw, bh = body.size
+    inset = 51
+    margin = 24  # the buttons stand 8 pt (24 px) out of the body
+    W, H = bw + 2 * margin, bh
+    card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    # Side buttons, beneath the body: action and volume left, power right.
+    for name, side, y_pt in (("btn-action", "l", 180), ("btn-volume", "l", 268), ("btn-volume", "l", 354), ("btn-power", "r", 293)):
+        b = Image.open(FRAME / f"{name}.png").convert("RGBA")
+        bx = margin - b.width // 2 if side == "l" else margin + bw - b.width // 2
+        card.alpha_composite(b, (bx, y_pt * 3))
+    # The screen, clipped to the display's own corners.
+    sw, sh = bw - 2 * inset, bh - 2 * inset
+    shot = Image.open(path).convert("RGB").resize((sw, sh), Image.LANCZOS).convert("RGBA")
+    mask = Image.new("L", (sw * 2, sh * 2), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, sw * 2 - 1, sh * 2 - 1], 190 * 2, fill=255)
+    mask = mask.resize((sw, sh), Image.LANCZOS)
+    shot.putalpha(mask)
+    card.alpha_composite(shot, (margin + inset, inset))
+    # The frame over it, its fill cut away where the screen shows.
+    hole = Image.new("L", (bw * 2, bh * 2), 255)
+    ImageDraw.Draw(hole).rounded_rectangle([inset * 2, inset * 2, (bw - inset) * 2 - 1, (bh - inset) * 2 - 1], 190 * 2, fill=0)
+    hole = hole.resize((bw, bh), Image.LANCZOS)
+    a = body.split()[3]
+    body.putalpha(Image.composite(a, Image.new("L", (bw, bh), 0), hole))
+    card.alpha_composite(body, (margin, 0))
+    # The Dynamic Island: 125 x 37 pt, 11 pt below the screen's top.
+    isl = Image.new("L", (125 * 6, 37 * 6), 0)
+    ImageDraw.Draw(isl).rounded_rectangle([0, 0, 125 * 6 - 1, 37 * 6 - 1], 37 * 3, fill=255)
+    isl = isl.resize((375, 111), Image.LANCZOS)
+    black = Image.new("RGBA", (375, 111), (0, 0, 0, 255))
+    black.putalpha(isl)
+    card.alpha_composite(black, (margin + (bw - 375) // 2, inset + 33))
+    h = round(H * width / W)
+    return card.resize((width, h), Image.LANCZOS), round(80 * 3 * width / W)
+
+
+def paste_phone(canvas, path, x, y, width, shadow=True, halo=None, real=False):
+    card, r = real_iphone(path, width) if real else framed_phone(path, width)
     if halo:
         hl = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         ImageDraw.Draw(hl).rounded_rectangle([x - 14, y - 14, x + card.width + 14, y + card.height + 14], r + 14, fill=halo + (170,))

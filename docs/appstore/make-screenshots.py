@@ -29,7 +29,7 @@ def compose(raw, title, sub, canvas, phone_w, name, title_size, top_pad, phone_t
     img = background(w, h, glow_at=(w // 2, phone_top + round(phone_w * 1.1)), glow_r=round(w * 0.62), glow=theme[0])
     headline(img, title, sub, top_pad, title_size, accent=theme[1])
     # The phone runs off the bottom edge: bigger on screen, and it reads as a real device in hand.
-    paste_phone(img, RAW / raw, (w - phone_w) // 2, phone_top, phone_w, halo=theme[0])
+    paste_phone(img, RAW / raw, (w - phone_w) // 2, phone_top, phone_w, halo=theme[0], real=raw.startswith("iphone/"))
     OUT.mkdir(parents=True, exist_ok=True)
     img.convert("RGB").save(OUT / name, optimize=True)
 
@@ -53,6 +53,12 @@ if __name__ == "__main__":
         compose(raw, title, sub, (1320, 2868), 1130, name, 112, 150, 620, THEMES[i])
     for raw, title, sub, name in IPAD:
         compose(raw, title, sub, (2064, 2752), 1500, name, 168, 190, 840, THEMES[{'ipad-1-chat.png': 0, 'ipad-2-approve.png': 2, 'ipad-3-remote.png': 4}[name]])
+    # iPhone Duo's own slot: portrait 2007 x 2853, squarer than a phone.
+    duo = OUT / "iphone-duo"
+    duo.mkdir(parents=True, exist_ok=True)
+    for i, (raw, title, sub, name) in enumerate(IPHONE):
+        compose(raw, title, sub, (2007, 2853), 1200, f"duo-{name}", 150, 150, 640, THEMES[i])
+        (OUT / f"duo-{name}").replace(duo / name)
     small = OUT / "iphone-6.3"
     small.mkdir(parents=True, exist_ok=True)
     for _, _, _, name in IPHONE:
