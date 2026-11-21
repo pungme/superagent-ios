@@ -276,8 +276,23 @@ struct Composer: View {
                     .disabled(true)
             }
         }
-        ForEach(availableModels.filter { $0.older != true }) { m in
-            modelButton(m)
+        ForEach(ModelRow.group(availableModels.filter { $0.older != true })) { row in
+            switch row {
+            case .one(let m): modelButton(m)
+            case .efforts(let label, let options):
+                // One model, its efforts one level down.
+                Menu {
+                    ForEach(options) { m in
+                        Button { model = m.id } label: {
+                            Label { Text(m.hint) } icon: { if model == m.id { Image(systemName: "checkmark") } }
+                        }
+                    }
+                } label: {
+                    let picked = options.first { $0.id == model }
+                    Label { Text(label); Text(picked.map { "\($0.hint) effort" } ?? options.map(\.hint).joined(separator: " · ")) }
+                        icon: { if picked != nil { Image(systemName: "checkmark") } }
+                }
+            }
         }
         // The Mac lists every version still available; the earlier
         // ones sit one level down so the current five stay in view.
@@ -627,7 +642,7 @@ struct Composer: View {
     /// "Opus 5.5" when the session says which it's on and it's the family picked
     /// (or Default); otherwise the picked entry's own label.
     private var modelPillLabel: String {
-        let picked = availableModels.first { $0.id == model }?.label ?? "Default"
+        let picked = ModelRow.pillLabel(availableModels, id: model) ?? "Default"
         guard let running = runningModel, let short = ModelName.pretty(running, context: false) else { return picked }
         if model.isEmpty || short.lowercased().hasPrefix(picked.lowercased()) { return short }
         return picked

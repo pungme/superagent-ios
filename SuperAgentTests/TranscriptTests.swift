@@ -184,6 +184,24 @@ struct FixtureFieldTests {
     #expect(images == [ImageMeta(mediaType: "image/png", size: 3)])
 }
 
+@Test func groupsAModelListedOncePerEffort() {
+    let o = { (id: String, label: String, hint: String) in WireModelOption(id: id, label: label, hint: hint) }
+    let list = [
+        o("", "Default", "Whatever your account uses"),
+        o("gemini-4-neon-high", "Gemini 4 Neon", "High"),
+        o("gemini-4-neon-xhigh", "Gemini 4 Neon", "XHigh"),
+        o("gemini-4-neon-low", "Gemini 4 Neon", "Low"),
+        o("gemini-pro-orchestrator-neon", "Orchestrator", "Neon"),
+        o("gpt-oss-120b-medium", "GPT-OSS 120B", "Medium"),
+    ]
+    let rows = ModelRow.group(list)
+    #expect(rows.map(\.id) == ["one-", "efforts-Gemini 4 Neon", "one-gemini-pro-orchestrator-neon", "one-gpt-oss-120b-medium"])
+    guard case let .efforts(_, options) = rows[1] else { Issue.record("expected efforts"); return }
+    #expect(options.map(\.hint) == ["Low", "High", "XHigh"])
+    #expect(ModelRow.pillLabel(list, id: "gemini-4-neon-xhigh") == "Gemini 4 Neon · XHigh")
+    #expect(ModelRow.pillLabel(list, id: "gpt-oss-120b-medium") == "GPT-OSS 120B")
+}
+
 @Test func decodesAStepsPlainDescription() throws {
     let json = #"{"chatId":"c1","seq":1,"ts":1,"data":{"kind":"tool","id":"t1","name":"Bash","detail":"ls -la","about":"List files"}}"#
     let event = try JSONDecoder().decode(WireEvent.self, from: Data(json.utf8))

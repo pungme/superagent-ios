@@ -30,6 +30,47 @@ struct WireModelOption: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// Antigravity lists a model once per reasoning effort ("Gemini 4 Neon (Low)",
+/// "(Medium)", "(High)", "(XHigh)"), which the Mac sends as one label with the
+/// effort as its hint. The picker shows such a model once, its efforts one level
+/// down. Same rule as the Mac's `groupModelOptions` (shared/model-groups.ts).
+enum ModelRow: Identifiable, Equatable {
+    case one(WireModelOption)
+    case efforts(label: String, options: [WireModelOption])
+
+    var id: String {
+        switch self {
+        case .one(let m): "one-\(m.id)"
+        case .efforts(let label, _): "efforts-\(label)"
+        }
+    }
+
+    private static let order = ["minimal", "low", "medium", "high", "xhigh", "max"]
+    static func effortRank(_ hint: String) -> Int? {
+        order.firstIndex(of: hint.trimmingCharacters(in: .whitespaces).lowercased())
+    }
+
+    static func group(_ options: [WireModelOption]) -> [ModelRow] {
+        var byLabel: [String: [WireModelOption]] = [:]
+        for o in options where !o.id.isEmpty && effortRank(o.hint) != nil { byLabel[o.label, default: []].append(o) }
+        var rows: [ModelRow] = []
+        var placed = Set<String>()
+        for o in options {
+            guard let same = byLabel[o.label], same.count > 1, same.contains(o) else { rows.append(.one(o)); continue }
+            guard placed.insert(o.label).inserted else { continue }
+            rows.append(.efforts(label: o.label, options: same.sorted { (effortRank($0.hint) ?? 0) < (effortRank($1.hint) ?? 0) }))
+        }
+        return rows
+    }
+
+    /// "Gemini 4 Neon · High" when the model comes at several efforts, else its label.
+    static func pillLabel(_ options: [WireModelOption], id: String) -> String? {
+        guard let o = options.first(where: { $0.id == id }) else { return nil }
+        let siblings = options.filter { $0.label == o.label && !$0.id.isEmpty && effortRank($0.hint) != nil }
+        return siblings.count > 1 && effortRank(o.hint) != nil ? "\(o.label) · \(o.hint)" : o.label
+    }
+}
+
 enum ApprovalOutcome: String, Codable, Sendable { case approved, denied, expired }
 enum Origin: String, Codable, Sendable { case desktop, ios }
 
