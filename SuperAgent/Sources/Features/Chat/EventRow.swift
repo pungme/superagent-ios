@@ -163,7 +163,7 @@ struct StepGroupRow: View {
     private func result(for e: WireEvent) -> (ok: Bool, summary: String)? {
         let id: String
         switch e.data {
-        case .tool(let i, _, _, _): id = i
+        case .tool(let i, _, _, _, _): id = i
         case .diff(let i, _, _): id = i
         default: return nil
         }
@@ -180,7 +180,7 @@ struct StepRow: View {
 
     var body: some View {
         switch event.data {
-        case let .tool(_, name, detail, _):
+        case let .tool(_, name, detail, _, about):
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: result?.ok == false ? "xmark.circle" : icon(for: name))
                     .superFont(11).foregroundStyle(result?.ok == false ? Theme.danger : Theme.textTertiary)
@@ -189,6 +189,9 @@ struct StepRow: View {
                     HStack(spacing: 6) {
                         Text(StepGroup.verb(for: name)).superFont(12.5, weight: .medium).foregroundStyle(Theme.textSecondary)
                         Text(prettyName(name)).superFont(11.5).foregroundStyle(Theme.textTertiary)
+                    }
+                    if let about, !about.isEmpty {
+                        Text(about).superFont(12.5).foregroundStyle(Theme.textPrimary).lineLimit(2)
                     }
                     if !detail.isEmpty {
                         Text(detail).superFont(12, design: .monospaced).foregroundStyle(Theme.textSecondary).lineLimit(2)

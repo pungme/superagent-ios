@@ -184,6 +184,20 @@ struct FixtureFieldTests {
     #expect(images == [ImageMeta(mediaType: "image/png", size: 3)])
 }
 
+@Test func decodesAStepsPlainDescription() throws {
+    let json = #"{"chatId":"c1","seq":1,"ts":1,"data":{"kind":"tool","id":"t1","name":"Bash","detail":"ls -la","about":"List files"}}"#
+    let event = try JSONDecoder().decode(WireEvent.self, from: Data(json.utf8))
+    guard case let .tool(_, name, detail, _, about) = event.data else {
+        Issue.record("expected tool")
+        return
+    }
+    #expect(name == "Bash" && detail == "ls -la" && about == "List files")
+    // A Mac that predates `about` still decodes, with no description.
+    let old = try JSONDecoder().decode(WireEvent.self, from: Data(#"{"chatId":"c1","seq":1,"ts":1,"data":{"kind":"tool","id":"t1","name":"Bash","detail":"ls"}}"#.utf8))
+    guard case let .tool(_, _, _, _, none) = old.data else { Issue.record("expected tool"); return }
+    #expect(none == nil)
+}
+
 @Test func outboxRetiredByEcho() throws {
     var t = Transcript()
     t.outbox.append(Outgoing(id: "L-1", chatId: "c1", text: "hi", images: [], ts: 0, model: nil, mode: nil, replyTo: nil))

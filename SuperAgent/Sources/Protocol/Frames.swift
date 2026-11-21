@@ -83,7 +83,9 @@ enum WireEventData: Hashable, Sendable {
     case user(id: String, text: String, images: [ImageMeta], from: Origin, replyTo: ReplyQuote?)
     case assistant(id: String, text: String)
     case thinking(id: String, text: String)
-    case tool(id: String, name: String, detail: String, task: TaskInfo?)
+    /// `about`: the step in plain words ("List files") when the agent gave one;
+    /// `detail` stays the command or target itself.
+    case tool(id: String, name: String, detail: String, task: TaskInfo?, about: String? = nil)
     /// `images`: a screenshot tool's own picture, or one Claude's Read opened —
     /// fetched over chat.image keyed by this toolId, same store a message's
     /// own sent pictures use.
@@ -123,7 +125,7 @@ enum WireEventData: Hashable, Sendable {
 
 extension WireEventData: Codable {
     private enum K: String, CodingKey {
-        case kind, id, text, images, from, name, detail, toolId, ok, summary, file, hunks, path, size, mediaType, workspaceId, replyTo
+        case kind, id, text, images, from, name, detail, toolId, ok, summary, file, hunks, path, size, mediaType, workspaceId, replyTo, about
         case subtype, costUsd, tokens, contextTokens, claudeSessionId, model, commands, models, toolName, preview, approvalKind, expiresAt, outcome, by, task
     }
 
@@ -147,7 +149,8 @@ extension WireEventData: Codable {
                 id: try c.decode(String.self, forKey: .id),
                 name: try c.decode(String.self, forKey: .name),
                 detail: try c.decodeIfPresent(String.self, forKey: .detail) ?? "",
-                task: try c.decodeIfPresent(TaskInfo.self, forKey: .task))
+                task: try c.decodeIfPresent(TaskInfo.self, forKey: .task),
+                about: try c.decodeIfPresent(String.self, forKey: .about))
         case "tool_result":
             self = .toolResult(
                 toolId: try c.decode(String.self, forKey: .toolId),
@@ -212,9 +215,9 @@ extension WireEventData: Codable {
             try c.encodeIfPresent(replyTo, forKey: .replyTo)
         case let .assistant(id, text), let .thinking(id, text):
             try c.encode(id, forKey: .id); try c.encode(text, forKey: .text)
-        case let .tool(id, name, detail, task):
+        case let .tool(id, name, detail, task, about):
             try c.encode(id, forKey: .id); try c.encode(name, forKey: .name); try c.encode(detail, forKey: .detail)
-            try c.encodeIfPresent(task, forKey: .task)
+            try c.encodeIfPresent(task, forKey: .task); try c.encodeIfPresent(about, forKey: .about)
         case let .toolResult(toolId, ok, summary, images):
             try c.encode(toolId, forKey: .toolId); try c.encode(ok, forKey: .ok); try c.encode(summary, forKey: .summary)
             if !images.isEmpty { try c.encode(images, forKey: .images) }

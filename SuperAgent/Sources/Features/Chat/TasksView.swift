@@ -19,7 +19,7 @@ enum TaskList {
         var status: [String: String] = [:]
         for e in events {
             switch e.data {
-            case let .tool(toolId, name, _, task):
+            case let .tool(toolId, name, _, task, _):
                 guard let task else { continue }
                 if name == "TodoWrite", let list = task.todos {
                     todos = list.enumerated().map { TaskItem(id: "todo-\($0.offset)", text: $0.element.text, status: $0.element.status) }
