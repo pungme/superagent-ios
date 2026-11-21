@@ -54,6 +54,8 @@ struct Transcript: Sendable {
         events = []
         lastSeq = 0
         contextTokens = nil
+        model = nil
+        models = []
     }
 
     mutating func apply(_ e: WireEvent) -> Bool {
@@ -67,8 +69,10 @@ struct Transcript: Sendable {
         case let .turnEnd(_, _, _, _, ctx):
             if let ctx { contextTokens = ctx }
         case let .session(_, model, _, models):
-            if let model { self.model = model }
-            if !models.isEmpty { self.models = models }
+            // A new session replaces the previous agent's metadata, including
+            // missing values. Otherwise an unknown model displays the old one.
+            self.model = model
+            self.models = models
         case .user(let id, _, _, _, _):
             outbox.removeAll { $0.id == id }
             heldSends.removeAll { $0.id == id }
@@ -562,6 +566,17 @@ final class Connection {
     /// Tests: a frame as if it had arrived from the Mac.
     func _applyForTests(_ frame: ServerFrame) { apply(frame) }
 
+    private func clearChangedAgentMetadata(_ incoming: [WireChat]) {
+        let previous = Dictionary(chats.map { ($0.id, $0.provider ?? "claude") }, uniquingKeysWith: { _, last in last })
+        for chat in incoming {
+            guard let old = previous[chat.id], old != (chat.provider ?? "claude") else { continue }
+            transcripts[chat.id]?.model = nil
+            transcripts[chat.id]?.models = []
+            transcripts[chat.id]?.contextTokens = nil
+            accounts[chat.id] = nil
+        }
+    }
+
     private func apply(_ frame: ServerFrame) {
         switch frame {
         case let .welcome(machineInfo, tree, chats):
@@ -573,6 +588,7 @@ final class Connection {
             battery = nil
             info = machineInfo
             self.tree = tree
+            clearChangedAgentMetadata(chats)
             self.chats = chats
             unread.note(chats)
             OfflineCache.save(machine.id, "machine", machineInfo)
@@ -655,6 +671,7 @@ final class Connection {
         case let .openFile(workspaceId, path, chatId):
             openFileRequest = OpenFileRequest(workspaceId: workspaceId, path: path, chatId: chatId)
         case .chats(let list):
+            clearChangedAgentMetadata(list)
             chats = list
             unread.note(list)
             OfflineCache.save(machine.id, "chats", list)
@@ -1314,7 +1331,17 @@ extension Connection {
         ], cards: [
             card("k1", "w-site", "Fix the header below 400px"),
             card("k2", "w-site", "Reply to Helloprint")
-        ])
+        ] + manyTodos(card))
+    }
+
+    /// `-manyTodos`: as many open to-dos as a real Mac sends (390), to measure the Today tab.
+    private static func manyTodos(_ card: (String, String, String) -> WireCard) -> [WireCard] {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-manyTodos") else { return [] }
+        return (0..<388).map { card("m\($0)", $0 % 2 == 0 ? "w-site" : "w-api", "Backlog item \($0): tidy the settings screen and check it on a phone") }
+        #else
+        return []
+        #endif
     }
 
     func listRoutines() async throws -> [WireRoutine] {

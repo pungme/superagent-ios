@@ -218,7 +218,6 @@ struct Composer: View {
         provider == "codex" ? "Codex" : provider == "antigravity" ? "Antigravity" : "Claude Code"
     }
     private var currentAccountEntry: WireAccount? {
-        guard accounts.count > 1 else { return nil }
         return accounts.first(where: { $0.id == currentAccount }) ?? accounts.first
     }
     private var modeLabel: String { Composer.modes.first { $0.id == mode }?.label ?? "Full" }
@@ -377,8 +376,7 @@ struct Composer: View {
                         }
                     }
                 }
-                // Which subscription this chat spends, once there is more than
-                // one: the Mac's Account pill, with each account's usage.
+                // Show usage even when this agent has only one account.
                 if let current = currentAccountEntry {
                     Menu {
                         accountChoices(current)
@@ -389,6 +387,8 @@ struct Composer: View {
                                 Text(current.shortName)
                                 if let pct = current.fullest() {
                                     Text("\(pct)%").foregroundStyle(usageColour(pct)).monospacedDigit()
+                                } else {
+                                    Text("Usage unavailable").foregroundStyle(Theme.textTertiary)
                                 }
                                 Image(systemName: "chevron.down").superFont(9, weight: .bold)
                             }

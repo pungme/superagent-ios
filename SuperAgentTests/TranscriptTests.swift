@@ -236,3 +236,34 @@ struct FixtureFieldTests {
     #expect(loaded == chats)
     #expect(OfflineCache.load(id, "missing", as: [WireChat].self) == nil)
 }
+
+@Test func newSessionClearsPreviousAgentsModel() throws {
+    var t = Transcript()
+    let old = try JSONDecoder().decode(WireEvent.self, from: Data(#"{"chatId":"c1","seq":1,"ts":1,"data":{"kind":"session","claudeSessionId":"old","model":"claude-opus-5-5","models":[{"id":"opus","label":"Opus","hint":""}]}}"#.utf8))
+    let next = try JSONDecoder().decode(WireEvent.self, from: Data(#"{"chatId":"c1","seq":2,"ts":2,"data":{"kind":"session","claudeSessionId":"new","models":[]}}"#.utf8))
+    let appliedOld = t.apply(old)
+    #expect(appliedOld)
+    #expect(t.model == "claude-opus-5-5")
+    let appliedNext = t.apply(next)
+    #expect(appliedNext)
+    #expect(t.model == nil)
+    #expect(t.models.isEmpty)
+}
+
+@MainActor @Test func agentChangeClearsModelBeforeNextSession() async throws {
+    let c = Connection(machine: PairedMachine(id: "agent-change-\(UUID().uuidString)", name: "Mac",
+        relay: "wss://example.invalid", deviceId: "d", secret: Data(repeating: 1, count: 32),
+        token: "t", pairedAt: .now))
+    var chat = WireChat(id: "c", workspaceId: "w", title: "Chat", updatedAt: 1, live: true, preview: "")
+    c._applyForTests(.chats([chat]))
+    c.subscribe(chatId: "c")
+    c._applyForTests(.event(WireEvent(chatId: "c", seq: 1, ts: 1,
+        data: .session(claudeSessionId: "old", model: "claude-opus-5-5", commands: [], models: []))))
+    try await Task.sleep(for: .milliseconds(80))
+    #expect(c.transcripts["c"]?.model == "claude-opus-5-5")
+    chat.provider = "antigravity"
+    c._applyForTests(.chats([chat]))
+    #expect(c.transcripts["c"]?.model == nil)
+    #expect(c.transcripts["c"]?.models.isEmpty == true)
+    #expect(c.transcripts["c"]?.events.count == 1)
+}
