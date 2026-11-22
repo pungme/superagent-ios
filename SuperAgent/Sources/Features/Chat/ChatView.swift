@@ -874,6 +874,8 @@ struct ChatView: View {
     @MainActor
     private func apply(_ d: ChatDerived, generation: Int, gate: RebuildGate) {
         guard gate.generation == generation else { return }
+        for (k, v) in d.stats { HangGuard.shared.note(k, v) }
+        HangGuard.shared.mark("rebuilt: \(d.turns.count) turns")
         turns = d.turns
         gallerySources = d.gallery
         tasks = d.tasks
@@ -1706,6 +1708,8 @@ private struct ChatDerived: Sendable {
     let tasks: [TaskItem]
     let timeIds: Set<String>
     let openApprovals: Set<String>
+    /// What the freeze log says about this conversation (HangGuard.note).
+    let stats: [String: String]
 
     init(_ events: [WireEvent]) {
         turns = TurnBuilder.build(events)
@@ -1721,6 +1725,23 @@ private struct ChatDerived: Sendable {
             }
         }
         openApprovals = open
+        var longest = 0, longestKind = "", textBytes = 0, diffLines = 0, maxDiff = 0
+        for e in events {
+            let n: Int
+            switch e.data {
+            case .user(_, let t, _, _, _), .assistant(_, let t), .thinking(_, let t): n = t.utf8.count
+            case .diff(_, _, let hunks):
+                let lines = hunks.reduce(0) { $0 + $1.added.count + $1.removed.count }
+                diffLines += lines; maxDiff = max(maxDiff, lines); n = 0
+            default: n = 0
+            }
+            textBytes += n
+            if n > longest { longest = n; longestKind = e.data.kind }
+        }
+        stats = [
+            "events": "\(events.count)", "turns": "\(turns.count)", "textBytes": "\(textBytes)",
+            "longestText": "\(longest) (\(longestKind))", "diffLines": "\(diffLines)", "biggestDiff": "\(maxDiff)"
+        ]
     }
 }
 

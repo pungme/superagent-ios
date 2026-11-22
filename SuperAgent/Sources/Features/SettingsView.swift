@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @State private var diagnosticsCopied = false
     @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
     /// As a sheet (the iPad) there is a Done to close it; as a tab there is
@@ -109,6 +110,13 @@ struct SettingsView: View {
                 Section {
                     LabeledContent("Version", value: "\(Bundle.main.shortVersion) (\(Bundle.main.buildNumber))")
                     LabeledContent("Device id", value: String(DeviceIdentity.id.prefix(8)))
+                    Button {
+                        UIPasteboard.general.string = PhoneDiagnostics.report()
+                        diagnosticsCopied = true
+                    } label: {
+                        Label(diagnosticsCopied ? "Copied" : "Copy Freeze & Crash Report",
+                              systemImage: diagnosticsCopied ? "checkmark" : "doc.on.doc")
+                    }
                 } footer: {
                     Text("Everything between \(thisDevice) and your Mac is end-to-end encrypted; the relay only forwards. Remove a Mac here or from the Mac's Settings → Phone.")
                 }

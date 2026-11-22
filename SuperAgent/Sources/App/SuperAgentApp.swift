@@ -12,6 +12,8 @@ struct SuperAgentApp: App {
     @AppStorage("accent") private var accent = ""
     /// Something was shared into the inbox; ask where it should go.
     @State private var shareInboxShown = false
+    /// After a crash or a long freeze (TestFlight builds): what to say, and Copy Report.
+    @State private var crashNote: String?
 
     init() {
         #if DEBUG
@@ -80,6 +82,20 @@ struct SuperAgentApp: App {
                 .onAppear {
                     PushDelegate.app = app
                     HangGuard.shared.start()
+                    // Asked a little after launch: MetricKit hands over its
+                    // reports shortly after the app starts.
+                    if PhoneDiagnostics.asksAfterCrash {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            let since = UserDefaults.standard.double(forKey: "diagnostics.askedAt")
+                            if let note = PhoneDiagnostics.worthAsking(since: since) { crashNote = note }
+                        }
+                    }
+                    #if DEBUG
+                    // `-freezeOnce`: hold the main thread 1.5 s, to see the freeze log write it down.
+                    if ProcessInfo.processInfo.arguments.contains("-freezeOnce") {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { Thread.sleep(forTimeInterval: 1.5) }
+                    }
+                    #endif
                 }
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     switch phase {
@@ -95,6 +111,18 @@ struct SuperAgentApp: App {
                     case .background: app.wentToBackground()
                     default: break
                     }
+                }
+                .alert("Something went wrong", isPresented: Binding(get: { crashNote != nil }, set: { if !$0 { crashNote = nil } })) {
+                    Button("Copy Report") {
+                        let since = UserDefaults.standard.double(forKey: "diagnostics.askedAt")
+                        UIPasteboard.general.string = PhoneDiagnostics.report(since: since)
+                        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "diagnostics.askedAt")
+                    }
+                    Button("Not Now", role: .cancel) {
+                        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "diagnostics.askedAt")
+                    }
+                } message: {
+                    Text((crashNote ?? "") + " Copy the report to send it along. It says what was on screen and where the app was stuck, not what your chats say.")
                 }
                 .sheet(isPresented: $shareInboxShown) {
                     if let machine = app.selected {

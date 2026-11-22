@@ -306,8 +306,15 @@ final class Connection {
         if e.seq <= transcripts[e.chatId]!.lastSeq, !transcripts[e.chatId]!.holds(e) {
             resetTranscript(e.chatId)
         }
-        let t = transcripts[e.chatId]!
-        let isNext = e.seq == t.lastSeq + 1 || (t.startsAnywhere && t.events.isEmpty && t.lastSeq == 0)
+        // Read in place, not through a copy: a `let t` held the events buffer
+        // across the apply below, which then had to copy the whole array to add
+        // one event (the quadratic catch-up the note above is about).
+        let isNext: Bool = {
+            let lastSeq = transcripts[e.chatId]!.lastSeq
+            return e.seq == lastSeq + 1
+                || (transcripts[e.chatId]!.startsAnywhere && transcripts[e.chatId]!.events.isEmpty && lastSeq == 0)
+        }()
+        Connection.trail?("event \(e.data.kind) seq \(e.seq)")
         if !transcripts[e.chatId]!.apply(e), watching.contains(e.chatId) {
             // Gap: ask again from what we have.
             resubscribe(e.chatId)
@@ -597,6 +604,7 @@ final class Connection {
             writeShareSnapshot()
             onChatsChanged?()
             Task { await loadSplits() }
+            Task { await uploadDiagnostics() }
             state = .connected
             lastError = nil
             handshakeTask?.cancel()
@@ -974,6 +982,33 @@ final class Connection {
         var params: [String: JSONValue] = ["id": .string(id), "approve": .bool(approve), "trustRest": .bool(trustRest)]
         if approve, faceIdChecked.remove(id) != nil { params["faceId"] = .bool(true) }
         _ = try await rpc("approval.answer", .object(params))
+    }
+
+    /// The app's freeze log, filled in by the app (not the share extension,
+    /// which compiles this file without it): a breadcrumb per event, and the
+    /// reports waiting for the Mac.
+    nonisolated(unsafe) static var trail: ((String) -> Void)?
+    nonisolated(unsafe) static var pendingDiagnostics: (() -> [(url: URL, kind: String, id: String)])?
+    nonisolated(unsafe) static var removeDiagnostic: ((URL) -> Void)?
+    nonisolated(unsafe) static var markDiagnosticSent: ((URL) -> Void)?
+
+    /// Hand the Mac what this phone wrote down about its own freezes (see
+    /// PhoneDiagnostics), oldest first; each is removed once the Mac has it.
+    /// A Mac too old to take them says no, and they wait for a newer one.
+    func uploadDiagnostics() async {
+        guard let pending = Connection.pendingDiagnostics, let remove = Connection.removeDiagnostic else { return }
+        for r in pending() {
+            guard let body = try? String(contentsOf: r.url, encoding: .utf8) else { remove(r.url); continue }
+            do {
+                _ = try await rpc("diagnostics.report", .object([
+                    "kind": .string(r.kind), "id": .string(r.id), "body": .string(body)
+                ]))
+                // Kept, marked as sent, for Copy Report on the phone.
+                Connection.markDiagnosticSent?(r.url)
+            } catch {
+                return
+            }
+        }
     }
 
     func reportPresence(active: Bool, pushToken: String? = nil) {

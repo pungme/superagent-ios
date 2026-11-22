@@ -274,15 +274,67 @@ struct MarkdownTable: View {
 }
 
 /// Inline Markdown (bold, italics, code, links) via Foundation's parser.
+/// One paragraph's inline Markdown (bold, code, links). Styled once per
+/// distinct text and kept: a row re-created on scroll used to style every
+/// paragraph again. Not `.textSelection`: it made a long reply several times
+/// slower to lay out (25 of 44 ms for 20,000 characters, measured), and the
+/// message's long-press menu takes the press it needed anyway. "Select Text"
+/// in that menu is how part of a message is picked.
 struct InlineText: View {
     let text: String
     init(_ text: String) { self.text = text }
+    var body: some View { Text(Self.styled(text)) }
+
+    // NSCache is thread-safe; the compiler cannot see that.
+    nonisolated(unsafe) private static let cache: NSCache<NSString, Box> = {
+        let c = NSCache<NSString, Box>()
+        c.countLimit = 2_000
+        c.totalCostLimit = 8 << 20
+        return c
+    }()
+    private final class Box: @unchecked Sendable { let value: AttributedString; init(_ v: AttributedString) { value = v } }
+
+    static func styled(_ text: String) -> AttributedString {
+        let key = text as NSString
+        if let hit = cache.object(forKey: key) { return hit.value }
+        let value = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+        cache.setObject(Box(value), forKey: key, cost: text.utf8.count)
+        return value
+    }
+}
+
+/// A whole message as selectable text, for "Select Text" in its long-press
+/// menu: a read-only text view, so a word or a line can be picked and copied.
+struct SelectTextSheet: View {
+    let text: String
+    @Environment(\.dismiss) private var dismiss
     var body: some View {
-        if let a = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-            Text(a).textSelection(.enabled)
-        } else {
-            Text(text).textSelection(.enabled)
+        NavigationStack {
+            SelectableText(text: text)
+                .navigationTitle("Select Text")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
+    }
+}
+
+private struct SelectableText: UIViewRepresentable {
+    let text: String
+    func makeUIView(context: Context) -> UITextView {
+        let v = UITextView()
+        v.isEditable = false
+        v.isSelectable = true
+        v.backgroundColor = .clear
+        v.font = .preferredFont(forTextStyle: .body)
+        v.adjustsFontForContentSizeCategory = true
+        v.textColor = .label
+        v.textContainerInset = UIEdgeInsets(top: 16, left: 14, bottom: 24, right: 14)
+        v.dataDetectorTypes = [.link]
+        return v
+    }
+    func updateUIView(_ v: UITextView, context: Context) {
+        if v.text != text { v.text = text }
     }
 }
 
@@ -311,7 +363,6 @@ struct CodeBlock: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .superFont(12.5, design: .monospaced)
-                    .textSelection(.enabled)
                     .padding(.horizontal, 10).padding(.bottom, 10)
             }
         }

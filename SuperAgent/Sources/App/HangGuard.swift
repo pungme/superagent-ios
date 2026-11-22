@@ -1,4 +1,5 @@
 import UIKit
+import MetricKit
 
 /// Notices when the app's main thread stops answering, and remembers which
 /// conversation was open.
@@ -35,6 +36,23 @@ final class HangGuard: @unchecked Sendable {
         center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.setForeground(false)
         }
+        center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+            UserDefaults.standard.set(false, forKey: Self.runningKey)
+        }
+        center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
+            UserDefaults.standard.set(true, forKey: Self.runningKey)
+        }
+        // Still marked as on screen from last time: it ended without going to
+        // the background first, a crash or the watchdog. Write that down.
+        if UserDefaults.standard.bool(forKey: Self.runningKey) {
+            PhoneDiagnostics.saveExit(lastChat: UserDefaults.standard.string(forKey: Self.lastChatKey))
+        }
+        UserDefaults.standard.set(true, forKey: Self.runningKey)
+        MXMetricManager.shared.add(MetricKitSink.shared)
+        Connection.trail = { [weak self] in self?.mark($0) }
+        Connection.pendingDiagnostics = { PhoneDiagnostics.pending() }
+        Connection.removeDiagnostic = { PhoneDiagnostics.remove($0) }
+        Connection.markDiagnosticSent = { PhoneDiagnostics.markSent($0) }
         let t = Thread { [weak self] in self?.watch() }
         t.name = "HangGuard"
         t.qualityOfService = .utility
@@ -45,8 +63,12 @@ final class HangGuard: @unchecked Sendable {
         lock.lock(); foreground = on; lock.unlock()
     }
 
+    static let runningKey = "hang.running"
+    static let lastChatKey = "hang.lastChat"
+
     /// The conversation on screen, or nil when none is.
     func setOpen(_ id: String?) {
+        UserDefaults.standard.set(id, forKey: Self.lastChatKey)
         lock.lock(); chatId = id; lock.unlock()
     }
 
@@ -57,20 +79,62 @@ final class HangGuard: @unchecked Sendable {
             lock.lock(); let active = foreground; let open = chatId; lock.unlock()
             guard active else { recorded = false; continue }
             let answered = Atomic()
+            let sent = Date()
             DispatchQueue.main.async { answered.set() }
             var waited: TimeInterval = 0
             while !answered.isSet, waited < Self.stall + 0.5 {
-                Thread.sleep(forTimeInterval: 0.1)
-                waited += 0.1
+                Thread.sleep(forTimeInterval: 0.05)
+                waited += 0.05
             }
-            if answered.isSet { recorded = false; continue }
+            if answered.isSet {
+                recorded = false
+                let took = Date().timeIntervalSince(sent)
+                if took >= Self.logAt { PhoneDiagnostics.saveHang(seconds: took, snapshot: snapshot()) }
+                continue
+            }
             if !recorded, let open {
                 recorded = true
                 Self.record(chat: open)
             }
+            // What was on screen while it is stuck, not after it recovers, and
+            // written now: past ten seconds iOS kills the app (0x8BADF00D) and
+            // nothing after this line would run.
+            var during = snapshot()
+            during["ongoing"] = true
+            let provisional = PhoneDiagnostics.saveHang(seconds: Date().timeIntervalSince(sent), snapshot: during)
             // Keep waiting for it, so one long stall is one hang.
             while !answered.isSet { Thread.sleep(forTimeInterval: 0.25) }
+            if let provisional { PhoneDiagnostics.remove(provisional) }
+            during["ongoing"] = nil
+            PhoneDiagnostics.saveHang(seconds: Date().timeIntervalSince(sent), snapshot: during)
         }
+    }
+
+    // MARK: What was going on (written to the freeze log, see PhoneDiagnostics)
+
+    /// A stall this long is written down for the Mac, short of the 3.5 s that
+    /// puts a conversation in safe mode: under a second already feels frozen.
+    static let logAt: TimeInterval = 0.75
+    private var context: [String: String] = [:]
+    private var trail: [String] = []
+
+    /// Facts about what is on screen (the open chat's size, its longest text).
+    func note(_ key: String, _ value: String) {
+        lock.lock(); context[key] = value; lock.unlock()
+    }
+
+    /// The last things the main thread did, newest last.
+    func mark(_ what: String) {
+        let stamp = String(format: "%.3f", Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 1000))
+        lock.lock()
+        trail.append("\(stamp) \(what)")
+        if trail.count > 40 { trail.removeFirst(trail.count - 40) }
+        lock.unlock()
+    }
+
+    private func snapshot() -> [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        return ["chat": chatId ?? "", "context": context, "trail": trail]
     }
 
     private final class Atomic: @unchecked Sendable {
@@ -108,5 +172,144 @@ final class HangGuard: @unchecked Sendable {
         var all = load()
         all[chatId] = nil
         UserDefaults.standard.set(all, forKey: key)
+    }
+}
+
+
+/// Apple's own hang reports, with the main thread's call stack: MetricKit hands
+/// them to the app (on the next launch at the latest), and they wait in the
+/// freeze log for the Mac.
+final class MetricKitSink: NSObject, MXMetricManagerSubscriber, @unchecked Sendable {
+    static let shared = MetricKitSink()
+    func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        for p in payloads {
+            PhoneDiagnostics.save(kind: "metrickit", id: UUID().uuidString, body: p.jsonRepresentation())
+        }
+    }
+}
+
+/// The freeze log: what the phone noticed about its own stalls, kept on disk
+/// until the Mac has taken it (Connection.uploadDiagnostics). A freeze under
+/// iOS's ten-second watchdog leaves no report anywhere else.
+enum PhoneDiagnostics {
+    static let keep = 60
+
+    static var dir: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let d = base.appendingPathComponent("diagnostics", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    @discardableResult
+    static func saveHang(seconds: TimeInterval, snapshot: [String: Any]) -> URL? {
+        var body = snapshot
+        body["seconds"] = (seconds * 100).rounded() / 100
+        body["at"] = ISO8601DateFormatter().string(from: Date())
+        body["app"] = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")
+            + " (" + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?") + ")"
+        var size = utsname(); uname(&size)
+        body["device"] = withUnsafeBytes(of: &size.machine) { String(decoding: $0.prefix(while: { $0 != 0 }), as: UTF8.self) }
+        body["os"] = ProcessInfo.processInfo.operatingSystemVersionString
+        guard let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else { return nil }
+        return save(kind: "hang", id: UUID().uuidString, body: data)
+    }
+
+    /// The app ended while on screen (a crash, or iOS killing a frozen app).
+    static func saveExit(lastChat: String?) {
+        let body: [String: Any] = [
+            "what": "Superagent ended while it was on screen: a crash, or iOS stopping it for not responding.",
+            "chat": lastChat ?? "", "at": ISO8601DateFormatter().string(from: Date())
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else { return }
+        save(kind: "exit", id: UUID().uuidString, body: data)
+    }
+
+    @discardableResult
+    static func save(kind: String, id: String, body: Data) -> URL? {
+        let url = dir.appendingPathComponent("\(Int(Date().timeIntervalSince1970 * 1000))__\(kind)__\(id).json")
+        guard (try? body.write(to: url, options: .atomic)) != nil else { return nil }
+        let all = files(sent: true) + files(sent: false)
+        let sorted = all.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        if sorted.count > keep { for f in sorted.prefix(sorted.count - keep) { remove(f) } }
+        return url
+    }
+
+    /// Not yet on the Mac, oldest first.
+    static func pending() -> [(url: URL, kind: String, id: String)] {
+        files(sent: false).compactMap { url in
+            let parts = url.deletingPathExtension().lastPathComponent.components(separatedBy: "__")
+            guard parts.count == 3 else { return nil }
+            return (url, parts[1], parts[2])
+        }
+    }
+
+    /// The Mac has it: kept (for Copy Report) but not sent again.
+    static func markSent(_ url: URL) {
+        let to = sentDir.appendingPathComponent(url.lastPathComponent)
+        try? FileManager.default.moveItem(at: url, to: to)
+    }
+
+    static func remove(_ url: URL) { try? FileManager.default.removeItem(at: url) }
+
+    private static var sentDir: URL {
+        let d = dir.appendingPathComponent("sent", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    private static func files(sent: Bool) -> [URL] {
+        ((try? FileManager.default.contentsOfDirectory(at: sent ? sentDir : dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    // MARK: Copy Report
+
+    /// Reports from after `since`, newest first, as one text to paste.
+    static func report(since: Double = 0, limit: Int = 300_000) -> String {
+        let all = (files(sent: true) + files(sent: false))
+            .filter { (Double($0.lastPathComponent.components(separatedBy: "__").first ?? "") ?? 0) / 1000 > since }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+        var out = "Superagent \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") "
+            + "(\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")), "
+            + "\(ProcessInfo.processInfo.operatingSystemVersionString)\n"
+        for f in all {
+            guard let body = try? String(contentsOf: f, encoding: .utf8) else { continue }
+            let piece = "\n--- \(f.lastPathComponent.components(separatedBy: "__").dropFirst().first ?? "") ---\n\(body)\n"
+            if out.utf8.count + piece.utf8.count > limit { out += "\n(older reports left out)\n"; break }
+            out += piece
+        }
+        return out
+    }
+
+    /// What went wrong since the app last asked, worth asking about: a crash, a
+    /// kill, Apple's report, or a freeze of two seconds or more. Nil when nothing.
+    static func worthAsking(since: Double) -> String? {
+        var worst: String?
+        for f in files(sent: true) + files(sent: false) {
+            let parts = f.deletingPathExtension().lastPathComponent.components(separatedBy: "__")
+            guard parts.count == 3, (Double(parts[0]) ?? 0) / 1000 > since else { continue }
+            switch parts[1] {
+            case "exit", "metrickit": return "Superagent stopped unexpectedly last time."
+            case "hang":
+                if let d = try? Data(contentsOf: f),
+                   let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                   let s = o["seconds"] as? Double, s >= 2 || o["ongoing"] as? Bool == true {
+                    worst = "Superagent stopped responding for \(String(format: "%.1f", s)) seconds."
+                }
+            default: break
+            }
+        }
+        return worst
+    }
+
+    /// TestFlight (and debug) builds ask after a crash; the App Store build does not.
+    static var asksAfterCrash: Bool {
+        #if DEBUG
+        return true
+        #else
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+        #endif
     }
 }

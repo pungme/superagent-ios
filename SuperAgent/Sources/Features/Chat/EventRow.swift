@@ -238,6 +238,11 @@ struct StepRow: View {
     }
 }
 
+struct SelectedText: Identifiable {
+    let id = UUID()
+    let text: String
+}
+
 struct DiffCard: View {
     let file: String
     let hunks: [DiffHunk]
@@ -302,6 +307,8 @@ struct EventRow: View {
     let reply: (ReplyQuote) -> Void
 
     private var timestamp: Date { Date(timeIntervalSince1970: event.ts / 1000) }
+    /// The message opened in "Select Text", if any.
+    @State private var selecting: SelectedText?
 
     /// Pictures in a reply live on the Mac: ask it for them, through the same
     /// files.read the Files screen uses.
@@ -328,6 +335,11 @@ struct EventRow: View {
     }
 
     var body: some View {
+        content.sheet(item: $selecting) { SelectTextSheet(text: $0.text) }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch event.data {
         case let .user(messageId, text, images, from, replyTo):
             HStack {
@@ -353,6 +365,9 @@ struct EventRow: View {
                                     Button { UIPasteboard.general.string = mainText } label: {
                                         Label("Copy", systemImage: "doc.on.doc")
                                     }
+                                    Button { selecting = SelectedText(text: mainText) } label: {
+                                        Label("Select Text", systemImage: "selection.pin.in.out")
+                                    }
                                     Button { reply(ReplyQuote(role: .user, text: mainText)) } label: {
                                         Label("Reply", systemImage: "arrowshape.turn.up.left")
                                     }
@@ -364,13 +379,15 @@ struct EventRow: View {
                                 .foregroundStyle(Theme.accentFg)
                                 .padding(.horizontal, 14).padding(.vertical, 9)
                                 .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
-                                .textSelection(.enabled)
                                 .contextMenu {
                                     // Copy first: it is what a long press on a
                                     // message is for, and the menu takes the
                                     // press that text selection would have had.
                                     Button { UIPasteboard.general.string = mainText } label: {
                                         Label("Copy", systemImage: "doc.on.doc")
+                                    }
+                                    Button { selecting = SelectedText(text: mainText) } label: {
+                                        Label("Select Text", systemImage: "selection.pin.in.out")
                                     }
                                     Button { reply(ReplyQuote(role: .user, text: text)) } label: {
                                         Label("Reply", systemImage: "arrowshape.turn.up.left")
@@ -410,6 +427,9 @@ struct EventRow: View {
                         .contextMenu {
                             Button { UIPasteboard.general.string = body } label: {
                                 Label("Copy", systemImage: "doc.on.doc")
+                            }
+                            Button { selecting = SelectedText(text: body) } label: {
+                                Label("Select Text", systemImage: "selection.pin.in.out")
                             }
                             Button { reply(ReplyQuote(role: .assistant, text: body)) } label: {
                                 Label("Reply", systemImage: "arrowshape.turn.up.left")
