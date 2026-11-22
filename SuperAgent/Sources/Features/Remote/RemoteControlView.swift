@@ -193,7 +193,7 @@ struct RemoteControlView: View {
                 Image(systemName: "xmark").font(.system(size: 15, weight: .semibold))
                     .frame(width: 40, height: 40).background(Theme.panel, in: Circle())
             }
-            .buttonStyle(.plain).accessibilityLabel("Close")
+            .buttonStyle(.hoverPlain).accessibilityLabel("Close")
             Spacer()
         }
         .padding(.horizontal, 16).padding(.top, 8)
@@ -269,7 +269,7 @@ struct RemoteControlView: View {
                 .padding(.horizontal, 14).padding(.vertical, 8)
                 .background(Color(red: 0.78, green: 0.16, blue: 0.12), in: Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverPlain)
         .accessibilityIdentifier("remote-end")
     }
 
@@ -308,7 +308,7 @@ struct RemoteControlView: View {
                     Image(systemName: typing ? "keyboard.chevron.compact.down" : "keyboard")
                         .font(.system(size: 17, weight: .medium)).frame(width: 40, height: 34)
                 }
-                .buttonStyle(.plain).accessibilityLabel(typing ? "Hide keyboard" : "Keyboard")
+                .buttonStyle(.hoverPlain).accessibilityLabel(typing ? "Hide keyboard" : "Keyboard")
                 .accessibilityIdentifier("remote-keyboard")
             }
             .padding(.horizontal, 12).padding(.vertical, 8)

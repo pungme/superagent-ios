@@ -35,7 +35,7 @@ struct SettingsView: View {
                                         }
                                     }
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.hoverPlain)
                             .accessibilityLabel(a == .standard ? "Default accent" : "\(a.rawValue) accent")
                         }
                     }

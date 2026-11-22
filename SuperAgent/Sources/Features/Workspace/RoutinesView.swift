@@ -80,7 +80,7 @@ private struct RoutineRow: View {
                     Text(routine.prompt).superFont(15).foregroundStyle(Theme.textPrimary).lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 Spacer()
                 Toggle("Enabled", isOn: Binding(get: { routine.isEnabled }, set: { toggle($0) })).labelsHidden().tint(Theme.working)
             }

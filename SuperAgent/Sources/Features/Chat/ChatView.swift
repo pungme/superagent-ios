@@ -644,7 +644,7 @@ struct ChatView: View {
                         }
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 .accessibilityIdentifier("chat-title")
                 .accessibilityLabel("\(title ?? "Conversation"), rename")
             }
@@ -1010,7 +1010,7 @@ struct ChatView: View {
                         .background(Theme.panel, in: Capsule())
                         .overlay(Capsule().stroke(Theme.border))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 .accessibilityLabel(loop.isPaused ? "Resume the loop" : "Pause the loop")
             }
             Button {
@@ -1026,7 +1026,7 @@ struct ChatView: View {
                     .background(Theme.panel, in: Capsule())
                     .overlay(Capsule().stroke(Theme.border))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .accessibilityLabel("Stop the loop")
         }
         .padding(.horizontal, 14).padding(.vertical, 7)
@@ -1379,7 +1379,7 @@ struct ChatView: View {
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 .accessibilityLabel("Close Todo")
             }
             .padding(.horizontal, 14).padding(.vertical, 8)

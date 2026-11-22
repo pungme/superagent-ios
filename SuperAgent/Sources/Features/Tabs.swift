@@ -82,7 +82,7 @@ struct SearchTabView: View {
                     .padding(.horizontal, 8).padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 .listRowBackground(Theme.card)
             }
         }
@@ -139,7 +139,7 @@ struct SearchTabView: View {
             .padding(.horizontal, 8).padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverPlain)
         .accessibilityIdentifier("palette-row")
     }
 
@@ -246,7 +246,7 @@ struct TodayTab: View {
                             Button { tick(c) } label: {
                                 Image(systemName: "circle").font(.title3).foregroundStyle(Theme.textTertiary)
                             }
-                            .buttonStyle(.plain).accessibilityLabel("Done: \(c.title)")
+                            .buttonStyle(.hoverPlain).accessibilityLabel("Done: \(c.title)")
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(c.title).foregroundStyle(Theme.textPrimary).lineLimit(2)
                                 Text(name(c.workspaceId)).font(.footnote).foregroundStyle(Theme.textSecondary)
@@ -258,14 +258,14 @@ struct TodayTab: View {
                                         .padding(.horizontal, 10).padding(.vertical, 5)
                                         .background(Color.blue.opacity(0.14), in: Capsule()).foregroundStyle(.blue)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.hoverPlain)
                             } else {
                                 Button { hand(c) } label: {
                                     Text(handing == c.id ? "Handing…" : "Hand to agent").font(.caption.weight(.semibold))
                                         .padding(.horizontal, 10).padding(.vertical, 5)
                                         .background(Theme.accent, in: Capsule()).foregroundStyle(Theme.accentFg)
                                 }
-                                .buttonStyle(.plain).disabled(handing != nil || connection.state != .connected)
+                                .buttonStyle(.hoverPlain).disabled(handing != nil || connection.state != .connected)
                                 .accessibilityIdentifier("hand-\(c.id)")
                             }
                         }
@@ -316,7 +316,7 @@ struct TodayTab: View {
                         .background(draft.trimmingCharacters(in: .whitespaces).isEmpty ? Theme.accentSoft : Theme.accent, in: Circle())
                         .foregroundStyle(draft.trimmingCharacters(in: .whitespaces).isEmpty ? Theme.textTertiary : Theme.accentFg)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || asking || connection.state != .connected)
                 .accessibilityLabel("Send")
             }

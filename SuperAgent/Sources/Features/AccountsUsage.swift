@@ -186,7 +186,7 @@ struct UsageFooter: View {
                     .background(Theme.hover, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 .padding(.horizontal, 12).padding(.top, 4).padding(.bottom, 6)
                 .accessibilityIdentifier("usage-footer")
                 .accessibilityLabel("\(current.shortName), \(used.map { "\($0)% used" } ?? "usage not read yet")")

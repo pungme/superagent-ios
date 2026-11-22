@@ -141,7 +141,7 @@ struct StepGroupRow: View {
                 .padding(.vertical, 2)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             if open {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(group.events) { e in
@@ -257,7 +257,7 @@ struct DiffCard: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             if open {
                 ScrollView(.horizontal, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -541,7 +541,7 @@ struct ChoicesView: View {
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.borderStrong))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
             }
             if choices.multiple {
                 // The one thing left to do once the boxes are ticked, so it
@@ -770,7 +770,7 @@ struct ReplyBar: View {
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .accessibilityLabel("Cancel reply")
         }
         .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 6)
@@ -1010,7 +1010,7 @@ struct FileHandoffCard: View {
             NavigationLink(value: FileRef(workspaceId: workspaceId, path: path, chatId: chatId)) {
                 card
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
         } else {
             card
         }
@@ -1082,7 +1082,7 @@ private struct FileImagePreview<Fallback: View>: View {
                 NavigationLink(value: FileRef(workspaceId: workspaceId, path: path, chatId: chatId)) {
                     fallback()
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
             }
         }
         .task(id: key) {

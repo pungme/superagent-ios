@@ -144,7 +144,7 @@ private struct RemoteKeyStrip: View {
                         Image(systemName: "keyboard.chevron.compact.down")
                             .font(.system(size: 15, weight: .medium)).frame(width: 40, height: 34)
                     }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Hide keyboard")
+                    .buttonStyle(.hoverPlain).foregroundStyle(.secondary).accessibilityLabel("Hide keyboard")
                 }
                 .padding(.horizontal, 8)
             }
@@ -157,7 +157,7 @@ private struct RemoteKeyStrip: View {
                     .frame(minWidth: 34, minHeight: 34).padding(.horizontal, 6)
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
-            .buttonStyle(.plain).foregroundStyle(.primary)
+            .buttonStyle(.hoverPlain).foregroundStyle(.primary)
         }
 
         private func mod(_ glyph: String, _ m: RemoteMod, _ name: String) -> some View {
@@ -169,7 +169,7 @@ private struct RemoteKeyStrip: View {
                     .background(on ? Theme.accent : Color(uiColor: .secondarySystemBackground),
                                 in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .accessibilityLabel(name)
             .accessibilityValue(on ? "down for the next key" : "")
         }
@@ -286,7 +286,7 @@ struct MacKeyboard: View {
             .background(on ? Theme.accent : Color(white: isMod || k.label.count > 1 ? 0.2 : 0.27),
                         in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverPlain)
         .accessibilityLabel(k.label.isEmpty ? (k.symbol ?? "key") : k.label)
     }
 

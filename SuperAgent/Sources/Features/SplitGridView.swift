@@ -76,7 +76,7 @@ struct SplitGridView: View {
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.border))
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverPlain)
         .accessibilityIdentifier("split-card-\(chat.id)")
     }
 }

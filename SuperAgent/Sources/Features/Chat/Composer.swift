@@ -677,7 +677,7 @@ struct Composer: View {
                             Button { onCancelQueue(m.id) } label: {
                                 Image(systemName: "xmark.circle.fill").superFont(13).foregroundStyle(Theme.textTertiary)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.hoverPlain)
                         }
                         .padding(.horizontal, 10).padding(.vertical, 7)
                         .background(Theme.panel, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -696,7 +696,7 @@ struct Composer: View {
                                     .padding(.horizontal, 10).padding(.vertical, 6)
                                     .background(Theme.accentSoft, in: Capsule())
                             }
-                            .buttonStyle(.plain).foregroundStyle(Theme.textPrimary)
+                            .buttonStyle(.hoverPlain).foregroundStyle(Theme.textPrimary)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -717,7 +717,7 @@ struct Composer: View {
                                     Image(systemName: "xmark.circle.fill").superFont(13)
                                         .foregroundStyle(Theme.textTertiary)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.hoverPlain)
                             }
                             .padding(.horizontal, 10).padding(.vertical, 6)
                             .background(Theme.panel, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -758,7 +758,7 @@ struct Composer: View {
                         .frame(width: well, height: well)
                         .background(Theme.accentSoft, in: Circle())
                 }
-                .buttonStyle(.plain).foregroundStyle(Theme.textSecondary)
+                .buttonStyle(.hoverPlain).foregroundStyle(Theme.textSecondary)
                 .accessibilityLabel("Attach")
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .photosPicker(isPresented: $showPhotoPicker, selection: $pickerItems,
@@ -785,7 +785,7 @@ struct Composer: View {
                             logoMark(highlighted: false)
                         }
                         .menuOrder(.fixed)
-                        .buttonStyle(.plain)
+                        .buttonStyle(.hoverPlain)
                         .help(agentDetails)
                         .accessibilityValue(limitFraction.map { "Usage limit \(Int($0 * 100)) percent" } ?? "")
                         .padding(.leading, 3)
@@ -798,7 +798,7 @@ struct Composer: View {
                         } label: {
                             logoMark(highlighted: settingsOpen)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.hoverPlain)
                         .help(agentDetails)
                         .accessibilityValue(limitFraction.map { "Usage limit \(Int($0 * 100)) percent" } ?? "")
                         .padding(.leading, 3)
@@ -856,7 +856,7 @@ struct Composer: View {
                             .foregroundStyle(dictation.listening ? Theme.danger : Theme.textTertiary)
                             .frame(width: well, height: well)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hoverPlain)
                     .accessibilityLabel(dictation.listening ? "Stop dictation" : "Dictate")
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 }
@@ -869,7 +869,7 @@ struct Composer: View {
                             .frame(width: well, height: well)
                             .background(Theme.accentSoft, in: Circle())
                     }
-                    .buttonStyle(.plain).foregroundStyle(Theme.textPrimary)
+                    .buttonStyle(.hoverPlain).foregroundStyle(Theme.textPrimary)
                     .accessibilityLabel("Stop")
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 }
@@ -883,7 +883,7 @@ struct Composer: View {
                         .background(canSend ? Theme.accent : Theme.accentSoft, in: Circle())
                         .foregroundStyle(canSend ? Theme.accentFg : Theme.textTertiary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 .disabled(!canSend)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .accessibilityLabel("Send")
@@ -1063,7 +1063,7 @@ private struct SendMenu: View {
                     .padding(.horizontal, 12).padding(.vertical, 10)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverPlain)
         .foregroundStyle(Theme.textPrimary)
         .frame(width: 230)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))

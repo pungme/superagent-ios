@@ -389,7 +389,7 @@ struct SidebarView: View {
             .frame(minHeight: 32)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverPlain)
         .disabled(computer == nil)
         .listRowBackground(rowBackground(false))
         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 12))
@@ -422,14 +422,14 @@ struct SidebarView: View {
                 Image(systemName: "globe").superFont(15, weight: .medium).foregroundStyle(Theme.textSecondary)
                     .frame(width: 40, height: addTarget).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .disabled(connection.state != .connected)
             .accessibilityLabel("New tab")
             Button { addingTo = flatGroupRecord } label: {
                 Image(systemName: "folder.badge.plus").superFont(15, weight: .medium).foregroundStyle(Theme.textSecondary)
                     .frame(width: 44, height: addTarget).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .disabled(connection.state != .connected || flatGroupRecord == nil)
             .accessibilityLabel("Add a project")
         }
@@ -445,7 +445,7 @@ struct SidebarView: View {
                     .superFont(13.5)
                     .foregroundStyle(Theme.textSecondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .listRowBackground(rowBackground(false))
         }
     }
@@ -517,7 +517,7 @@ struct SidebarView: View {
                         .frame(minHeight: 40)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hoverPlain)
                     .listRowBackground(rowBackground(false))
                     .accessibilityIdentifier("split-row-\(split.id)")
                 }
@@ -543,7 +543,7 @@ struct SidebarView: View {
                             .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hoverPlain)
                     .listRowBackground(rowBackground(false))
                 }
                 if chats.isEmpty {
@@ -574,7 +574,7 @@ struct SidebarView: View {
                 .frame(minHeight: 36)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .accessibilityLabel(chatsCollapsed ? "Show chats" : "Hide chats")
             Spacer(minLength: 0)
             Button {
@@ -583,7 +583,7 @@ struct SidebarView: View {
                 Image(systemName: "square.and.pencil").superFont(15, weight: .medium).foregroundStyle(Theme.textSecondary)
                     .frame(width: 44, height: addTarget).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .disabled(computer == nil || connection.state != .connected || busy)
             .accessibilityLabel("New chat in Chats")
         }
@@ -604,7 +604,7 @@ struct SidebarView: View {
                                 Label("Add a project…", systemImage: "plus")
                                     .superFont(13.5).foregroundStyle(Theme.textTertiary)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.hoverPlain)
                             .listRowBackground(rowBackground(false))
                         }
                     }
@@ -652,13 +652,13 @@ struct SidebarView: View {
                 .frame(minHeight: 36)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .disabled(collapsedKey == nil)
             Button(action: add) {
                 Image(systemName: "plus").superFont(15, weight: .medium).foregroundStyle(Theme.textSecondary)
                     .frame(width: 44, height: addTarget).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .disabled(connection.state != .connected)
             .accessibilityLabel("Add to \(title)")
         }
@@ -715,7 +715,7 @@ struct SidebarView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .disabled(chat == nil)
             .contextMenu {
                 if let chat {
@@ -840,7 +840,7 @@ struct SidebarView: View {
             .frame(minHeight: compact ? 30 : 40)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverPlain)
         // Drag it onto the conversation column to open it beside (iPad split).
         .draggable(chat.id)
         // The row for the conversation on screen says so — with the sidebar
@@ -917,7 +917,7 @@ struct SidebarView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .draggable(chat.id)
             .contextMenu {
                 if let openBeside {
@@ -994,7 +994,7 @@ struct SidebarView: View {
             .frame(minHeight: 40)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverPlain)
         if hasTree {
             Button { toggleFold(ws.id) } label: {
                 Image(systemName: "chevron.right").superFont(11, weight: .semibold)
@@ -1111,7 +1111,7 @@ struct SidebarView: View {
                             }
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.hoverPlain)
                         .opacity(r.isEnabled ? 1 : 0.5)
                     }
                 }
@@ -1138,7 +1138,7 @@ struct SidebarView: View {
                     .padding(.horizontal, 8).padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 .listRowBackground(rowBackground(false))
             }
         }

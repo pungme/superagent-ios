@@ -163,7 +163,7 @@ struct BrowserMirror: View {
             // Show bar. Was only a chevron in the toolbar below — not recognised.
             if let onHide {
                 Button(action: onHide) { Image(systemName: "xmark").superFont(compact ? 12 : 14, weight: .semibold) }
-                    .buttonStyle(.plain).tint(Theme.textTertiary).accessibilityLabel("Close the page")
+                    .buttonStyle(.hoverPlain).tint(Theme.textTertiary).accessibilityLabel("Close the page")
             }
         }
         .padding(.horizontal, compact ? 10 : 12).padding(.vertical, compact ? 6 : 9)
@@ -227,7 +227,7 @@ struct BrowserMirror: View {
                         .background(mode == m ? Theme.textPrimary : .clear, in: Capsule())
                         .foregroundStyle(mode == m ? Theme.content : Theme.textSecondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 .accessibilityLabel(m == .touch ? "Touch" : "Trackpad")
                 .accessibilityAddTraits(mode == m ? .isSelected : [])
             }
@@ -460,7 +460,7 @@ struct SimulatorMirror: View {
                         Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                             .superFont(13)
                     }
-                    .buttonStyle(.plain).tint(Theme.textTertiary)
+                    .buttonStyle(.hoverPlain).tint(Theme.textTertiary)
                     .accessibilityLabel(expanded ? "Exit full screen" : "Open full screen")
                 }
                 // A close in the top-right, where the desktop puts it, so the
@@ -468,7 +468,7 @@ struct SimulatorMirror: View {
                 // below was a hide nobody recognised. Reopenable via the Show bar.
                 if let onHide {
                     Button(action: onHide) { Image(systemName: "xmark").superFont(13, weight: .semibold) }
-                        .buttonStyle(.plain).tint(Theme.textTertiary).accessibilityLabel("Close the simulator")
+                        .buttonStyle(.hoverPlain).tint(Theme.textTertiary).accessibilityLabel("Close the simulator")
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
@@ -478,11 +478,11 @@ struct SimulatorMirror: View {
 
             HStack(spacing: 18) {
                 Button { Task { await refresh(force: true) } } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.plain).tint(Theme.textSecondary)
+                    .buttonStyle(.hoverPlain).tint(Theme.textSecondary)
                 Spacer()
                 if let onAttach, let data = image?.jpegData(compressionQuality: 0.8) {
                     Button { onAttach(data) } label: { Image(systemName: "paperclip") }
-                        .buttonStyle(.plain).tint(Theme.textSecondary).accessibilityLabel("Send this screen to the agent")
+                        .buttonStyle(.hoverPlain).tint(Theme.textSecondary).accessibilityLabel("Send this screen to the agent")
                 }
             }
             .superFont(15)
@@ -860,7 +860,7 @@ struct MirrorPiP<Content: View>: View {
                     .clipShape(shape)
                     .contentShape(shape)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .accessibilityLabel("Open full screen")
             .accessibilityHint(label)
             .accessibilityIdentifier("mirror-pip")
@@ -875,7 +875,7 @@ struct MirrorPiP<Content: View>: View {
                     .padding(6)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .accessibilityLabel(closeLabel)
         }
         .overlay(shape.strokeBorder(.white.opacity(0.14), lineWidth: 0.5))
@@ -1471,7 +1471,7 @@ private struct PageKeyStrip: View {
                     .font(.system(size: 15, weight: .medium))
                     .frame(width: 40, height: 34)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .foregroundStyle(.secondary)
             .accessibilityLabel("Stop typing")
         }
@@ -1491,7 +1491,7 @@ private struct PageKeyStrip: View {
                 .padding(.horizontal, 2)
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverPlain)
         .foregroundStyle(.primary)
         .accessibilityLabel(label)
     }

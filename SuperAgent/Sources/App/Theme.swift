@@ -228,3 +228,38 @@ enum Haptics {
     static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
     static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
 }
+
+/// The app's plain button, with the Mac's hover: on an iPad with a trackpad or
+/// mouse, whatever is under the pointer gets the same faint tint the desktop's
+/// sidebar rows and buttons get. `.plain` gave no sign at all of what a click
+/// would hit. Touch never hovers, so on a phone this is `.plain` as before.
+struct HoverPlainButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HoverBody(configuration: configuration)
+    }
+
+    private struct HoverBody: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .opacity(configuration.isPressed ? 0.55 : 1)
+                .contentShape(Rectangle())
+                .background {
+                    if hovering && isEnabled {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Theme.hover)
+                            .padding(-3)
+                    }
+                }
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.12), value: hovering)
+        }
+    }
+}
+
+extension ButtonStyle where Self == HoverPlainButtonStyle {
+    static var hoverPlain: HoverPlainButtonStyle { HoverPlainButtonStyle() }
+}

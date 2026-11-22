@@ -61,7 +61,7 @@ struct ChatsListView: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverPlain)
         .listRowBackground(Theme.card)
         .contextMenu {
             Button { duplicate(chat) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
@@ -89,7 +89,7 @@ struct ChatsListView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .disabled(creating || connection.state != .connected)
             .listRowBackground(Theme.card)
 

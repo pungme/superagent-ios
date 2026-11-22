@@ -339,7 +339,7 @@ extension RootView {
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverPlain)
                 .accessibilityLabel("Take this window off screen")
             }
             .padding(.leading, 12).padding(.trailing, 6)
@@ -592,7 +592,7 @@ struct WelcomeView: View {
                     .background(Theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .foregroundStyle(Theme.accentFg)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .padding(.horizontal, 24)
             Text("On the Mac: Settings → Phone → Show pairing code")
                 .font(.footnote)
@@ -606,7 +606,7 @@ struct WelcomeView: View {
                     .padding(.vertical, 10)
                     .foregroundStyle(Theme.textPrimary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverPlain)
             .padding(.horizontal, 24)
             .accessibilityIdentifier("try-demo")
             Text("Sample data on this phone only. Nothing is sent anywhere.")
