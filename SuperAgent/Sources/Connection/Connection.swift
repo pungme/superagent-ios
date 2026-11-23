@@ -152,7 +152,11 @@ final class Connection {
     let machine: PairedMachine
     /// Fired after the Mac sends a fresh chat list (welcome or `chats`).
     var onChatsChanged: (() -> Void)?
-    private(set) var state: State = .idle
+    private(set) var state: State = .idle {
+        // Into the freeze log: a screen that looks frozen is often one waiting
+        // on a connection, with the main thread perfectly free.
+        didSet { Connection.trail?("connection \(state)") }
+    }
     private(set) var info: WireMachine?
     private(set) var tree: [WireGroup] = []
     private(set) var chats: [WireChat] = []

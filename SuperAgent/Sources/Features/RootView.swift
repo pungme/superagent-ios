@@ -54,6 +54,14 @@ struct RootView: View {
     @State private var focusedTile = 0
     /// The split comes back after a relaunch, by its conversations' ids.
     @AppStorage("splitTileIds") private var savedTileIds = ""
+    /// What was open comes back after a relaunch too: the tab, and the
+    /// conversation on screen in it (none when you were on a list).
+    @AppStorage("restore.chatId") private var savedChatId = ""
+    @AppStorage("restore.tab") private var savedTab = ""
+    /// Not yet put back. Never after a run that ended on screen (a crash, or iOS
+    /// stopping a frozen app): reopening the chat that froze it would freeze it
+    /// again at every launch.
+    @State private var restorePending = !HangGuard.lastRunEndedOnScreen
 
     var body: some View {
         Group {
@@ -114,7 +122,16 @@ struct RootView: View {
         .sheet(isPresented: $showSettings) { SettingsView(onPair: { showSettings = false; showPair = true }) }
         // A tapped notification lands on its conversation.
         .onChange(of: app.openChatId, initial: true) { _, _ in openPending() }
-        .onChange(of: app.chatsVersion) { _, _ in openPending() }
+        .onChange(of: app.chatsVersion) { _, _ in openPending(); restore() }
+        .onAppear { restore() }
+        // Written as it changes, not on the way out: a crash has no way out.
+        .onChange(of: tab) { _, _ in rememberOpen() }
+        .onChange(of: shown) { _, _ in rememberOpen() }
+        .onChange(of: lastOpened) { _, _ in rememberOpen() }
+        .onChange(of: projectsPath.count) { _, _ in rememberOpen() }
+        .onChange(of: activityPath.count) { _, _ in rememberOpen() }
+        .onChange(of: chatPath.count) { _, _ in rememberOpen() }
+        .onChange(of: searchPath.count) { _, _ in rememberOpen() }
         // Folded or unfolded, turned or split: the conversation comes along.
         .onChange(of: width) { was, now in carryOver(from: was, to: now) }
         // Another Mac: what was open belonged to the old one's projects.
@@ -527,6 +544,59 @@ extension RootView {
     }
 
     /// Navigate to the chat a notification named, once its Mac has told us about it.
+    /// The stack of the tab on screen (a phone).
+    private var openDepth: Int {
+        switch tab {
+        case .projects: projectsPath.count
+        case .activity: activityPath.count
+        case .chat: chatPath.count
+        case .search: searchPath.count
+        case .settings: 0
+        }
+    }
+
+    private func rememberOpen() {
+        // Not before the last run's place is back, or this would write over it.
+        guard !restorePending else { return }
+        savedTab = tab.rawValue
+        let open = width == .regular ? shown : (openDepth > 0 ? lastOpened : nil)
+        savedChatId = open?.id ?? ""
+    }
+
+    /// Put back the tab and the conversation the last run had open.
+    private func restore() {
+        guard restorePending, let machine = app.selected else { return }
+        // A tapped notification says where to go; it wins.
+        if app.openChatId != nil { restorePending = false; return }
+        let c = app.connection(for: machine)
+        if width != .regular, let t = AppTab(rawValue: savedTab), t != .settings,
+           !ProcessInfo.processInfo.arguments.contains("-tab") { tab = t }
+        guard !savedChatId.isEmpty else { restorePending = false; return }
+        guard let chat = c.chats.first(where: { $0.id == savedChatId }) else {
+            // Gone from the Mac's list: nothing to put back. Until the list
+            // has come, keep waiting (chatsVersion calls again).
+            if c.state == .connected { restorePending = false }
+            return
+        }
+        restorePending = false
+        if width == .regular {
+            shown = chat
+        } else {
+            // A beat later, as openPending does: pushed during setup, the chat's
+            // hidden tab bar was lost.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(60))
+                switch tab {
+                case .projects: projectsPath.append(chat)
+                case .activity: activityPath.append(chat)
+                case .chat: chatPath.append(chat)
+                case .search: searchPath.append(chat)
+                case .settings: break
+                }
+            }
+        }
+    }
+
     private func openPending() {
         guard let chatId = app.openChatId, let machine = app.selected else { return }
         let c = app.connection(for: machine)

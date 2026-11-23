@@ -44,7 +44,7 @@ final class HangGuard: @unchecked Sendable {
         }
         // Still marked as on screen from last time: it ended without going to
         // the background first, a crash or the watchdog. Write that down.
-        if UserDefaults.standard.bool(forKey: Self.runningKey) {
+        if Self.lastRunEndedOnScreen {
             PhoneDiagnostics.saveExit(lastChat: UserDefaults.standard.string(forKey: Self.lastChatKey))
         }
         UserDefaults.standard.set(true, forKey: Self.runningKey)
@@ -64,6 +64,9 @@ final class HangGuard: @unchecked Sendable {
     }
 
     static let runningKey = "hang.running"
+    /// The last run ended while on screen (a crash, or iOS killing it frozen).
+    /// Read once, before start() marks this run as running.
+    static let lastRunEndedOnScreen: Bool = UserDefaults.standard.bool(forKey: runningKey)
     static let lastChatKey = "hang.lastChat"
 
     /// The conversation on screen, or nil when none is.
@@ -130,6 +133,16 @@ final class HangGuard: @unchecked Sendable {
         trail.append("\(stamp) \(what)")
         if trail.count > 40 { trail.removeFirst(trail.count - 40) }
         lock.unlock()
+    }
+
+    /// What is going on right now, for Copy Report: the open chat, what is on
+    /// screen and the last 40 things the app did, even when nothing froze the
+    /// main thread (a screen waiting on a connection looks just as stuck).
+    func live() -> String {
+        var now = snapshot()
+        now["at"] = ISO8601DateFormatter().string(from: Date())
+        guard let d = try? JSONSerialization.data(withJSONObject: now, options: [.sortedKeys, .prettyPrinted]) else { return "" }
+        return String(decoding: d, as: UTF8.self)
     }
 
     private func snapshot() -> [String: Any] {
@@ -274,6 +287,7 @@ enum PhoneDiagnostics {
         var out = "Superagent \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") "
             + "(\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")), "
             + "\(ProcessInfo.processInfo.operatingSystemVersionString)\n"
+        out += "\n--- now ---\n\(HangGuard.shared.live())\n"
         for f in all {
             guard let body = try? String(contentsOf: f, encoding: .utf8) else { continue }
             let piece = "\n--- \(f.lastPathComponent.components(separatedBy: "__").dropFirst().first ?? "") ---\n\(body)\n"

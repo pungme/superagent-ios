@@ -102,6 +102,14 @@ struct SuperAgentApp: App {
                     case .active:
                         PushDelegate.app = app
                         app.becameActive()
+                        // Back after a freeze that iOS did not end: ask now, not
+                        // only on the next fresh start (which may be days away).
+                        if PhoneDiagnostics.asksAfterCrash, crashNote == nil {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                                let since = UserDefaults.standard.double(forKey: "diagnostics.askedAt")
+                                if crashNote == nil, let note = PhoneDiagnostics.worthAsking(since: since) { crashNote = note }
+                            }
+                        }
                         deliverQueuedShares()
                         // Only undecided items ask; anything the share sheet
                         // already aimed goes out above without a question.
