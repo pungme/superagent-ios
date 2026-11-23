@@ -283,7 +283,10 @@ struct MarkdownTable: View {
 struct InlineText: View {
     let text: String
     init(_ text: String) { self.text = text }
-    var body: some View { Text(Self.styled(text)) }
+    // Always as tall as its text needs. Beside a bullet (an HStack) in a lazy
+    // list, SwiftUI sometimes offered fewer lines than the text has and cut
+    // it with "…" — list items lost their last words.
+    var body: some View { Text(Self.styled(text)).fixedSize(horizontal: false, vertical: true) }
 
     // NSCache is thread-safe; the compiler cannot see that.
     nonisolated(unsafe) private static let cache: NSCache<NSString, Box> = {
