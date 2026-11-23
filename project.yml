@@ -29,6 +29,11 @@ targets:
       path: SuperAgent/Info.plist
       properties:
         CFBundleDisplayName: Superagent
+        # XcodeGen writes "1.0" / "1" here unless told otherwise, and CI
+        # regenerates this file: every upload said 1.0, a closed train, and App
+        # Store Connect refused builds 196-200. Take them from the settings above.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:
           UIColorName: LaunchBackground
         # The phone stays portrait: a landscape chat is a keyboard and two lines
@@ -90,6 +95,9 @@ targets:
       path: SuperAgentShare/Info.plist
       properties:
         CFBundleDisplayName: Superagent
+        # Must match the app's version, or the upload is refused (see above).
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
