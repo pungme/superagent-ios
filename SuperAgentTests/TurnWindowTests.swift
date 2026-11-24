@@ -47,6 +47,17 @@ struct TurnWindowTests {
         #expect(w.turns.reduce(0) { $0 + $1.items.count } == 8)
     }
 
+    @Test func theReadersPlaceDoesNotGrowTheWindowWithoutLimit() {
+        // Someone reading near the top while a long turn streams in under them:
+        // keeping their row would lay out the whole conversation.
+        let turns = TurnBuilder.build(events(turns: 1, repliesPerTurn: 60, chars: 2_000))
+        let floorId = turns[0].items[2].id
+        let w = TurnWindow.visible(turns, maxTurns: 30, budget: 8_000, leastItems: 8, floor: floorId)
+        let shown = w.turns.reduce(0) { $0 + $1.items.count }
+        #expect(shown < 20, "the page may jump rather than lay out everything (shown \(shown))")
+        #expect(w.turns.last?.items.last?.id == turns.last?.items.last?.id)
+    }
+
     @Test func aTableWeighsMoreThanProseOfTheSameLength() {
         let prose = String(repeating: "a", count: 300)
         let table = String(repeating: "| a | b |\n", count: 30)
@@ -57,7 +68,7 @@ struct TurnWindowTests {
     @Test func theFloorKeepsWhatTheReaderWasLookingAt() {
         let turns = TurnBuilder.build(events(turns: 1, repliesPerTurn: 40, chars: 2_000))
         let plain = TurnWindow.visible(turns, maxTurns: 30, budget: 8_000, leastItems: 8)
-        let floorId = turns[0].items[10].id
+        let floorId = turns[0].items[31].id  // about 10 rows up: within the cap
         let kept = TurnWindow.visible(turns, maxTurns: 30, budget: 8_000, leastItems: 8, floor: floorId)
         #expect(kept.turns.first?.items.first?.id == floorId)
         #expect(kept.hidden < plain.hidden)

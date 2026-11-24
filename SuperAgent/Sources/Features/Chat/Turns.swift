@@ -199,6 +199,9 @@ enum TurnWindow {
     /// - leastItems: ...but always take at least this many, newest first.
     /// - floor: a row that stays shown even if the budget would cut it (what
     ///   the reader was looking at, see ChatView.windowFloor).
+    /// How many budgets of rows the reader's place may keep in the window.
+    static let floorCapFactor = 3
+
     static func visible(_ turns: [Turn], maxTurns: Int, budget: Int, leastItems: Int,
                         floor: String? = nil) -> Result {
         var used = 0
@@ -216,11 +219,25 @@ enum TurnWindow {
                 start = (ti, ii)
             }
         }
-        // What the reader was looking at stays, wherever the budget would cut.
+        // What the reader was looking at stays, wherever the budget would cut —
+        // up to a point. Every row that arrives while they read adds to what
+        // is kept, and the stack is not lazy: a long working turn streaming in
+        // under someone reading higher up grew the window to the whole
+        // conversation, and the app-switcher snapshot of it ran past the ten
+        // seconds iOS allows (0x8BADF00D, build 201, 2026-11-24). Past
+        // `floorCapFactor` budgets the page may jump instead.
         if let floor, let s = start {
             search: for ti in turns.indices where ti <= s.turn {
                 for ii in turns[ti].items.indices where turns[ti].items[ii].id == floor {
-                    if ti < s.turn || ii < s.item { start = (ti, ii) }
+                    if ti < s.turn || ii < s.item {
+                        var kept = 0
+                        for tj in ti..<turns.count {
+                            for (ij, item) in turns[tj].items.enumerated() where tj > ti || ij >= ii {
+                                kept += item.weight
+                            }
+                        }
+                        if kept <= budget * floorCapFactor { start = (ti, ii) }
+                    }
                     break search
                 }
             }
