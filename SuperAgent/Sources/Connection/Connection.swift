@@ -1833,6 +1833,41 @@ extension Connection {
                 }
             }
         }
+        // `-toolWorkTranscript`: the shape of the conversations that froze build 201
+        // and 202 — five turns and about 450 events, nearly all of them tool calls
+        // and their results between short replies, and little text (16 KB).
+        if ProcessInfo.processInfo.arguments.contains("-toolWorkTranscript") {
+            let tools = ["Read", "Edit", "Bash", "Grep", "Glob", "Write"]
+            for turn in 0..<5 {
+                seq += 1
+                t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                          data: .user(id: "u\(seq)", text: "Round \(turn): keep going on the layout.", images: [], from: .ios, replyTo: nil)))
+                seq += 1
+                t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                          data: .session(claudeSessionId: "s\(turn)", model: "claude-opus-5-5", commands: [], models: [])))
+                for cycle in 0..<9 {
+                    seq += 1
+                    t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                              data: .assistant(id: "a\(seq)", text: "Step \(cycle) of round \(turn): checking the files that changed and what they touch next. " + String(repeating: "More detail on what was found. ", count: 6))))
+                    for step in 0..<5 {
+                        seq += 1
+                        let id = "t\(seq)"
+                        t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                                  data: .tool(id: id, name: tools[step % tools.count],
+                                                              detail: "Sources/Features/Home/Hero\(step).swift", task: nil)))
+                        seq += 1
+                        t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                                  data: .toolResult(toolId: id, ok: true, summary: "ok, 42 lines", images: [])))
+                    }
+                }
+                seq += 1
+                t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                          data: .assistant(id: "a\(seq)", text: "Done with round \(turn). The header holds at two lines and the buttons stack.")))
+                seq += 1
+                t.events.append(WireEvent(chatId: "c1", seq: seq, ts: at + Double(seq) * 1000,
+                                          data: .turnEnd(ok: true, subtype: "success", costUsd: nil, tokens: 1000, contextTokens: 5000)))
+            }
+        }
         t.lastSeq = seq
         // Claude's line-up as the Mac sends it: the current versions, then the
         // older ones the CLI still offers, marked for the picker to fold away.

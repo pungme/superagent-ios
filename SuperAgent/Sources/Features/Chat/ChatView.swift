@@ -881,6 +881,23 @@ struct ChatView: View {
         tasks = d.tasks
         timeIds = d.timeIds
         pendingApprovals = d.openApprovals
+        // What is laid out right now, so a freeze report says what was on screen:
+        // the two that froze builds 201 and 202 differed in size (54 turns, 5 turns)
+        // and the report could not say which rows were being measured.
+        let shown = window.turns
+        let rows = shown.reduce(0) { $0 + $1.items.count }
+        var biggest = 0
+        var groups = 0
+        for turn in shown {
+            for item in turn.items {
+                if case .steps(let g) = item { groups += 1; biggest = max(biggest, g.events.count) }
+            }
+        }
+        HangGuard.shared.note("shownRows", "\(rows)")
+        HangGuard.shared.note("shownStepGroups", "\(groups)")
+        HangGuard.shared.note("biggestStepGroup", "\(biggest)")
+        HangGuard.shared.note("following", "\(following)")
+        HangGuard.shared.note("atBottom", "\(atBottom)")
         // The transcript arrives after this view does and lands in batches, and
         // the rows are wildly uneven — a collapsed step group is one line, the
         // reply under it is forty. A bottom anchor on its own settles against
