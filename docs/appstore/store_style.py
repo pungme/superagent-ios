@@ -7,11 +7,12 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 FRAME = Path(__file__).parent / "frame"
 
 SF = "/System/Library/Fonts/SFNS.ttf"
-INK = (29, 29, 31)         # --ink
-ACCENT = (0, 113, 227)     # --blue
-MUTED = (110, 110, 115)    # --ink-2
-GLOW = (0, 113, 227)
-BANDS = ((255, 255, 255), (245, 245, 247))  # white and the landing page's .alt
+INK = (255, 255, 255)      # headlines: white on the dark band
+ACCENT = (125, 178, 255)   # the one blue, lifted for dark
+MUTED = (166, 174, 196)    # subtitles
+GLOW = (60, 110, 255)
+# Deep night to indigo, top to bottom; alternate bands lean a little more violet.
+BANDS = (((9, 11, 20), (24, 30, 62)), ((12, 10, 24), (38, 26, 70)))
 
 
 def font(size, weight="Bold"):
@@ -21,19 +22,31 @@ def font(size, weight="Bold"):
 
 
 def background(w, h, glow_at=None, glow_r=None, glow=None, band=0):
-    """A flat landing-page band: white, or #f5f5f7 for the alternate. No glow: Apple's pages have none."""
-    return Image.new("RGBA", (w, h), BANDS[band % 2] + (255,))
+    """A dark vertical gradient with a soft glow behind where the device sits."""
+    top, bottom = BANDS[band % 2]
+    col = Image.new("RGBA", (1, h))
+    for y in range(h):
+        t = y / max(1, h - 1)
+        col.putpixel((0, y), tuple(round(top[i] + (bottom[i] - top[i]) * t) for i in range(3)) + (255,))
+    img = col.resize((w, h))
+    cx, cy = glow_at or (w // 2, round(h * 0.72))
+    r = glow_r or round(w * 0.55)
+    halo = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(halo).ellipse([cx - r, cy - r, cx + r, cy + r], fill=(GLOW if glow is None else glow) + (120,))
+    img.alpha_composite(halo.filter(ImageFilter.GaussianBlur(r * 0.45)))
+    return img
 
 
-def framed_phone(path, width, bezel=None):
-    """The screen with a dark bezel and a thin lit edge, like the device."""
+def framed_phone(path, width, bezel=None, tablet=False):
+    """The screen with a dark bezel and a thin lit edge, like the device. A tablet has a
+    wider bezel and tighter corners than a phone."""
     shot = Image.open(path).convert("RGB")
-    bezel = bezel or max(10, round(width * 0.02))
+    bezel = bezel or max(10, round(width * (0.022 if tablet else 0.02)))
     inner_w = width - 2 * bezel
     inner_h = round(shot.height * inner_w / shot.width)
     shot = shot.resize((inner_w, inner_h), Image.LANCZOS)
     w, h = width, inner_h + 2 * bezel
-    outer_r = round(width * 0.115)
+    outer_r = round(width * (0.05 if tablet else 0.115))
     inner_r = outer_r - bezel
     card = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(card)
@@ -90,15 +103,15 @@ def real_iphone(path, width):
     return card.resize((width, h), Image.LANCZOS), round(80 * 3 * width / W)
 
 
-def paste_phone(canvas, path, x, y, width, shadow=True, halo=None, real=False):
-    card, r = real_iphone(path, width) if real else framed_phone(path, width)
+def paste_phone(canvas, path, x, y, width, shadow=True, halo=None, real=False, tablet=False):
+    card, r = real_iphone(path, width) if real else framed_phone(path, width, tablet=tablet)
     if halo:
         hl = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         ImageDraw.Draw(hl).rounded_rectangle([x - 14, y - 14, x + card.width + 14, y + card.height + 14], r + 14, fill=halo + (170,))
         canvas.alpha_composite(hl.filter(ImageFilter.GaussianBlur(46)))
     if shadow:
         sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-        ImageDraw.Draw(sh).rounded_rectangle([x, y + 40, x + card.width, y + card.height + 40], r, fill=(0, 0, 0, 70))
+        ImageDraw.Draw(sh).rounded_rectangle([x, y + 40, x + card.width, y + card.height + 40], r, fill=(0, 0, 0, 140))
         canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(70)))
     canvas.alpha_composite(card, (x, y))
     return card

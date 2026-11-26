@@ -26,7 +26,7 @@ def compose(raw, title, sub, canvas, phone_w, name, title_size, top_pad, phone_t
     img = background(w, h, band=band)
     headline(img, title, sub, top_pad, title_size)
     # The phone runs off the bottom edge: bigger on screen, and it reads as a real device in hand.
-    paste_phone(img, RAW / raw, (w - phone_w) // 2, phone_top, phone_w, real=raw.startswith("iphone/"))
+    paste_phone(img, RAW / raw, (w - phone_w) // 2, phone_top, phone_w, real=raw.startswith("iphone/"), tablet=raw.startswith("ipad/"))
     OUT.mkdir(parents=True, exist_ok=True)
     img.convert("RGB").save(OUT / name, optimize=True)
 
