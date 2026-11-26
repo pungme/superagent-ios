@@ -145,7 +145,7 @@ struct ChatView: View {
         return keyboardOnScreen && keyboardHeight > 0 && UIScreen.main.bounds.height - keyboardHeight < 480
     }
     private static let moreTurns = 20
-    private var initialTurns: Int { safeMode ? 8 : 30 }
+    private var initialTurns: Int { safeMode ? 6 : 14 }
     /// The newest turns are laid out by how much they SAY, not only how many:
     /// forty turns of long replies took the main thread past the ten seconds
     /// iOS allows (the app was killed, 0x8BADF00D, 2026-10-24 and 26) while
@@ -154,7 +154,7 @@ struct ChatView: View {
     /// (two turns, 110 000 characters) the app-switcher snapshot cost 1.26 s of
     /// main thread at 16 000 before rows were cut, 0.47 s with them, and 0.31 s,
     /// the cost of an empty chat, at 8 000.
-    private var textBudget: Int { (safeMode ? 5_000 : 8_000) * (1 + extraTurns / Self.moreTurns) }
+    private var textBudget: Int { (safeMode ? 3_000 : 5_000) * (1 + extraTurns / Self.moreTurns) }
     /// Rows, not turns: a turn is everything the agent did for one message and
     /// can be most of the conversation, so the cut falls inside it if it must.
     private var leastItems: Int { safeMode ? 4 : 8 }
