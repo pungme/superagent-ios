@@ -483,16 +483,40 @@ struct AssistantBubble: View {
     let streaming: Bool
     /// The reply is being written: new words fade in rather than appear.
     var arriving = false
+    /// A reply longer than this is laid out only as far as `foldAt`, with a button for the
+    /// rest. Every freeze report from the phone with a single reply of 10 000+ characters
+    /// (up to 8 s, once killed by iOS) was in a chat with one; the ones without were about 1 s.
+    static let foldAbove = 5_000
+    static let foldAt = 3_500
+    @State private var showAll = false
+
+    /// The text up to a paragraph break near `foldAt`, when it is long and folded.
+    private var shown: (text: String, hidden: Int) {
+        guard !showAll, !streaming, text.count > Self.foldAbove else { return (text, 0) }
+        let head = String(text.prefix(Self.foldAt))
+        let cut = head.range(of: "\n\n", options: .backwards)?.lowerBound ?? head.endIndex
+        let kept = String(head[..<cut])
+        return (kept, text.count - kept.count)
+    }
+
     var body: some View {
+        let view = shown
         HStack {
             VStack(alignment: .leading, spacing: 0) {
-                MarkdownView(text: text)
+                MarkdownView(text: view.text)
                     .superFont(15.5)
                     .foregroundStyle(Theme.textPrimary)
                     // What was already there stays as it is; what is new comes
                     // in out of nothing over a third of a second.
                     .contentTransition(arriving ? .opacity : .identity)
                     .animation(arriving ? .easeOut(duration: 0.32) : nil, value: text)
+                if view.hidden > 0 {
+                    Button { showAll = true } label: {
+                        Text("Show the rest · \(view.hidden.formatted()) more characters")
+                            .superFont(13, weight: .medium).foregroundStyle(Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain).padding(.top, 8)
+                }
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(Theme.assistantBubble, in: RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
