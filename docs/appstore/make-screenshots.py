@@ -5,7 +5,7 @@ set in screenshots/store/: a benefit headline above a framed screen, on dark.
 
   iPhone 6.9"   1320 x 2868   (iPhone 17 Pro Max)
   iPhone 6.3"   1206 x 2622   (the same images scaled: the slot App Store Connect asks for first)
-  iPad 13"      2064 x 2752   (iPad Pro 13")
+  iPad 13"      2752 x 2064   (iPad Pro 13", landscape)
 
 The first three are what people see in search results, so they carry the story:
 what it is, the day, and the one tap that makes it safe. Run from this folder:
@@ -40,16 +40,17 @@ IPHONE = [
     ("iphone/d-02-projects.png", "Every project,\n*every chat*", "Pinned, recent and everything between", "iphone-6-projects.png"),
 ]
 IPAD = [
-    ("ipad/b-chat-page.png", "Your Mac's agents,\n*on a bigger screen*", "Projects, the conversation and the page side by side", "ipad-1-chat.png"),
-    ("ipad/c-approval.png", "Approve with\n*one tap*", "Commands wait for your yes", "ipad-2-approve.png"),
-    ("ipad/d-remote.png", "Take over\n*your Mac*", "Screen, trackpad and keyboard, from the couch", "ipad-3-remote.png"),
+    ("ipad/l-chat-page.png", "Your Mac's agents,\n*on a bigger screen*", "Projects, the conversation and the page side by side", "ipad-1-chat.png"),
+    ("ipad/l-approval.png", "Approve with\n*one tap*", "Commands wait for your yes", "ipad-2-approve.png"),
+    ("ipad/l-remote.png", "Take over\n*your Mac*", "Screen, trackpad and keyboard, from the couch", "ipad-3-remote.png"),
 ]
 
 if __name__ == "__main__":
     for i, (raw, title, sub, name) in enumerate(IPHONE):
         compose(raw, title, sub, (1320, 2868), 1130, name, 112, 150, 620, i)
     for raw, title, sub, name in IPAD:
-        compose(raw, title, sub, (2064, 2752), 1500, name, 168, 190, 840, {'ipad-1-chat.png': 0, 'ipad-2-approve.png': 1, 'ipad-3-remote.png': 0}[name])
+        # Landscape: 2752 x 2064, the device running off the bottom edge.
+        compose(raw, title, sub, (2752, 2064), 2180, name, 124, 100, 520, {'ipad-1-chat.png': 0, 'ipad-2-approve.png': 1, 'ipad-3-remote.png': 0}[name])
     # iPhone Duo's own slot: portrait 2007 x 2853, squarer than a phone.
     duo = OUT / "iphone-duo"
     duo.mkdir(parents=True, exist_ok=True)
