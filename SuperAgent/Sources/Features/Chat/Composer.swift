@@ -1,3 +1,4 @@
+import PencilKit
 import AVFoundation
 import PhotosUI
 import SwiftUI
@@ -152,6 +153,7 @@ struct Composer: View {
     @State private var pasteboardHasImages = false
     @State private var showPhotoPicker = false
     @State private var showFilePicker = false
+    @State private var showSketch = false
     /// Nothing the recogniser says after a send belongs in the emptied composer;
     /// a recogniser revises its final result after you stop it, and that
     /// revision used to type the sent message straight back in.
@@ -501,6 +503,12 @@ struct Composer: View {
 
     /// Add the image currently on the iOS pasteboard through the same
     /// downscaling/encoding path as Photo Library attachments.
+    private func addSketch(_ data: Data) {
+        guard let a = Attachment(imageData: data) else { return }
+        attachments.append(a)
+        Haptics.tap()
+    }
+
     private func pasteImage() {
         guard let image = UIPasteboard.general.image,
               let data = image.jpegData(compressionQuality: 0.9),
@@ -753,6 +761,7 @@ struct Composer: View {
                     .disabled(!pasteboardHasImages)
                     Button { showPhotoPicker = true } label: { Label("Photos & Videos", systemImage: "photo.on.rectangle") }
                     Button { showFilePicker = true } label: { Label("Choose a File", systemImage: "doc") }
+                    Button { showSketch = true } label: { Label("Draw", systemImage: "pencil.and.scribble") }
                 } label: {
                     Image(systemName: "plus").superFont(15, weight: .semibold)
                         .frame(width: well, height: well)
@@ -763,6 +772,7 @@ struct Composer: View {
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .photosPicker(isPresented: $showPhotoPicker, selection: $pickerItems,
                               maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
+                .fullScreenCover(isPresented: $showSketch) { SketchSheet(onDone: addSketch) }
                 .fileImporter(isPresented: $showFilePicker,
                               allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                     guard case let .success(urls) = result else { return }
@@ -1108,6 +1118,115 @@ struct PillFlow: Layout {
             v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
             x += s.width + spacing
             line = max(line, s.height)
+        }
+    }
+}
+
+// MARK: - Sketch
+
+/// Draw something and attach it: a sketch of a layout, an arrow on a screen, a
+/// diagram. A white page with Apple's pen tools (finger or Pencil); Attach turns
+/// it into a picture in the composer, exactly as a photo would be.
+struct SketchSheet: View {
+    let onDone: (Data) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var canvas = PKCanvasView()
+    @State private var empty = true
+
+    var body: some View {
+        NavigationStack {
+            SketchCanvas(canvas: canvas, empty: $empty)
+                .background(Color.white)
+                .ignoresSafeArea(edges: .bottom)
+                .navigationTitle("Sketch")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                    ToolbarItem(placement: .principal) {
+                        HStack(spacing: 18) {
+                            Button { canvas.undoManager?.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                                .accessibilityLabel("Undo")
+                            Button { canvas.undoManager?.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                                .accessibilityLabel("Redo")
+                            Button { canvas.drawing = PKDrawing(); empty = true } label: { Image(systemName: "trash") }
+                                .accessibilityLabel("Clear")
+                                .disabled(empty)
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Attach") {
+                            if let data = Self.render(canvas) { onDone(data) }
+                            dismiss()
+                        }
+                        .bold()
+                        .disabled(empty)
+                    }
+                }
+        }
+        .interactiveDismissDisabled(!empty)
+    }
+
+    /// The drawing on white, cropped to what was drawn with a margin, as a JPEG.
+    static func render(_ canvas: PKCanvasView) -> Data? {
+        let drawing = canvas.drawing
+        guard !drawing.strokes.isEmpty else { return nil }
+        let pad: CGFloat = 24
+        var rect = drawing.bounds.insetBy(dx: -pad, dy: -pad)
+        // Never smaller than a third of the page, so a single dot still has room.
+        let page = canvas.bounds
+        rect = rect.union(CGRect(x: rect.midX - page.width / 6, y: rect.midY - page.height / 6,
+                                 width: page.width / 3, height: page.height / 3))
+        let scale = UIScreen.main.scale
+        // Drawn in light mode: a white page with black ink whatever the phone's appearance.
+        var ink: UIImage?
+        UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+            ink = drawing.image(from: rect, scale: scale)
+        }
+        guard let ink else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: rect.size, format: format).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(origin: .zero, size: rect.size))
+            ink.draw(at: .zero)
+        }
+        return image.jpegData(compressionQuality: 0.9)
+    }
+}
+
+private struct SketchCanvas: UIViewRepresentable {
+    let canvas: PKCanvasView
+    @Binding var empty: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(empty: $empty) }
+
+    func makeUIView(context: Context) -> PKCanvasView {
+        canvas.drawingPolicy = .anyInput
+        canvas.backgroundColor = .white
+        canvas.isOpaque = true
+        canvas.overrideUserInterfaceStyle = .light
+        canvas.tool = PKInkingTool(.pen, color: .black, width: 4)
+        canvas.delegate = context.coordinator
+        let picker = context.coordinator.picker
+        picker.overrideUserInterfaceStyle = .light
+        picker.setVisible(true, forFirstResponder: canvas)
+        picker.addObserver(canvas)
+        DispatchQueue.main.async { canvas.becomeFirstResponder() }
+        return canvas
+    }
+
+    func updateUIView(_ v: PKCanvasView, context: Context) {}
+
+    final class Coordinator: NSObject, PKCanvasViewDelegate {
+        let picker = PKToolPicker()
+        var empty: Binding<Bool>
+        init(empty: Binding<Bool>) { self.empty = empty }
+        func canvasViewDrawingDidChange(_ v: PKCanvasView) {
+            let now = v.drawing.strokes.isEmpty
+            if empty.wrappedValue != now { empty.wrappedValue = now }
         }
     }
 }
