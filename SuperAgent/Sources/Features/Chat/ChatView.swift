@@ -129,6 +129,13 @@ struct ChatView: View {
     @State private var turns: [Turn] = []
     /// How many earlier turns have been asked for, beyond the newest ones.
     @State private var extraTurns = 0
+    /// Older messages load by themselves when the reader scrolls up to the top: how far
+    /// down they are, how tall the content was, and whether a finger (or its momentum)
+    /// is what is scrolling. See loadEarlierIfAtTop.
+    @State private var scrollTop: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
+    @State private var fingerScrolling = false
+    @State private var prepending: (offset: CGFloat, height: CGFloat)?
     /// A conversation that froze the app lately (HangGuard) lays out far less,
     /// until asked for more: a cap on how much is on screen is a cap on how long
     /// the main thread can be held.
@@ -551,6 +558,18 @@ struct ChatView: View {
         .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height.rounded() } action: { old, new in
             if following, old != new, !chatFloats { scrollToEnd(animated: false) }
         }
+        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y.rounded() } action: { _, y in
+            scrollTop = y
+            if y < 240 { loadEarlierIfAtTop() }
+        }
+        .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height.rounded() } action: { _, h in
+            contentHeight = h
+            // Older rows arrived above what the reader was looking at: keep that where it was.
+            if let p = prepending, h > p.height {
+                position.scrollTo(y: p.offset + (h - p.height))
+                prepending = nil
+            }
+        }
         .onScrollGeometryChange(for: Bool.self) { geo in
             geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 40
         } action: { _, isAtEnd in
@@ -615,6 +634,7 @@ struct ChatView: View {
         // passed through an actual touch first is what makes this true to
         // the comment above: dragging or its momentum, not our own settle.
         .onScrollPhaseChange { oldPhase, newPhase in
+            fingerScrolling = newPhase == .interacting || newPhase == .decelerating
             guard newPhase == .idle, oldPhase == .interacting || oldPhase == .decelerating else {
                 return
             }
@@ -1616,6 +1636,19 @@ struct ChatView: View {
         let window = (model.contains("[1m]") || model.contains("fable") || model.contains("opus"))
             ? 1_000_000 : 200_000
         return (used, window)
+    }
+
+    /// Scrolled up to the top by the reader (not by us): show the next batch of earlier
+    /// messages, as the "Show earlier" button does, and keep what they were reading in place.
+    private func loadEarlierIfAtTop() {
+        guard fingerScrolling, prepending == nil, window.hidden > 0, contentHeight > 0 else { return }
+        prepending = (scrollTop, contentHeight)
+        extraTurns += Self.moreTurns
+        // If nothing grew (the batch was all text we already held), do not wait for it forever.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            prepending = nil
+        }
     }
 
     private func scrollToEnd(animated: Bool = true) {
