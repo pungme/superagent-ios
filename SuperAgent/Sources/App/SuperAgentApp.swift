@@ -95,6 +95,14 @@ struct SuperAgentApp: App {
                     if ProcessInfo.processInfo.arguments.contains("-freezeOnce") {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { Thread.sleep(forTimeInterval: 1.5) }
                     }
+                    // `-freezeLong`: a stall long enough for the stack samples (HangGuard) to be taken.
+                    if ProcessInfo.processInfo.arguments.contains("-freezeLong") {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            let until = Date().addingTimeInterval(7)
+                            var n = 0.0
+                            while Date() < until { n += sin(n) + 1 }   // busy, not asleep: a stack worth reading
+                        }
+                    }
                     #endif
                 }
                 .onChange(of: scenePhase, initial: true) { _, phase in
