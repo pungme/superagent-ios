@@ -1331,6 +1331,33 @@ extension Connection {
         try await rpc("board.move", .object(["id": .string(id), "status": .string(status.rawValue), "beforeId": .null]), as: WireCard.self)
     }
 
+    // MARK: Conductor
+
+    /// A project's Conductor: its sessions and how Main routes. Throws when the project has none
+    /// (or the Mac is too old to know of it).
+    func conductorState(workspaceId: String) async throws -> WireConductorState {
+        if machine.id == "harness" {
+            return WireConductorState(chatId: "cm", routing: "confirm", sessions: [
+                WireConductorSession(chatId: "c6", title: "Darken the footer", ticket: 102,
+                                     summary: "", status: "needs-you", updatedAt: 0,
+                                     approval: .init(requestId: "r1", preview: "Run: npm run build"),
+                                     branch: "darken-the-footer", unmerged: nil, files: ["footer.css"]),
+                WireConductorSession(chatId: "c1", title: "WD-284 Tighten the hero copy", ticket: 101,
+                                     summary: "Two lines instead of three; the middle one did nothing.",
+                                     status: "working", updatedAt: 0, approval: nil,
+                                     branch: "tighten-the-hero-copy", unmerged: 2, files: ["hero.tsx", "copy.ts", "hero.css"]),
+                WireConductorSession(chatId: "c2", title: "Fix the flaky auth test", ticket: 103,
+                                     summary: "Frozen the clock; green ten times running.",
+                                     status: "idle", updatedAt: 0, approval: nil, branch: "fix-auth-test", unmerged: 1, files: ["auth.test.ts"])
+            ])
+        }
+        return try await rpc("conductor.get", .object(["workspaceId": .string(workspaceId)]), as: WireConductorState.self)
+    }
+
+    func conductorSetRouting(workspaceId: String, routing: String) async throws {
+        _ = try await rpc("conductor.routing", .object(["workspaceId": .string(workspaceId), "routing": .string(routing)]))
+    }
+
     // MARK: Today
 
     /// The day's calendar and every project's open to-dos, from the Mac.
@@ -1684,6 +1711,14 @@ extension Connection {
             WireChat(id: id, workspaceId: wsId, title: title, updatedAt: at,
                      pinned: pinOrder[id] != nil ? true : nil, pinnedAt: pinOrder[id],
                      live: live, preview: preview, provider: id == "c2" ? "codex" : nil)
+        }
+        // `-withConductor`: a Main chat and two numbered sessions in the first project.
+        if ProcessInfo.processInfo.arguments.contains("-withConductor") {
+            for (id, n) in [("c1", 101), ("c6", 102)] {
+                if let i = c.chats.firstIndex(where: { $0.id == id }) { c.chats[i].conductor = "session"; c.chats[i].ticket = n }
+            }
+            c.chats.append(WireChat(id: "cm", workspaceId: "w-site", title: "Conductor", updatedAt: now - 5_000,
+                                    live: false, preview: "Started #102 for the footer.", conductor: "main"))
         }
         // `-withLoop`: the first conversation has a /loop running, for its bar.
         if ProcessInfo.processInfo.arguments.contains("-withLoop"), let i = c.chats.firstIndex(where: { $0.id == "c1" }) {

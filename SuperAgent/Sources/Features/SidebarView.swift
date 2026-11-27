@@ -126,7 +126,6 @@ struct SidebarView: View {
                 if mode == .activity {
                     activitySection
                 } else {
-                    machineSection
                     splitsSection
                     pinnedShortcutsSection
                     chatsSection
@@ -450,14 +449,16 @@ struct SidebarView: View {
         }
     }
 
-    /// Computer: the one row that is not a project or a conversation.
+    /// Computer's row, gone from the list: the Mac's Today tab replaced it (the Computer's own
+    /// conversations still list under Chats). Kept unused for UI tests that open it directly.
+    ///
     ///
     /// This file's `body` was 704ms to type-check, five times the next worst in
     /// the app, and that is what kept failing on Xcode Cloud: the limit is a
     /// time limit, so a slower machine gives up where this one does not. Each
     /// piece is named now so no single expression is large.
     @ViewBuilder
-    private var machineSection: some View {
+    private var machineSection: some View { // swiftlint:disable:this unused_declaration
         Section {
             dashRow("Computer", icon: "desktopcomputer", status: computer?.status) {
                 if let c = computer { openProject(c) }

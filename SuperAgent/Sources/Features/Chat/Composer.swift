@@ -205,11 +205,19 @@ struct Composer: View {
     @ViewBuilder
     private var pillRow: some View {
         if sizeClass == .regular {
-            PillFlow(spacing: 8, lineSpacing: 6) { pills }
-                .padding(.horizontal, 12)
+            // One line, always: with the words ("Account admin@ 75%") when they fit, without
+            // them ("admin@ 75%") when they do not, and sideways-scrolling past that.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { pills() }
+                HStack(spacing: 8) { pills(labels: false) }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) { pills(labels: false) }
+                }
+            }
+            .padding(.horizontal, 12)
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) { pills }
+                HStack(spacing: 8) { pills() }
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .padding(.horizontal, 12)
@@ -379,7 +387,7 @@ struct Composer: View {
     }
 
     @ViewBuilder
-    private var pills: some View {
+    private func pills(labels: Bool = true) -> some View {
                 Menu {
                     agentChoices
                 } label: {
@@ -400,7 +408,7 @@ struct Composer: View {
                     } label: {
                         ControlPill {
                             HStack(spacing: 4) {
-                                if !compact { Text("Account").foregroundStyle(Theme.textTertiary) }
+                                if labels && !compact { Text("Account").foregroundStyle(Theme.textTertiary) }
                                 Text(current.shortName)
                                 if let pct = current.fullest() {
                                     Text("\(pct)%").foregroundStyle(usageColour(pct)).monospacedDigit()
@@ -416,18 +424,18 @@ struct Composer: View {
                 Menu {
                     modelChoices
                 } label: {
-                    ControlPill { HStack(spacing: 4) { if !compact { Text("Model").foregroundStyle(Theme.textTertiary) }; Text(modelPillLabel); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                    ControlPill { HStack(spacing: 4) { if labels && !compact { Text("Model").foregroundStyle(Theme.textTertiary) }; Text(modelPillLabel); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
                 Menu {
                     modeChoices
                 } label: {
-                    ControlPill { HStack(spacing: 4) { if !compact { Text("Mode").foregroundStyle(Theme.textTertiary) }; Text(modeLabel); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                    ControlPill { HStack(spacing: 4) { if labels && !compact { Text("Mode").foregroundStyle(Theme.textTertiary) }; Text(modeLabel); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                 }
                 if let b = browserChoices, b.browsers.count > 1 {
                     Menu {
                         browserChoicesMenu(b)
                     } label: {
-                        ControlPill { HStack(spacing: 4) { if !compact { Text("Browser").foregroundStyle(Theme.textTertiary) }; Text(b.currentName); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
+                        ControlPill { HStack(spacing: 4) { if labels && !compact { Text("Browser").foregroundStyle(Theme.textTertiary) }; Text(b.currentName); Image(systemName: "chevron.down").superFont(9, weight: .bold) } }
                     }
                     .accessibilityIdentifier("browser-pill")
                 }
@@ -435,7 +443,7 @@ struct Composer: View {
                     // The desktop's Memory gauge, at pill size: how much of the
                     // context window the conversation is carrying.
                     HStack(spacing: 5) {
-                        if !compact { Text("Memory").foregroundStyle(Theme.textTertiary) }
+                        if labels && !compact { Text("Memory").foregroundStyle(Theme.textTertiary) }
                         Capsule().fill(Theme.accentSoft)
                             .frame(width: 36, height: 4)
                             .overlay(alignment: .leading) {

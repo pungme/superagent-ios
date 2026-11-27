@@ -82,6 +82,7 @@ struct ChatView: View {
     @State private var pageResized = false
     @State private var showBrowserSheet = false
     @State private var showRemote = false
+    @State private var showSessions = false
     /// Full screen, like a stream: the page or simulator fills the phone, the
     /// conversation floats over it (FloatingChat) and the composer stays.
     @State private var theater = false
@@ -310,6 +311,12 @@ struct ChatView: View {
                     if let a = Attachment(imageData: data) { attachments.append(a) }
                 }
             }
+            .sheet(isPresented: $showSessions) {
+                ConductorSessionsView(connection: connection, workspace: workspace) { chatId in
+                    showSessions = false
+                    app.openChatId = chatId
+                }
+            }
             .fullScreenCover(isPresented: $showRemote) {
                 RemoteControlView(connection: connection) { showRemote = false }
             }
@@ -532,7 +539,18 @@ struct ChatView: View {
             if let p = metrics.prepending, new.contentHeight > p.height {
                 let targetY = p.offset + (new.contentHeight - p.height)
                 metrics.prepending = nil
+                metrics.settle = (Date().addingTimeInterval(0.8), new.contentHeight)
                 Task { @MainActor in position.scrollTo(y: targetY) }
+            } else if let s = metrics.settle {
+                // The older rows were laid out at an estimate and settle to their real heights over
+                // the next frames: every change is above the reader, so move by the same amount
+                // (from where they are now, so a finger still dragging is not fought).
+                if Date() > s.until { metrics.settle = nil }
+                else if new.contentHeight != s.height {
+                    let targetY = max(0, new.offsetY + (new.contentHeight - s.height))
+                    metrics.settle = (s.until, new.contentHeight)
+                    Task { @MainActor in position.scrollTo(y: targetY) }
+                }
             }
             if new.offsetY < 240 { loadEarlierIfAtTop() }
             // While `following` is true, `atEnd` flickers false for a frame whenever
@@ -633,6 +651,12 @@ struct ChatView: View {
             .equatable()
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
+            // The Conductor's Main: its numbered sessions, one tap away.
+            if connection.chats.first(where: { $0.id == chat.id })?.isConductorMain == true {
+                Button { showSessions = true } label: { Image(systemName: "square.stack.3d.up") }
+                    .accessibilityLabel("Sessions")
+                    .accessibilityIdentifier("conductor-sessions")
+            }
             // Pin from inside the conversation, not only by holding its row.
             let pinned = connection.chats.first { $0.id == chat.id }?.isPinned ?? false
             Button {
@@ -1699,6 +1723,9 @@ private final class ScrollMetrics: @unchecked Sendable {
     var fingerScrolling = false
     var atBottom = true
     var prepending: (offset: CGFloat, height: CGFloat)?
+    /// After older rows arrived: until when to keep absorbing height changes above the reader
+    /// (rows settle to their real size as they are laid out), and the height last accounted for.
+    var settle: (until: Date, height: CGFloat)?
     var scrollEndPending = false
 }
 
