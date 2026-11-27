@@ -910,13 +910,15 @@ struct ChatView: View {
                 .accessibilityHidden(chatFloats)
                 .overlay { pip }
                 .overlay(alignment: .bottom) {
-                    if connection.state != .connected, !wide, !chatFloats {
-                        ConnectionFloat(connection: connection)
-                            .padding(.bottom, 10)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    ZStack {
+                        if connection.state != .connected, !wide, !chatFloats {
+                            ConnectionFloat(connection: connection)
+                                .padding(.bottom, 10)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                     }
+                    .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
                 }
-                .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
             if let loop = liveLoop, !chatFloats, !squeezed { loopBar(loop) }
             if !backgroundTasks.isEmpty, !chatFloats, !squeezed { backgroundStrip }
             Divider().overlay(Theme.border)
@@ -927,7 +929,6 @@ struct ChatView: View {
                 // stays, an empty strip under the pills.
                 .padding(.bottom, regular ? 6 : 0)
         }
-        .animation(.easeOut(duration: 0.15), value: squeezed)
         .ignoresSafeArea(.container, edges: regular ? .bottom : [])
         // See hardwareKeyboardAttached: with one connected, ignoring the
         // keyboard's safe area stops SwiftUI reserving room for a software

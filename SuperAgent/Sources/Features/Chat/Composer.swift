@@ -935,14 +935,16 @@ struct Composer: View {
         // Only an iPad folds by width; a phone never measures at all.
         .onGeometryChange(for: Bool.self) { proxy in
             sizeClass == .regular && proxy.size.width > 0 && proxy.size.width < Self.miniWidth
-        } action: { narrow = $0 }
+        } action: { if narrow != $0 { narrow = $0 } }
         .onAppear { loadDraft(); pasteboardHasImages = UIPasteboard.general.hasImages }
         .onDisappear { saveDraft() }
         .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
-            pasteboardHasImages = UIPasteboard.general.hasImages
+            let has = UIPasteboard.general.hasImages
+            if pasteboardHasImages != has { pasteboardHasImages = has }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            pasteboardHasImages = UIPasteboard.general.hasImages
+            let has = UIPasteboard.general.hasImages
+            if pasteboardHasImages != has { pasteboardHasImages = has }
         }
         // Reused across a chat switch: keep the old chat's words, load the new
         // chat's. (id is set on ChatView today, so this is belt-and-braces.)
