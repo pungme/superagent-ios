@@ -70,12 +70,12 @@ struct ChatView: View {
     @State private var following = true
     /// A reference, not a value: flipping it must not itself redraw the view.
     @State private var rebuildGate = RebuildGate()
+    /// Scroll measurements that actions read but `body` never does. Keeping them
+    /// in `@State` re-evaluated `ChatView.body` (and its `.toolbar`) on every
+    /// point of scroll or content-height change, feeding a synchronous layout
+    /// loop in `CA::Transaction::commit` (0x8BADF00D, build 211).
+    @State private var scrollMetrics = ScrollMetrics()
     @State private var position = ScrollPosition()
-    /// Everything in the chat that is neither the docked page nor the
-    /// transcript: the project bar, the drag handle, the offline banner, the
-    /// composer. Measured rather than assumed, because the banner comes and
-    /// goes and the composer grows with the draft.
-    @State private var chromeHeight: CGFloat = 200
     /// Set once the divider has been dragged. The cap that keeps the
     /// conversation readable is a default, not a rule: if you deliberately
     /// pull the page bigger, it goes bigger.
@@ -112,7 +112,6 @@ struct ChatView: View {
     /// is the jank. The divider follows your finger; the panes settle when you
     /// let go.
     @State private var dragBy: CGFloat = 0
-    @State private var containerHeight: CGFloat = 600
     @State private var containerWidth: CGFloat = 0
     /// The transcript's width once it has stopped changing; see transcript().
     @State private var settledWidth: CGFloat = 0
@@ -129,13 +128,6 @@ struct ChatView: View {
     @State private var turns: [Turn] = []
     /// How many earlier turns have been asked for, beyond the newest ones.
     @State private var extraTurns = 0
-    /// Older messages load by themselves when the reader scrolls up to the top: how far
-    /// down they are, how tall the content was, and whether a finger (or its momentum)
-    /// is what is scrolling. See loadEarlierIfAtTop.
-    @State private var scrollTop: CGFloat = 0
-    @State private var contentHeight: CGFloat = 0
-    @State private var fingerScrolling = false
-    @State private var prepending: (offset: CGFloat, height: CGFloat)?
     /// A conversation that froze the app lately (HangGuard) lays out far less,
     /// until asked for more: a cap on how much is on screen is a cap on how long
     /// the main thread can be held.
@@ -168,9 +160,12 @@ struct ChatView: View {
     /// Events older than this are not even grouped: the phone keeps the newest few hundred.
     private static let eventCap = 600
     /// The rows that are laid out; see TurnWindow.
+    /// Keyed on `following` (the reader's own scrolling), not `atBottom` (which
+    /// flickers false for a frame whenever an arriving batch grows the content
+    /// before the scroll offset catches up, oscillating the window floor).
     private var window: TurnWindow.Result {
         TurnWindow.visible(turns, maxTurns: initialTurns + extraTurns, budget: textBudget,
-                           leastItems: leastItems, floor: atBottom ? nil : windowFloor)
+                           leastItems: leastItems, floor: following ? nil : windowFloor)
     }
     /// The oldest row on screen when the reader scrolled away from the end. While
     /// they are reading, a new row arriving must not drop the oldest one off the
@@ -269,21 +264,16 @@ struct ChatView: View {
             }
         }
             .background(Theme.content)
-            // The docked page is a fraction of the screen; reading that height in the
-            // background keeps a GeometryReader out of the layout path (it made every
-            // pass re-measure the whole conversation).
-            .background {
-                GeometryReader { geo in
-                    Color.clear
-                        .onAppear { containerHeight = geo.size.height; containerWidth = geo.size.width }
-                        .onChange(of: geo.size.height) { _, h in containerHeight = h }
-                        .onChange(of: geo.size.width) { _, w in containerWidth = w }
-                }
+            // Only the rounded width is needed (iPad two-column threshold and
+            // PiP scale). Reading height or unrounded subpixel changes via a
+            // background GeometryReader re-ran ChatView.body and its toolbar on
+            // every navigation-bar / safe-area adjustment.
+            .onGeometryChange(for: CGFloat.self) { $0.size.width.rounded() } action: { _, w in
+                if abs(w - containerWidth) >= 2 { containerWidth = w }
             }
             .navigationTitle(chat.title ?? "Conversation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { chatToolbar }
-            .animation(.easeOut(duration: 0.15), value: squeezed)
             // Here, not on the title itself: an alert hung on a toolbar item does not
             // reliably run its buttons.
             .alert("Rename conversation", isPresented: $renaming) {
@@ -392,7 +382,6 @@ struct ChatView: View {
                     _ = await (browsers, accounts, saved)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
             .onChange(of: pickerItems) { _, items in loadPicked(items) }
             // Dictation now writes into the composer's own draft; see Composer.
             // The agent called `open_file`. Show it, as the Mac just did — but
@@ -514,72 +503,45 @@ struct ChatView: View {
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             .environment(\.chatGallery, chatGallery)
         }
-        .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.width.rounded() } action: { _, w in
-            settle(width: w)
-        }
-        // The scroll view keeps itself at the newest message. Nothing here
-        // scrolls by hand, which is the whole point: driving the offset with
-        // a ScrollViewReader while the keyboard, the composer's height and a
-        // batch of arriving rows were all resizing the content meant the
-        // offset was computed for a layout that no longer existed, and a
-        // LazyVStack had nothing realised there, so the transcript landed on
-        // a blank stretch.
-        //
-        // initialOffset opens on the end, so a cold open lands on the newest
-        // message even though the transcript arrives after the view does.
-        // sizeChanges keeps it there while rows stream in and while the
-        // keyboard opens, and is nil once the reader has scrolled up, so
-        // arriving messages never yank them back down.
+        // Single scroll-geometry observer. Previously six stacked modifiers wrote
+        // @State (scrollTop, contentHeight, chromeHeight, atBottom, windowFloor,
+        // position) synchronously inside CA::Transaction::commit, re-evaluating
+        // ChatView.body and its navigation toolbar on every geometry change until
+        // the watchdog killed the app (0x8BADF00D, build 211).
         .defaultScrollAnchor(.bottom)
         .scrollPosition($position)
-        // What the transcript actually got. Everything that is neither it nor
-        // the docked page is the chrome, and knowing it is what lets the page
-        // cap itself without hard-coding the height of a banner or a composer.
-        .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height } action: { _, box in
-            // Never while the divider is being dragged. The page's height is
-            // derived from this measurement, and this measurement is taken from
-            // the height the page leaves behind, so measuring mid-drag has the
-            // two chasing each other every frame: that was the jank. A drag
-            // reads the last settled value and the measurement resumes on
-            // release. The threshold is generous for the same reason; chrome
-            // only really changes when the banner appears or the composer grows
-            // a line, and neither needs to be caught to the point.
-            // Nor while typing over the page: the messages are folded away then,
-            // and the page is not at pageHeight, so the reading would be wrong
-            // and would stick.
-            guard box > 0, pageShown, dragStart == nil, !chatFloats else { return }
-            let measured = containerHeight - pageHeight - box
-            if measured > 0, abs(measured - chromeHeight) > 8 { chromeHeight = measured }
-        }
-        // The transcript's own height changing — the tab bar going as a
-        // conversation opens, a fold, a banner — moves where the end is. A
-        // reader at the end stays at the end; without this a conversation
-        // opened from a notification sat partway up its own messages.
-        .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height.rounded() } action: { old, new in
-            if following, old != new, !chatFloats { scrollToEnd(animated: false) }
-        }
-        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y.rounded() } action: { _, y in
-            scrollTop = y
-            if y < 240 { loadEarlierIfAtTop() }
-        }
-        .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height.rounded() } action: { _, h in
-            contentHeight = h
+        .onScrollGeometryChange(for: ScrollSnapshot.self) { geo in
+            ScrollSnapshot(
+                width: geo.containerSize.width.rounded(),
+                height: geo.containerSize.height.rounded(),
+                offsetY: geo.contentOffset.y.rounded(),
+                contentHeight: geo.contentSize.height.rounded(),
+                atEnd: geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 40
+            )
+        } action: { old, new in
+            let metrics = scrollMetrics
+            metrics.top = new.offsetY
+            metrics.contentHeight = new.contentHeight
+            metrics.atBottom = new.atEnd
+            if new.width != old.width { settle(width: new.width) }
+            // The transcript's own height changing (tab bar hiding, keyboard,
+            // banner) moves where the end is. Defer off this layout commit so
+            // mutating ScrollPosition cannot re-enter the same AttributeGraph pass.
+            if following, new.height != old.height, !chatFloats { scheduleScrollToEnd() }
             // Older rows arrived above what the reader was looking at: keep that where it was.
-            if let p = prepending, h > p.height {
-                position.scrollTo(y: p.offset + (h - p.height))
-                prepending = nil
+            if let p = metrics.prepending, new.contentHeight > p.height {
+                let targetY = p.offset + (new.contentHeight - p.height)
+                metrics.prepending = nil
+                Task { @MainActor in position.scrollTo(y: targetY) }
             }
-        }
-        .onScrollGeometryChange(for: Bool.self) { geo in
-            geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 40
-        } action: { _, isAtEnd in
-            // Folded away while typing over the page, the list reads as "not at
-            // the end" and would stop following new messages once it's back.
-            guard !chatFloats else { return }
-            if atBottom != isAtEnd {
-                // Leaving the end: what is on screen now stays on screen (windowFloor).
-                if !isAtEnd { windowFloor = window.firstItemId }
-                atBottom = isAtEnd
+            if new.offsetY < 240 { loadEarlierIfAtTop() }
+            // While `following` is true, `atEnd` flickers false for a frame whenever
+            // arriving rows grow contentSize before the offset catches up. Updating
+            // @State `atBottom` only while NOT following avoids redrawing the whole
+            // chat on every arriving batch, while still hiding the scroll-to-latest
+            // button as soon as the reader scrolls back to the bottom.
+            if !following, !chatFloats, atBottom != new.atEnd {
+                atBottom = new.atEnd
             }
         }
         .background(Theme.content)
@@ -605,7 +567,12 @@ struct ChatView: View {
             // batch lands and while a reply grows, and the button then sat over
             // the end of the last option and took the tap meant for it.
             if !atBottom && !following {
-                Button { following = true; scrollToEnd() } label: {
+                Button {
+                    windowFloor = nil
+                    atBottom = true
+                    following = true
+                    scrollToEnd()
+                } label: {
                     Image(systemName: "arrow.down").superFont(13, weight: .semibold)
                         .frame(width: well, height: well)
                         .background(Theme.card, in: Circle())
@@ -620,83 +587,70 @@ struct ChatView: View {
         }
         // Your own message always brings you back to the end, wherever you
         // were reading.
-        .onChange(of: transcript.outbox.count) { _, _ in following = true; scrollToEnd() }
+        .onChange(of: transcript.outbox.count) { _, _ in
+            windowFloor = nil
+            atBottom = true
+            following = true
+            scrollToEnd()
+        }
         // Only the reader's own scrolling decides whether we keep following:
         // a scroll phase is a gesture, where `atBottom` is just geometry and
-        // says false whenever a batch of rows outruns the anchor. That is
-        // the theory — but `.idle` also follows `.animating`, which is what
-        // OUR OWN scrollTo calls go through (rebuild's catch-up, the
-        // jump-to-bottom button, a streaming reply). A history batch that
-        // finished laying out a beat after one of those settled read as
-        // "you scrolled away" and latched `following` off before the reader
-        // had touched the screen — a cold open silently stopped following
-        // the very messages it just loaded. Requiring the phase to have
-        // passed through an actual touch first is what makes this true to
-        // the comment above: dragging or its momentum, not our own settle.
+        // says false whenever a batch of rows outruns the anchor. Requiring
+        // the phase to have passed through an actual touch first keeps a cold
+        // open following the messages it just loaded.
         .onScrollPhaseChange { oldPhase, newPhase in
-            fingerScrolling = newPhase == .interacting || newPhase == .decelerating
+            scrollMetrics.fingerScrolling = newPhase == .interacting || newPhase == .decelerating
             guard newPhase == .idle, oldPhase == .interacting || oldPhase == .decelerating else {
                 return
             }
-            following = atBottom
+            let end = scrollMetrics.atBottom
+            let next = ScrollFollowPolicy.onFingerRest(
+                atEnd: end, currentFloor: windowFloor, firstVisibleId: window.firstItemId
+            )
+            if windowFloor != next.floor { windowFloor = next.floor }
+            if atBottom != end { atBottom = end }
+            if following != next.following { following = next.following }
         }
     }
 
     @ToolbarContentBuilder
     private var chatToolbar: some ToolbarContent {
-            ToolbarItem(placement: .principal) {
-                // The title is how you rename it: tap, type, Save. It reads the
-                // live list, so a rename from here or the Mac shows at once.
-                let title = connection.chats.first { $0.id == chat.id }?.title ?? chat.title
-                Button {
-                    newTitle = title ?? ""
-                    renaming = true
-                } label: {
-                    HStack(spacing: 8) {
-                        // The project's own icon, so which app this is is not only a word.
-                        ProjectGlyph(connection: connection, workspace: workspace)
-                            .foregroundStyle(Theme.textSecondary)
-                        VStack(spacing: 1) {
-                            Text(title ?? "Conversation").superFont(15, weight: .semibold).lineLimit(1)
-                                .foregroundStyle(Theme.textPrimary)
-                            Text(workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name)
-                                .superFont(11).foregroundStyle(Theme.textSecondary)
-                        }
-                    }
-                }
-                .buttonStyle(.hoverPlain)
-                .accessibilityIdentifier("chat-title")
-                .accessibilityLabel("\(title ?? "Conversation"), rename")
+        ToolbarItem(placement: .principal) {
+            // Equatable subview so routine ChatView.body updates (scrolling,
+            // arriving events, tasks) do not rebuild the UINavigationBar title
+            // view and trigger UINavigationBar layout passes.
+            let title = connection.chats.first { $0.id == chat.id }?.title ?? chat.title ?? "Conversation"
+            let subtitle = workspace.isBrowser ? (workspace.host ?? workspace.name) : workspace.name
+            ChatTitleButton(
+                connection: connection,
+                workspace: workspace,
+                title: title,
+                subtitle: subtitle
+            ) {
+                newTitle = title
+                renaming = true
             }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                // Pin from inside the conversation, not only by holding its row.
-                let pinned = connection.chats.first { $0.id == chat.id }?.isPinned ?? false
-                Button {
-                    Task {
-                        do { try await connection.pinChat(chatId: chat.id, pinned: !pinned); Haptics.tap() }
-                        catch { self.error = error.localizedDescription }
-                    }
-                } label: {
-                    Image(systemName: pinned ? "pin.fill" : "pin")
+            .equatable()
+        }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            // Pin from inside the conversation, not only by holding its row.
+            let pinned = connection.chats.first { $0.id == chat.id }?.isPinned ?? false
+            Button {
+                Task {
+                    do { try await connection.pinChat(chatId: chat.id, pinned: !pinned); Haptics.tap() }
+                    catch { self.error = error.localizedDescription }
                 }
-                .accessibilityLabel(pinned ? "Unpin" : "Pin")
-                .accessibilityIdentifier("pin-chat")
-                if !tasks.isEmpty {
-                    Button { showTasks = true } label: {
-                        Image(systemName: "checklist")
-                            .overlay(alignment: .topTrailing) {
-                                let open = tasks.filter { !$0.isDone }.count
-                                if open > 0 {
-                                    Text("\(open)").superFont(9, weight: .bold).foregroundStyle(Theme.accentFg)
-                                        .padding(.horizontal, 4).padding(.vertical, 1)
-                                        .background(Theme.accent, in: Capsule()).offset(x: 8, y: -6)
-                                }
-                            }
-                    }
-                    .accessibilityLabel("Tasks")
-                }
-                moreMenu
+            } label: {
+                Image(systemName: pinned ? "pin.fill" : "pin")
             }
+            .accessibilityLabel(pinned ? "Unpin" : "Pin")
+            .accessibilityIdentifier("pin-chat")
+            if !tasks.isEmpty {
+                ChatTasksButton(openCount: tasks.filter { !$0.isDone }.count) { showTasks = true }
+                    .equatable()
+            }
+            moreMenu
+        }
     }
 
     /// Files, Todo, the page, the branch and New chat, in one ⋯ instead of a
@@ -856,7 +810,7 @@ struct ChatView: View {
             // A reply streams in without adding an event, so it grows the tail
             // without going through rebuild(). Follow it too — from inside the
             // bubble, so a word redraws the bubble and not this whole view.
-            StreamingReply(stream: live) { if following { scrollToEnd(animated: false) } }
+            StreamingReply(stream: live) { if following { scheduleScrollToEnd() } }
                 .id("streaming")
         } else if isWorking {
             WorkingRow(since: lastUserAt).id("working")
@@ -917,14 +871,12 @@ struct ChatView: View {
         HangGuard.shared.note("shownStepGroups", "\(groups)")
         HangGuard.shared.note("biggestStepGroup", "\(biggest)")
         HangGuard.shared.note("following", "\(following)")
-        HangGuard.shared.note("atBottom", "\(atBottom)")
+        HangGuard.shared.note("atBottom", "\(scrollMetrics.atBottom)")
         // The transcript arrives after this view does and lands in batches, and
         // the rows are wildly uneven — a collapsed step group is one line, the
-        // reply under it is forty. A bottom anchor on its own settles against
-        // whichever content size happened to be measured mid-arrival, which is
-        // how opening a conversation drops you into the middle of it. Say where
-        // to go on every batch instead of hoping the anchor knows.
-        if following { scrollToEnd(animated: false) }
+        // reply under it is forty. Say where to go on every batch, coalesced
+        // off the current layout commit.
+        if following { scheduleScrollToEnd() }
     }
 
     /// The conversation itself: what is attached but put away, the connection
@@ -964,6 +916,7 @@ struct ChatView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
+                .animation(.easeInOut(duration: 0.2), value: connection.state == .connected)
             if let loop = liveLoop, !chatFloats, !squeezed { loopBar(loop) }
             if !backgroundTasks.isEmpty, !chatFloats, !squeezed { backgroundStrip }
             Divider().overlay(Theme.border)
@@ -974,6 +927,7 @@ struct ChatView: View {
                 // stays, an empty strip under the pills.
                 .padding(.bottom, regular ? 6 : 0)
         }
+        .animation(.easeOut(duration: 0.15), value: squeezed)
         .ignoresSafeArea(.container, edges: regular ? .bottom : [])
         // See hardwareKeyboardAttached: with one connected, ignoring the
         // keyboard's safe area stops SwiftUI reserving room for a software
@@ -1260,33 +1214,6 @@ struct ChatView: View {
             )
     }
 
-    /// This one resizes live. Unlike the side-by-side drag, a height change
-    /// never re-wraps the transcript's text — a scroll view lays its content
-    /// out by width — so following the finger costs almost nothing, and the
-    /// mirror above is an image, which scales for free.
-    private var dockDivider: some View {
-        Rectangle().fill(Theme.border).frame(height: 1)
-            .overlay { Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 36, height: 4) }
-            .frame(height: 18).contentShape(Rectangle())
-            .background(Theme.panel)
-            .gesture(
-                DragGesture()
-                    .onChanged { v in
-                        if dragStart == nil {
-                            dragStart = pageFraction
-                            pageResized = true
-                        }
-                        let start = dragStart ?? pageFraction
-                        var tx = Transaction()
-                        tx.disablesAnimations = true
-                        withTransaction(tx) {
-                            pageFraction = min(0.72, max(0.2, start + v.translation.height / max(1, containerHeight)))
-                        }
-                    }
-                    .onEnded { _ in dragStart = nil }
-            )
-    }
-
     /// Read up to whatever has landed. The chat this view was handed is a
     /// snapshot from the list; the live row carries the newer timestamp.
     private func markRead() {
@@ -1531,18 +1458,6 @@ struct ChatView: View {
         max(320, min(containerWidth * pageFraction, containerWidth - 380))
     }
 
-    private var pageHeight: CGFloat {
-        let wanted = containerHeight * pageFraction
-        // How much conversation to keep visible under the page. It was a flat
-        // 300pt, which on a tall phone left the page a 130pt letterbox — the
-        // whole point of a mirror is to see the thing. A share of the screen
-        // instead: about a third, never less than 200pt, so a small phone still
-        // has a conversation and a big one has a page worth looking at.
-        let floor: CGFloat = pageResized ? 140 : max(200, containerHeight * 0.32)
-        let allowed = max(160, containerHeight - chromeHeight - floor)
-        return max(160, min(wanted, allowed))
-    }
-
     /// Putting a mirror away is a decision about this conversation, not about
     /// this visit to it — and an expensive one to forget: a mirror you did not
     /// want back is a picture a second crossing the relay. Kept per chat, so
@@ -1641,13 +1556,26 @@ struct ChatView: View {
     /// Scrolled up to the top by the reader (not by us): show the next batch of earlier
     /// messages, as the "Show earlier" button does, and keep what they were reading in place.
     private func loadEarlierIfAtTop() {
-        guard fingerScrolling, prepending == nil, window.hidden > 0, contentHeight > 0 else { return }
-        prepending = (scrollTop, contentHeight)
+        let metrics = scrollMetrics
+        guard metrics.fingerScrolling, metrics.prepending == nil, window.hidden > 0, metrics.contentHeight > 0 else { return }
+        metrics.prepending = (metrics.top, metrics.contentHeight)
         extraTurns += Self.moreTurns
         // If nothing grew (the batch was all text we already held), do not wait for it forever.
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1))
-            prepending = nil
+            metrics.prepending = nil
+        }
+    }
+
+    /// Coalesced scroll-to-end off the current layout commit so geometry callbacks
+    /// never mutate `ScrollPosition` synchronously inside `CA::Transaction::commit`.
+    private func scheduleScrollToEnd() {
+        let metrics = scrollMetrics
+        guard !metrics.scrollEndPending else { return }
+        metrics.scrollEndPending = true
+        Task { @MainActor in
+            metrics.scrollEndPending = false
+            if following, !chatFloats { scrollToEnd(animated: false) }
         }
     }
 
@@ -1749,6 +1677,101 @@ private final class RebuildGate: @unchecked Sendable {
     var pending = false
     /// Bumped by every rebuild; a result that is not the newest is dropped.
     var generation = 0
+}
+
+/// Snapshot of scroll geometry reported by the single `.onScrollGeometryChange`
+/// on the transcript. Rounded so subpixel layout jitter never fires callbacks.
+private struct ScrollSnapshot: Equatable {
+    var width: CGFloat
+    var height: CGFloat
+    var offsetY: CGFloat
+    var contentHeight: CGFloat
+    var atEnd: Bool
+}
+
+/// Non-observed reference storage for scroll values read only by actions, never
+/// by `ChatView.body`. Avoids re-rendering the view and its navigation toolbar
+/// on every point of scroll or content-height change.
+private final class ScrollMetrics: @unchecked Sendable {
+    var top: CGFloat = 0
+    var contentHeight: CGFloat = 0
+    var fingerScrolling = false
+    var atBottom = true
+    var prepending: (offset: CGFloat, height: CGFloat)?
+    var scrollEndPending = false
+}
+
+/// Pure decision rule for locking/clearing the transcript's `windowFloor` when
+/// the reader finishes a scroll gesture. Keeping `floor` keyed on `following`
+/// rather than `atBottom` prevents arriving batches from oscillating the window.
+enum ScrollFollowPolicy {
+    struct State: Equatable {
+        var following: Bool
+        var floor: String?
+    }
+
+    static func onFingerRest(atEnd: Bool, currentFloor: String?, firstVisibleId: String?) -> State {
+        if atEnd {
+            return State(following: true, floor: nil)
+        }
+        return State(following: false, floor: currentFloor ?? firstVisibleId)
+    }
+}
+
+/// Isolated equatable title view for `ChatView.chatToolbar` so routine transcript
+/// updates do not re-evaluate `ProjectGlyph` and rebuild `UINavigationBar`'s titleView.
+private struct ChatTitleButton: View, Equatable {
+    let connection: Connection
+    let workspace: WireWorkspace
+    let title: String
+    let subtitle: String
+    let onTap: () -> Void
+
+    nonisolated static func == (lhs: ChatTitleButton, rhs: ChatTitleButton) -> Bool {
+        lhs.title == rhs.title && lhs.subtitle == rhs.subtitle && lhs.workspace.id == rhs.workspace.id
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                ProjectGlyph(connection: connection, workspace: workspace)
+                    .foregroundStyle(Theme.textSecondary)
+                VStack(spacing: 1) {
+                    Text(title).superFont(15, weight: .semibold).lineLimit(1)
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(subtitle)
+                        .superFont(11).foregroundStyle(Theme.textSecondary)
+                }
+            }
+        }
+        .buttonStyle(.hoverPlain)
+        .accessibilityIdentifier("chat-title")
+        .accessibilityLabel("\(title), rename")
+    }
+}
+
+/// Isolated equatable tasks button for `ChatView.chatToolbar`.
+private struct ChatTasksButton: View, Equatable {
+    let openCount: Int
+    let onTap: () -> Void
+
+    nonisolated static func == (lhs: ChatTasksButton, rhs: ChatTasksButton) -> Bool {
+        lhs.openCount == rhs.openCount
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            Image(systemName: "checklist")
+                .overlay(alignment: .topTrailing) {
+                    if openCount > 0 {
+                        Text("\(openCount)").superFont(9, weight: .bold).foregroundStyle(Theme.accentFg)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Theme.accent, in: Capsule()).offset(x: 8, y: -6)
+                    }
+                }
+        }
+        .accessibilityLabel("Tasks")
+    }
 }
 
 /// Everything ChatView derives from the events, computed off the main thread.

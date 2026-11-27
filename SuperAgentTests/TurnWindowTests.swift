@@ -84,4 +84,20 @@ struct TurnWindowTests {
         let b = TurnWindow.visible(turns, maxTurns: 50, budget: 16_000, leastItems: 8)
         #expect(b.hidden < a.hidden)
     }
+
+    @Test func scrollFollowLocksFloorOnlyWhenReaderStopsAwayFromEnd() {
+        let leftEnd = ScrollFollowPolicy.onFingerRest(atEnd: false, currentFloor: nil, firstVisibleId: "row-10")
+        #expect(leftEnd.following == false)
+        #expect(leftEnd.floor == "row-10")
+
+        // Scrolling further while already away keeps the original floor.
+        let stayedAway = ScrollFollowPolicy.onFingerRest(atEnd: false, currentFloor: "row-10", firstVisibleId: "row-12")
+        #expect(stayedAway.following == false)
+        #expect(stayedAway.floor == "row-10")
+
+        // Scrolling back to the end clears the floor and resumes following.
+        let backAtEnd = ScrollFollowPolicy.onFingerRest(atEnd: true, currentFloor: "row-10", firstVisibleId: "row-12")
+        #expect(backAtEnd.following == true)
+        #expect(backAtEnd.floor == nil)
+    }
 }
