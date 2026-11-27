@@ -15,6 +15,8 @@ struct Transcript: Sendable {
     /// to arrive is where this copy starts, whatever its number. Off again as
     /// soon as one lands, so a real gap is still a gap.
     var startsAnywhere = false
+    /// How many events are held once trimmed (see apply).
+    static let keep = 800
     /// The live context after the last finished turn, and the model the session
     /// actually resolved to — what the meter under the composer draws.
     var contextTokens: Int?
@@ -65,6 +67,9 @@ struct Transcript: Sendable {
         startsAnywhere = false
         events.append(e)
         lastSeq = e.seq
+        // The phone shows and caches the last few hundred events; holding thousands more only made
+        // every catch-up and every screen rebuild bigger (a chat of 8 800 events was kept whole).
+        if events.count > Self.keep + 200 { events.removeFirst(events.count - Self.keep) }
         switch e.data {
         case let .turnEnd(_, _, _, _, ctx):
             if let ctx { contextTokens = ctx }
@@ -252,6 +257,9 @@ final class Connection {
     /// live in one observed dictionary, each of those tokens redrew whichever
     /// chat was on screen, however unrelated.
     @ObservationIgnored private var watching: Set<String> = []
+    /// Chats a gap has already asked the Mac to replay: one ask per gap, not one per event that
+    /// arrives out of order (a burst of them sent a burst of subscribes, each restarting the replay).
+    @ObservationIgnored private var resubscribing: Set<String> = []
     /// How many views are showing each watched chat. The same conversation can
     /// be on screen twice for a moment: a notification about the chat you are
     /// in pushes a fresh copy of it, and the copy it replaces only reports
@@ -319,8 +327,10 @@ final class Connection {
                 || (transcripts[e.chatId]!.startsAnywhere && transcripts[e.chatId]!.events.isEmpty && lastSeq == 0)
         }()
         Connection.trail?("event \(e.data.kind) seq \(e.seq)")
-        if !transcripts[e.chatId]!.apply(e), watching.contains(e.chatId) {
-            // Gap: ask again from what we have.
+        if transcripts[e.chatId]!.apply(e) {
+            resubscribing.remove(e.chatId)
+        } else if watching.contains(e.chatId), resubscribing.insert(e.chatId).inserted {
+            // Gap: ask again from what we have, once.
             resubscribe(e.chatId)
         }
         // The finished message replaces what was typing it out.
@@ -425,6 +435,7 @@ final class Connection {
         sealer = Sealer(key: keys.p2m, aad: aad(machineId: machine.id, direction: .p2m))
         opener = Opener(key: keys.m2p, aad: aad(machineId: machine.id, direction: .m2p))
         for k in transcripts.keys { transcripts[k]?.subscribed = false }
+        resubscribing.removeAll()
         // One socket at a time, and only its events count.
         closeTransport()
         let gen = generation
@@ -645,6 +656,9 @@ final class Connection {
             // the conversation that is gone.
             pendingEvents.removeAll { $0.chatId == chatId }
             resetTranscript(chatId)
+            // What follows may start anywhere in the conversation: the Mac sends only the end of
+            // a long one when this phone was far behind, not everything from the first event.
+            transcripts[chatId]?.startsAnywhere = true
         case let .draft(chatId, text):
             remoteDrafts[chatId] = RemoteDraft(text: text, n: (remoteDrafts[chatId]?.n ?? 0) + 1)
         case let .delta(chatId, text):
