@@ -393,12 +393,11 @@ struct WireChat: Codable, Hashable, Sendable, Identifiable {
     var isCodex: Bool { provider == "codex" }
     var isClosedSession: Bool { conductor == "session" && closed == true }
     var isConductorMain: Bool { conductor == "main" }
-    /// The title as a row shows it: a session leads with its number ("#101 Fix the header").
+    /// The title as a row shows it. A session carries its tracker key in the title when it has one
+    /// ("WD-284 Fix the header"); the Conductor's own numbering is internal and not shown.
     var displayTitle: String {
-        let base = title ?? "New chat"
         if isConductorMain { return title ?? "Conductor" }
-        guard conductor == "session", let ticket else { return base }
-        return "#\(ticket) \(base)"
+        return title ?? "New chat"
     }
     var isPinned: Bool { pinned == true }
     /// The conversation in the project folder — what the project row opens.

@@ -93,8 +93,14 @@ struct ConductorSessionsView: View {
             ForEach(live) { s in
                 SessionDot(session: s, selected: s.chatId == current?.chatId)
                     .onTapGesture { Haptics.tap(); withAnimation(.snappy(duration: 0.2)) { selected = s.chatId } }
-                    .accessibilityIdentifier("conductor-dot-\(s.ticket ?? 0)")
+                    .accessibilityIdentifier("conductor-dot-\(s.chatId)")
+                    // Main spawned it: the dot pops in from nothing.
+                    .transition(.scale(scale: 0.2).combined(with: .opacity))
             }
+        }
+        .animation(.spring(response: 0.45, dampingFraction: 0.62), value: live.map(\.chatId))
+        .onChange(of: live.map(\.chatId)) { old, new in
+            if !old.isEmpty, new.count > old.count { Haptics.tap() }
         }
         .padding(.top, 6)
         .padding(.bottom, 14)
@@ -104,10 +110,10 @@ struct ConductorSessionsView: View {
         let look = SessionLook(s)
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if let t = s.ticket {
-                    Text("#\(t)").superFont(13, weight: .semibold).monospacedDigit().foregroundStyle(look.tint)
+                if let k = s.trackerKey {
+                    Text(k).superFont(13, weight: .semibold).monospacedDigit().foregroundStyle(look.tint)
                 }
-                Text(s.title.isEmpty ? "Untitled" : s.title)
+                Text(s.titleWithoutKey.isEmpty ? "Untitled" : s.titleWithoutKey)
                     .superFont(17, weight: .semibold).foregroundStyle(Theme.textPrimary).lineLimit(2)
                 Spacer(minLength: 4)
                 Text(look.word).superFont(12, weight: .semibold).foregroundStyle(look.tint)
@@ -248,7 +254,7 @@ private struct SessionDot: View {
                     .rotationEffect(.degrees(spin ? 360 : 0))
                     .animation(.linear(duration: 1.1).repeatForever(autoreverses: false), value: spin)
             }
-            Text(session.ticket.map(String.init) ?? "·")
+            Text(session.trackerKey?.split(separator: "-").last.map(String.init) ?? "")
                 .superFont(15, weight: .semibold).monospacedDigit()
                 .foregroundStyle(selected ? Theme.textPrimary : look.tint)
         }
@@ -257,7 +263,7 @@ private struct SessionDot: View {
         .animation(session.status == "needs-you" ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default, value: breathe)
         .onAppear { spin = true; breathe = true }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(session.ticket.map { "Session \($0)" } ?? "Session"), \(session.title), \(look.word)")
+        .accessibilityLabel("\(session.title), \(look.word)")
         .accessibilityAddTraits(.isButton)
     }
 }

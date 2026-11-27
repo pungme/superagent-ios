@@ -9,8 +9,17 @@ final class ConductorChatTests: XCTestCase {
 
     func testASessionLeadsWithItsNumber() throws {
         let c = try decode("\"title\":\"Fix the header\",\"conductor\":\"session\",\"ticket\":101")
-        XCTAssertEqual(c.displayTitle, "#101 Fix the header")
+        XCTAssertEqual(c.displayTitle, "Fix the header")
         XCTAssertFalse(c.isClosedSession)
+    }
+
+    func testTrackerKeyComesFromTheTitle() {
+        let s = WireConductorSession(chatId: "a", title: "WD-284 Fix header wrap", ticket: 101, summary: "", status: "idle", updatedAt: 0)
+        XCTAssertEqual(s.trackerKey, "WD-284")
+        XCTAssertEqual(s.titleWithoutKey, "Fix header wrap")
+        let n = WireConductorSession(chatId: "b", title: "Pricing page", ticket: 102, summary: "", status: "idle", updatedAt: 0)
+        XCTAssertNil(n.trackerKey)
+        XCTAssertEqual(n.titleWithoutKey, "Pricing page")
     }
 
     func testAClosedSessionIsHidden() throws {
