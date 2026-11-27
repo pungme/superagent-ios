@@ -699,7 +699,7 @@ struct SidebarView: View {
                 HStack(spacing: 7) {
                     if chat?.live == true { ProgressView().controlSize(.mini) }
                     if let chat {
-                        Text(chat.title ?? "New chat").lineLimit(1)
+                        Text(chat.displayTitle).lineLimit(1)
                     } else {
                         Text("⎇ " + wt.label).lineLimit(1).foregroundStyle(Theme.textSecondary)
                     }
@@ -818,7 +818,7 @@ struct SidebarView: View {
                     .padding(.top, compact ? 0 : 1)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(chat.title ?? "New chat")
+                        Text(chat.displayTitle)
                             .superFont(14.5, weight: .medium)
                             .foregroundStyle(Theme.textPrimary).lineLimit(1)
                         if chat.isPinned { Image(systemName: "pin.fill").superFont(9).foregroundStyle(Theme.textTertiary) }
@@ -908,7 +908,7 @@ struct SidebarView: View {
             Button { open(chat) } label: {
                 HStack(spacing: 7) {
                     if chat.live { ProgressView().controlSize(.mini) }
-                    Text(chat.title ?? "New chat")
+                    Text(chat.displayTitle)
                         .fontWeight(chat.id == openId ? .semibold : .regular)
                         .lineLimit(1)
                     if chat.isPinned { Image(systemName: "pin.fill").superFont(9).foregroundStyle(Theme.textTertiary) }

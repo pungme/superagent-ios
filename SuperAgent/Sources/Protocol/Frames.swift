@@ -384,7 +384,22 @@ struct WireChat: Codable, Hashable, Sendable, Identifiable {
     /// The /loop repeating a prompt in this conversation. nil when none is
     /// running, and from a Mac too old to say.
     var loop: WireLoop?
+    /// Conductor: "main" for a project's Main chat, "session" for one of its numbered
+    /// worker sessions. nil for an ordinary chat, and from a Mac too old to say.
+    var conductor: String? = nil
+    var ticket: Int? = nil
+    /// A session the Conductor closed; the Mac's sidebar hides it, so does the phone.
+    var closed: Bool? = nil
     var isCodex: Bool { provider == "codex" }
+    var isClosedSession: Bool { conductor == "session" && closed == true }
+    var isConductorMain: Bool { conductor == "main" }
+    /// The title as a row shows it: a session leads with its number ("#101 Fix the header").
+    var displayTitle: String {
+        let base = title ?? "New chat"
+        if isConductorMain { return title ?? "Conductor" }
+        guard conductor == "session", let ticket else { return base }
+        return "#\(ticket) \(base)"
+    }
     var isPinned: Bool { pinned == true }
     /// The conversation in the project folder — what the project row opens.
     /// The same test the Mac's sidebar makes: in the folder, and staying there.

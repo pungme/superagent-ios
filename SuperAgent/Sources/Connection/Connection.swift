@@ -611,8 +611,8 @@ final class Connection {
             info = machineInfo
             self.tree = tree
             clearChangedAgentMetadata(chats)
-            self.chats = chats
-            unread.note(chats)
+            self.chats = chats.filter { !$0.isClosedSession }
+            unread.note(self.chats)
             OfflineCache.save(machine.id, "machine", machineInfo)
             OfflineCache.save(machine.id, "tree", tree)
             OfflineCache.save(machine.id, "chats", chats)
@@ -698,8 +698,8 @@ final class Connection {
             openFileRequest = OpenFileRequest(workspaceId: workspaceId, path: path, chatId: chatId)
         case .chats(let list):
             clearChangedAgentMetadata(list)
-            chats = list
-            unread.note(list)
+            chats = list.filter { !$0.isClosedSession }
+            unread.note(chats)
             OfflineCache.save(machine.id, "chats", list)
             writeShareSnapshot()
             onChatsChanged?()
