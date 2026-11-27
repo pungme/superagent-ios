@@ -1868,6 +1868,15 @@ extension Connection {
                                           data: .turnEnd(ok: true, subtype: "success", costUsd: nil, tokens: 1000, contextTokens: 5000)))
             }
         }
+        // `-transcriptFile <path>`: wire events as the Mac sends them (a JSON array), in place of
+        // the made-up ones: a real conversation that froze, replayed on the simulator.
+        if let i = ProcessInfo.processInfo.arguments.firstIndex(of: "-transcriptFile"),
+           i + 1 < ProcessInfo.processInfo.arguments.count,
+           let data = try? Data(contentsOf: URL(fileURLWithPath: ProcessInfo.processInfo.arguments[i + 1])),
+           let events = try? JSONDecoder().decode([WireEvent].self, from: data) {
+            t.events = events
+            seq = events.last?.seq ?? seq
+        }
         t.lastSeq = seq
         // Claude's line-up as the Mac sends it: the current versions, then the
         // older ones the CLI still offers, marked for the picker to fold away.
