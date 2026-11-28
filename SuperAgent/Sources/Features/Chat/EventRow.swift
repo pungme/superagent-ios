@@ -341,6 +341,21 @@ struct EventRow: View {
     @ViewBuilder
     private var content: some View {
         switch event.data {
+        case let .tool(_, name, detail, _, _):
+            if let r = ConductorReceipt.of(name) {
+                HStack(spacing: 8) {
+                    Text(r.mark).superFont(13, weight: .bold).foregroundStyle(r.green ? Theme.working : Theme.textSecondary)
+                    Text(r.word).superFont(13, weight: .semibold).foregroundStyle(r.green ? Theme.working : Theme.textPrimary)
+                    if !detail.isEmpty {
+                        Text(detail).superFont(13).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.border))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("conductor-receipt")
+            }
         case let .user(messageId, text, images, from, replyTo):
             HStack {
                 Spacer(minLength: 48)

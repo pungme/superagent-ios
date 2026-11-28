@@ -53,3 +53,23 @@ final class ConductorStateDecodeTests: XCTestCase {
         XCTAssertNil(s.sessions[1].branch)
     }
 }
+
+final class ConductorReceiptTests: XCTestCase {
+    func testMainsRoutingStandsAsAReceiptNotAStep() {
+        let ev: (Int, WireEventData) -> WireEvent = { WireEvent(chatId: "c", seq: $0, ts: Double($0), data: $1) }
+        let turns = TurnBuilder.build([
+            ev(1, .user(id: "u1", text: "Fix the header", images: [], from: .ios, replyTo: nil)),
+            ev(2, .tool(id: "t1", name: "Read", detail: "a.ts", task: nil)),
+            ev(3, .tool(id: "t2", name: "mcp__cove-browser__conductor_spawn_session", detail: "Fix the header", task: nil)),
+        ])
+        XCTAssertEqual(turns.count, 1)
+        // The Read folds into steps; the spawn is a row of its own.
+        let receipts = turns[0].items.filter {
+            if case let .event(e) = $0, case let .tool(_, name, _, _, _) = e.data { return ConductorReceipt.of(name) != nil }
+            return false
+        }
+        XCTAssertEqual(receipts.count, 1)
+        XCTAssertEqual(ConductorReceipt.of("mcp__cove-browser__conductor_spawn_session")?.word, "New session")
+        XCTAssertNil(ConductorReceipt.of("mcp__cove-browser__browser_navigate"))
+    }
+}

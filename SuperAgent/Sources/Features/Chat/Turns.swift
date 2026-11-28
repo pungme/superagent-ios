@@ -140,6 +140,11 @@ enum TurnBuilder {
                     if group == nil { group = StepGroup(id: "g-\(e.id)", events: []) }
                     group!.events.append(e)
                 }
+            // Main's routing (a session started, a message sent to one) is what its turn did, so
+            // it stands as a receipt of its own instead of folding into "3 steps".
+            case let .tool(_, name, _, _, _) where ConductorReceipt.of(name) != nil:
+                closeGroup()
+                current.items.append(.event(e))
             case .tool, .diff, .thinking:
                 if group == nil { group = StepGroup(id: "g-\(e.id)", events: []) }
                 group!.events.append(e)
@@ -249,5 +254,22 @@ enum TurnWindow {
         }
         let hidden = turns[..<start.turn].reduce(0) { $0 + $1.items.count } + start.item
         return Result(turns: out, hidden: hidden, firstItemId: out.first?.items.first?.id)
+    }
+}
+
+
+/// The Conductor's routing calls, said the way the Mac says them ("✦ New session").
+enum ConductorReceipt {
+    struct Look { let mark: String; let word: String; let green: Bool }
+    static func of(_ tool: String) -> Look? {
+        guard tool.hasPrefix("mcp__"), let r = tool.range(of: "__conductor_") else { return nil }
+        switch String(tool[r.upperBound...]) {
+        case "spawn_session": return Look(mark: "✦", word: "New session", green: true)
+        case "send_to_session": return Look(mark: "↳", word: "Sent to a session", green: false)
+        case "merge_session": return Look(mark: "⇡", word: "Merged", green: false)
+        case "close_session": return Look(mark: "✕", word: "Closed a session", green: false)
+        case "adopt_session": return Look(mark: "↪", word: "Connected a chat", green: false)
+        default: return nil
+        }
     }
 }
